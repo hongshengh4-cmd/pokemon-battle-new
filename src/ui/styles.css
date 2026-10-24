@@ -1088,3 +1088,52 @@ html.embed .command-panel{min-height:0;overflow:auto;overscroll-behavior:contain
  html.embed .fighter.enemy{grid-template-columns:minmax(0,48%) minmax(0,1fr) minmax(0,28%)}
  html.embed .fighter.player .sprite{--perspective-size:clamp(100px,32vw,138px)}
 }
+
+/* Mobile fix: explicit, non-shrinking command rows fit the short landscape viewport. */
+html.embed .battle-deck,html.embed .action-card{min-height:0;min-width:0}
+html.embed .action-card{display:flex;flex-direction:column;overflow:hidden}
+html.embed .command-heading,html.embed .command-status{flex-shrink:0}
+html.embed .command-panel{min-height:0;flex:1 1 0;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch}
+@media(orientation:landscape) and (max-height:560px){
+ html.embed .battle-screen{--deck-h:clamp(158px,46dvh,206px)}
+ html.embed .battle-deck{grid-template-columns:minmax(116px,23%) minmax(0,1fr);gap:6px;padding:4px 7px}
+ html.embed .action-card{padding:4px 6px;gap:3px}
+ html.embed .command-heading{min-height:20px}
+ html.embed .command-heading h3{font-size:12px}
+ html.embed .command-status{min-height:12px;font-size:9px;line-height:1.25}
+ html.embed .fight-panel{grid-template-rows:minmax(0,1fr)}
+ html.embed .fight-panel .moves{height:100%;min-height:84px;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(40px,1fr));gap:4px}
+ html.embed .fight-panel .move-btn{min-height:40px!important;padding:4px 7px 4px 10px;font-size:12px;line-height:1.2;overflow:visible;box-shadow:1px 1px 0 #ccd1db}
+ html.embed .fight-panel .move-btn small{font-size:9px;line-height:1.25;max-width:66%;white-space:normal;overflow-wrap:anywhere}
+ html.embed .command-panel #switches{grid-auto-rows:minmax(40px,1fr)}
+ html.embed .switch-btn,html.embed .ball-choice{min-height:40px!important}
+ html.embed .command-home{min-height:76px}
+ html.embed .command-choice{min-height:66px}
+ html.embed .command-choice strong{font-size:14px}
+ html.embed .command-choice small{font-size:9px}
+}
+@media(orientation:landscape) and (max-height:560px){
+ html.embed .battle-screen{--deck-h:clamp(170px,46dvh,206px)}
+ html.embed .command-heading{flex-wrap:nowrap;row-gap:0}
+ html.embed .command-heading-text{flex:1 1 0;display:flex;min-width:0}
+ html.embed .command-heading h3{margin-top:0;white-space:nowrap}
+ html.embed .command-status{white-space:nowrap;line-height:1.25}
+}
+/* Preview 2: allocate the command area's actual height, not intrinsic button heights. */
+html.embed{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+html.embed .action-card{display:grid!important;grid-template-rows:32px minmax(0,1fr)!important;gap:4px!important;padding:6px!important;overflow:hidden}
+html.embed .command-heading{height:32px;min-height:0!important;flex-wrap:nowrap!important;overflow:hidden}
+html.embed .command-heading-text{display:flex!important;flex:1 1 0!important;flex-wrap:nowrap;gap:5px;overflow:hidden}
+html.embed .command-heading h3{font-size:12px!important;line-height:16px!important;margin:0!important;white-space:nowrap!important}
+html.embed .encounter-tag{font-size:9px!important;max-width:58%;overflow:hidden;text-overflow:ellipsis}
+html.embed .command-status{display:none!important}
+html.embed .command-panel{height:100%;min-height:0!important;overflow:hidden!important;padding:0!important;box-sizing:border-box}
+html.embed .command-panel:not(.fight-panel){overflow-y:auto!important}
+html.embed .fight-panel .moves{height:100%!important;min-height:0!important;grid-template-rows:repeat(2,minmax(0,1fr))!important;gap:5px!important}
+html.embed .fight-panel .move-cell{height:100%;min-height:0!important;overflow:hidden}
+html.embed .fight-panel .move-cell>.move-btn{display:flex!important;flex-direction:column!important;align-items:flex-start!important;justify-content:center!important;gap:3px!important;height:100%!important;min-height:0!important;padding:5px 28px 5px 10px!important;font-size:13px!important;line-height:16px!important;overflow:hidden;box-sizing:border-box}
+html.embed .fight-panel .move-btn small{display:block!important;max-width:100%!important;font-size:9px!important;line-height:12px!important;white-space:normal!important;text-align:left;overflow-wrap:normal!important}
+html.embed .fight-panel .move-info-btn{right:6px;width:18px;height:18px;font-size:12px}
+html.embed .action-card{grid-template-columns:minmax(0,1fr)!important}
+html.embed .action-card>.command-heading{grid-column:1;grid-row:1}
+html.embed .action-card>.command-home,html.embed .action-card>.command-panel,html.embed .action-card>.command-end{grid-column:1;grid-row:2}

@@ -1,4 +1,6 @@
-import {localSprite,shinySprite,installSpriteRecovery} from '../../st-bridge/sprite-recovery.js?v=1.3.30';
+// Escape exits the host battle even when keyboard focus is inside this iframe.
+if(window.parent!==window)document.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();window.parent.postMessage({type:'PKM_BATTLE_EXIT'},'*');}},true);
+import {localSprite,shinySprite,installSpriteRecovery} from '../../st-bridge/sprite-recovery.js?v=1.3.31';
 installSpriteRecovery(document);
 /* Browser UI + SillyTavern host bridge (postMessage). Engine lives in PKMBattle. */
 (function () {
@@ -13,7 +15,7 @@ installSpriteRecovery(document);
   const EMBED = new URLSearchParams(location.search).has('embed');
   if (EMBED) document.documentElement.classList.add('embed');
   let dataReady = false, pendingHostConfig = null, hostTag = null, hostMode = false;
-  const APP_VERSION = '1.3.30';
+  const APP_VERSION = '1.3.31';
   let formatTag = '', formatRule = ''; // v1.3.8：角色卡发来的赛制（例：3v3、3只 vs 1只），显示在行动菜单的标签上
   let typeLabel = ''; // v1.3.9：角色卡发来的对战类型（道馆战 / 训练家对战 / 劲敌对战 / 火箭队……），标签第一段
   // 宿主模式：球袋来自角色卡变量（MVU），只存在本页内存里，不读写本机存档。
@@ -887,8 +889,8 @@ installSpriteRecovery(document);
     const fightHint = mst?.state === 'armed' ? `已装备${mst.name}：选择招式后发动${mst.short}；再点道具可取消。` : mst?.state === 'ready' ? `点击血条框左侧的${mst.name}可${mst.short}；选中招式后才开始行动。` : '返回不消耗回合；选中招式后才开始行动。';
     $('command-status').textContent = commandMessage || (animating ? '请等待当前演出结束。' : view === 'home' ? '先选择行动，再决定招式、队友或精灵球。' : view === 'fight' ? fightHint : '');
     if (ended && hostMode) $('command-end-text').textContent = battle.outcome === 'captured'
-      ? `收服了${displayPokemonName(battle.cur(1))}！结果已回传角色卡，点右上角「返回剧情」继续。`
-      : '对战结束，结果已回传角色卡。点右上角「返回剧情」继续。';
+      ? `收服了${displayPokemonName(battle.cur(1))}！结果已回传角色卡，手机返回／电脑按 Esc 退出后继续。`
+      : '对战结束，结果已回传角色卡。手机返回／电脑按 Esc 退出后继续。';
     else if (ended) $('command-end-text').textContent = battle.outcome === 'captured'
       ? `${displayPokemonName(battle.cur(1))} 已收入仓库${worldStore.error ? '（当前仅临时保存，请导出）' : '并保存到本机'}。可在仓库选择位置加入下场编队。`
       : isWild ? '这次遭遇结束了。可以继续寻找新的野生宝可梦。' : '对战结束。也可以进入野生遭遇，收服新的伙伴。';

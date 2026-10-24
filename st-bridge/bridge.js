@@ -1,11 +1,11 @@
-import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './sprite-recovery.js?v=1.3.30';
-import * as K from './kanto-data.js?v=1.3.30';
-import '../src/engine/ability-choice.js?v=1.3.30';
-// 宝可梦·关都之旅 · 外置桥接 v1.3.30（战斗全屏与手机横屏适配）
+import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './sprite-recovery.js?v=1.3.31';
+import * as K from './kanto-data.js?v=1.3.31';
+import '../src/engine/ability-choice.js?v=1.3.31';
+// 宝可梦·关都之旅 · 外置桥接 v1.3.31（战斗全屏与手机横屏适配）
 // 由角色卡的酒馆助手脚本加载：
 //   window.ST_BRIDGE_PACK='kanto-main';
 //   window.PKM_APP_BASE_URL='https://<你的用户名>.github.io/pokemon-battle/';
-//   await import(window.PKM_APP_BASE_URL+'st-bridge/bridge.js?v=1.3.30-battle-fullscreen-1');
+//   await import(window.PKM_APP_BASE_URL+'st-bridge/bridge.js?v=1.3.31-battle-fullscreen-1');
 // 面板布局依 v1.3.0 机制修复卡恢复：蓝色队伍卡、绿色六列仓库；队伍／仓库操作仍读写实时 MVU 变量。
 // 负责：开局登记界面、图鉴状态栏（PKMKanto.mountDex）、右下角精灵球（队伍/仓库/跟随）、
 //       附近野生遭遇、对战窗口（pkm-modal-v1 通道 ↔ 自己的 pokemon-battle 网页）、
@@ -1009,16 +1009,24 @@ html,body{background:transparent!important}
 .tog{font-size:11.5px;margin-left:auto}
 `;
 const HOST_CSS = BASE_CSS + `
+/* Mobile immersion preview: original UI, no outer battle chrome. */
+#pkm-kanto-modal>.bar{display:none!important}
+#pkm-kanto-modal>iframe{height:100%!important;flex:1 1 100%!important}
+#pkm-kanto-modal>.stage{flex:1;min-height:0;overflow:auto;touch-action:pan-y}
+#pkm-kanto-ball{z-index:2147482000!important;max-width:calc(100vw - 12px);visibility:visible}
+#pkm-kanto-panel{z-index:2147482100!important;touch-action:pan-y;overscroll-behavior:contain}
+#pkm-kanto-panel .body{min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+
 .pkm-follow-unit{position:fixed;z-index:3000;display:flex;align-items:flex-end;pointer-events:none}.pkm-follow-unit .follower{pointer-events:auto;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 3px 2px rgba(0,0,0,.25));cursor:grab;animation:pkb-bob 2.4s ease-in-out infinite;touch-action:none;user-select:none;-webkit-user-drag:none}.pkm-follow-unit .follower.hop{animation:pkb-hop .5s ease}.pkm-follow-unit.pkm-drop-ready img{filter:drop-shadow(0 0 7px #96f79c) drop-shadow(0 0 3px white)}#pkm-item-drag{position:fixed;z-index:2147483600;pointer-events:none;transform:translate(-50%,-50%);background:#fff;border:2px solid #8cba91;border-radius:10px;padding:8px}#pkm-item-drag img{width:34px;height:34px;image-rendering:pixelated}#pkm-care-confirm{position:fixed;inset:0;z-index:2147483601;display:flex;align-items:center;justify-content:center;background:#0007}#pkm-care-confirm .care-card{background:#f3f6fc;color:#243756;border:2px solid #9aaac3;border-radius:12px;width:420px;max-width:94%;padding:18px;font:13px/1.8 system-ui;box-shadow:0 16px 60px #0006}#pkm-care-confirm h3{margin:0 0 15px;color:#253b6a}#pkm-care-confirm .care-line{display:flex;align-items:center;gap:8px}#pkm-care-confirm .pk-spr{width:60px;height:60px;object-fit:contain;image-rendering:pixelated}#pkm-care-confirm small{display:block;font-size:10px;opacity:.65;margin-top:12px}#pkm-care-confirm .acts{display:flex;justify-content:flex-end;gap:10px}#pkm-care-confirm button{padding:8px 18px;border-radius:8px;border:1px solid #b6c5dc;font:inherit;cursor:pointer}#pkm-care-confirm .blue{background:#2f6fe0;color:#fff}#pkm-care-confirm button:disabled{opacity:.4;cursor:not-allowed}
 .pko textarea.pko-in{resize:vertical;min-height:130px;line-height:1.65}.pko-custom{margin-top:24px;border-top:2px solid #e1e6f2;padding-top:20px}.pko-custom h3{font-size:20px;color:#1c2c61;margin:0 0 9px}.pko-custom .pko-note{margin:10px 0 16px}.pko-custom-toggle{display:flex;align-items:center;gap:9px;font-weight:800;color:#203160;font-size:15px;cursor:pointer}.pko-custom-toggle input{width:18px;height:18px;accent-color:#eb1636}.pko-custom-header{display:flex;align-items:center;justify-content:space-between;margin:20px 0 10px;gap:12px}.pko-custom-header b{color:#23346c}.pko-custom-add{font:700 13px inherit;padding:8px 12px;border:2px solid #cfd7e9;border-radius:9px;color:#263c76;background:white;cursor:pointer}.pko-custom-row{background:#fff;border:2px solid #d8deec;border-radius:13px;padding:15px;margin-bottom:12px}.pko-custom-row-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-size:13px;font-weight:800;color:#23346c}.pko-custom-remove{background:none;border:0;color:#c33146;font-size:12px;cursor:pointer}.pko-custom-fields{display:grid;grid-template-columns:1.4fr .65fr 1fr;gap:12px}.pko-custom-fields label{display:block;font-size:12px;font-weight:700;color:#5e6d91;margin-bottom:5px}.pko-custom-fields .pko-in{font-size:14px;padding:10px;min-height:40px}.pko-custom-empty{border:2px dashed #d7deed;padding:16px;border-radius:10px;color:#8994ad;font-size:13px}.pko-custom-mon-placeholder{font-size:50px;color:#b2bdd3}.pko-custom-summary{margin-top:14px;padding:16px;background:#eef2fa;border-radius:12px;color:#23346c;font-size:14px}.pko-custom-summary ul{padding-left:20px;margin:8px 0}.pko-custom-err{color:#d6213e;font-size:13px;min-height:23px}@media(max-width:680px){.pko-custom-fields{grid-template-columns:1fr 1fr}.pko-custom-fields>div:first-child{grid-column:1/-1}.pko-custom h3{font-size:18px}}
 
-/* v1.3.30: host-independent sizing and a permanent touch fallback. */
+/* v1.3.31: host-independent sizing and a permanent touch fallback. */
 #pkm-kanto-ball{min-width:50px;min-height:50px}
 #pkm-kanto-ball .follower{width:72px;height:72px;object-fit:contain}
 #pkm-kanto-ball.following .orb{display:block!important;width:34px;height:34px;flex:0 0 34px}
 #pkm-kanto-modal{box-sizing:border-box!important;inset:auto!important;left:var(--pkm-vx,0px)!important;top:var(--pkm-vy,0px)!important;width:var(--pkm-vw,100vw)!important;height:var(--pkm-vh,100dvh)!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border:0!important;overflow:hidden!important;z-index:2147483000}
 #pkm-kanto-modal:fullscreen{left:0!important;top:0!important;width:100vw!important;height:100dvh!important}
-/* v1.3.30: portrait phone means a rotated landscape game, never a portrait game. */
+/* v1.3.31: portrait phone means a rotated landscape game, never a portrait game. */
 #pkm-kanto-modal{transform:none!important;transform-origin:50% 50%!important}
 #pkm-kanto-modal.pkm-rotate-landscape{left:calc(var(--pkm-vx,0px) + (var(--pkm-vw,100vw) - var(--pkm-vh,100dvh))/2)!important;top:calc(var(--pkm-vy,0px) + (var(--pkm-vh,100dvh) - var(--pkm-vw,100vw))/2)!important;width:var(--pkm-vh,100dvh)!important;height:var(--pkm-vw,100vw)!important;transform:rotate(90deg)!important}
 
@@ -1438,7 +1446,7 @@ function persistentFormTarget(mon){const raw=String(mon?.species||mon?.name||'')
 function repairPersistentMon(mon){
  const target=persistentFormTarget(mon),info=PERSISTENT_SPECIES[target];if(!info)return false;
  const old=String(mon.species||mon.name||''),oldHp=mon.hp,oldMax=Number(mon.maxHp);
- if(!mon.formRepair)mon.formRepair={from:old,to:info.name,previousAbility:mon.ability,previousHp:mon.hp,previousMaxHp:mon.maxHp,revision:'1.3.30'};
+ if(!mon.formRepair)mon.formRepair={from:old,to:info.name,previousAbility:mon.ability,previousHp:mon.hp,previousMaxHp:mon.maxHp,revision:'1.3.31'};
  mon.species=info.name;if(!mon.name||mon.name===old||FORM_ALIASES[mon.name])mon.name=info.name;
  const lv=Math.max(1,Math.min(100,Number(mon.lv||mon.level)||5));
  const iv=ivOk(Number(mon.stats_meta?.ivs?.hp))?Number(mon.stats_meta.ivs.hp):31;
@@ -1645,7 +1653,7 @@ async function submitSetup() {
     const party=custom?S.customParty.map((p,i)=>makeCustomSetupMon(p,i)): [makeStarter(S.starter,String(S.nickname||'').trim().slice(0,12),S.mode)];
     const box=custom?S.customBox.map((p,i)=>makeCustomSetupMon(p,i,true)):[];
     const starter=party[0];
-    const profile={v:VERSION, setupRevision:'1.3.30', mode:S.mode, name, gender, age:10, hometown,
+    const profile={v:VERSION, setupRevision:'1.3.31', mode:S.mode, name, gender, age:10, hometown,
       starter:starter.species, nickname:starter.nickname, intro:String(S.intro||'').trim().slice(0,60),background,
       customSetup:custom,
       party:party.map(m=>({species:m.species,nickname:m.nickname,level:m.lv,gender:m.gender,nature:m.nature,ability:m.ability,moves:m.moves})),
@@ -1860,6 +1868,14 @@ function ballPosFromRect(r) {
   };
 }
 // 套用保存的位置，并保证整个球（含跟随的宝可梦）都在屏幕内；收回屏内只是临时的，不会覆盖保存的位置
+function containFloatingUi(){
+ const v=P.visualViewport,x=v?.offsetLeft||0,y=v?.offsetTop||0,w=v?.width||P.innerWidth,h=v?.height||P.innerHeight;
+ for(const el of PD.querySelectorAll('#pkm-kanto-ball,.pkm-follow-unit')){
+  const r=el.getBoundingClientRect();if(!r.width||!r.height)continue;
+  const left=Math.max(x+6,Math.min(x+w-r.width-6,r.left)),top=Math.max(y+6,Math.min(y+h-r.height-6,r.top));
+  if(Math.abs(left-r.left)>1||Math.abs(top-r.top)>1){el.style.left=left+'px';el.style.top=top+'px';el.style.right='auto';el.style.bottom='auto';if(el.dataset.uid)followerPositions.set(el.dataset.uid,{x:left,y:top});}
+ }
+}
 function placeBall(el) {
   if (!el?.isConnected) return;
   setBallAnchor(el, readBallPos());
@@ -1874,7 +1890,7 @@ function placePanel() {
   const { w, h } = vp();
   if (w <= 680) {
     panel.style.left = '3vw'; panel.style.right = '3vw'; panel.style.width = 'auto';
-    panel.style.top = 'auto'; panel.style.bottom = '12px'; panel.style.height = '84vh'; panel.style.maxHeight = '84vh';
+    panel.style.top = ((P.visualViewport?.offsetTop||0)+Math.max(8,h*.08))+'px'; panel.style.bottom = 'auto'; panel.style.height = Math.max(180,h*.84)+'px'; panel.style.maxHeight = Math.max(180,h*.84)+'px';
     return;
   }
   const ball = PD.getElementById('pkm-kanto-ball'); if (!ball) return;
@@ -1938,8 +1954,8 @@ function installBallDrag(el) {
   listen(PD, 'pointerup', end);
   listen(PD, 'pointercancel', end);
   listen(el, 'lostpointercapture', e => { if (e.target === el && ballDrag?.moved) end(); });   // 触屏会先把隐式捕获从球转给 el（球上也会冒泡出 lostpointercapture），只有 el 自己丢了捕获才算结束
-  listen(P, 'resize', () => placeBall(el));
-  if (P.visualViewport) { listen(P.visualViewport, 'resize', () => placeBall(el)); listen(P.visualViewport, 'scroll', () => placeBall(el)); }
+  listen(P, 'resize', () => {placeBall(el);refreshAll();});
+  if (P.visualViewport) { listen(P.visualViewport, 'resize', () => {placeBall(el);refreshAll();}); listen(P.visualViewport, 'scroll', () => placeBall(el)); }
   listen(P, 'blur', () => { if (ballDrag) end(); });
 }
 let panelTab = 'party';
@@ -2561,6 +2577,14 @@ function openBattle(spec) {
   modal = { el, frame: null, tag: null, key: spec.key, spec, cfg, comp, fmt, engine: null, balls: null, type: fmt.type, sent: false, done: false, sess, timer: null };
   if (sess) { sess.status = 'open'; sess.error = null; entryStatus(sess); }
   el.querySelector('[data-op=close]').onclick = closeBattle;
+  const currentModal=modal, historyToken=uid();
+  let historyPushed=false;
+  try { P.history.pushState({...P.history.state,__pkmBattle:historyToken},'',P.location.href);historyPushed=true; } catch(_) {}
+  const onBack=()=>{if(modal===currentModal){currentModal.closedByHistory=true;closeBattle();}};
+  const onEscape=e=>{if(e.key==='Escape'&&modal===currentModal){e.preventDefault();e.stopImmediatePropagation();closeBattle();}};
+  P.addEventListener('popstate',onBack);P.addEventListener('keydown',onEscape,true);
+  currentModal.returnCleanup=()=>{P.removeEventListener('popstate',onBack);P.removeEventListener('keydown',onEscape,true);if(historyPushed&&!currentModal.closedByHistory&&P.history.state?.__pkmBattle===historyToken)P.history.back();};
+  el.querySelector('.bar').setAttribute('aria-hidden','true');
   const restoreTopLayer = () => {
     if (el.isConnected && !PD.fullscreenElement && el.showPopover) { try { el.showPopover(); } catch (_) {} }
   };
@@ -2598,7 +2622,7 @@ function launchBattle(m, pick) {
   setBar(m.cfg.lines?.start ? '「' + m.cfg.lines.start + '」' : '正在连接对战系统……');
   const send = () => { if (modal !== m || m.sent) return; m.sent = true; try { m.frame.contentWindow.postMessage({ type: 'PKM_BATTLE_CONFIG', payload: engine }, '*'); } catch (err) { LOG(err); } };
   frame.addEventListener('load', () => setTimeout(send, 30));
-  m.timer = setTimeout(() => { if (modal === m && !m.started && !m.done) setBar('对战网页加载较慢或失败：请确认网站已部署 v' + VERSION + '（页脚版本号），再点“返回剧情”后重试。'); }, 15000);
+  m.timer = setTimeout(() => { if (modal === m && !m.started && !m.done) setBar('对战网页加载较慢或失败：请确认网站已部署 v' + VERSION + '（页脚版本号），使用手机返回键／电脑 Esc 退出后重试。'); }, 15000);
 }
 // v1.3.8：我方能战斗的多于 N 只时，开战前点选参赛的 N 只（默认勾好首发 + 队伍顺序；点选顺序 = 出场顺序）
 function showPicker(m, pkm, entries) {
@@ -2639,10 +2663,10 @@ function showPicker(m, pkm, entries) {
   draw();
   setBar(`${m.fmt.name}：先选出参赛的 ${n} 只`);
 }
-function setBar(text) { const s = modal?.el.querySelector('.bar .s'); if (s) s.textContent = text; }
+function setBar(text) { const s = modal?.el.querySelector('.bar .s'); if (s) s.textContent = text; if (/失败|有误|较慢/.test(text) && modal) {let error=modal.el.querySelector('.pkm-battle-error');if(!error){error=PD.createElement('div');error.className='pkm-battle-error';error.style.cssText='position:absolute;inset:20% 10% auto;z-index:9;background:#fff5ed;color:#6a2919;padding:20px;border:2px solid #cd7362;border-radius:12px;white-space:normal';modal.el.append(error);}error.textContent=text;} }
 function closeBattle(silent) {
   if (!modal) return;
-  const m = modal; modal = null; clearTimeout(m.timer); m.el._viewportCleanup?.(); m.el._restoreOverflow?.();
+  const m = modal; modal = null; clearTimeout(m.timer); m.el._viewportCleanup?.(); m.el._restoreOverflow?.(); m.returnCleanup?.();
   if (PD.fullscreenElement === m.el) PD.exitFullscreen?.().catch(() => {});
   m.el.remove();
   if (m.sess) { if (!m.done) m.sess.status = 'idle'; entryStatus(m.sess); }
@@ -2650,13 +2674,14 @@ function closeBattle(silent) {
 }
 function onEngineMessage(d) {
   const m = modal; if (!m) return;
+  if (d.type === 'PKM_BATTLE_EXIT') { closeBattle();return; }
   if (d.type === 'PKM_BATTLE_READY' && !m.sent) { m.sent = true; m.frame.contentWindow.postMessage({ type: 'PKM_BATTLE_CONFIG', payload: m.engine }, '*'); }
   else if (d.type === 'PKM_BATTLE_STARTED') { m.started = true; setBar(m.cfg.lines?.start ? '「' + m.cfg.lines.start + '」' : '对战开始！'); }
   else if (d.type === 'PKM_BATTLE_ERROR') { m.started = true; setBar('对战配置有误：' + (d.payload?.message || '')); if (m.sess) { m.sess.error = d.payload?.message || '配置有误'; entryStatus(m.sess); } }
   else if (d.type === 'PKM_BATTLE_RESULT' && d.payload && (!d.hostTag || d.hostTag === m.tag) && (!d.payload.hostTag || d.payload.hostTag === m.tag)) {
     if (m.done) return; m.done = true;
     applyResult(m, d.payload).then(r => {
-      setBar(`${r.outcomeZh}！结果已写入变量并填进输入框——点“返回剧情”后发送即可继续。`);
+      setBar(`${r.outcomeZh}！结果已写入变量并填进输入框——手机返回／电脑 Esc 退出后发送即可继续。`);
       const b = m.el.querySelector('[data-op=close]'); if (b) b.textContent = '返回剧情 ›';
       if (m.sess) { m.sess.status = 'ended'; m.sess.summary = r.summary; entryStatus(m.sess); }
     }).catch(err => { LOG('写回失败', err); setBar('结果写回失败：' + (err?.message || err)); toast('对战结果写回变量失败：' + (err?.message || err), 'error'); });
@@ -2801,7 +2826,7 @@ function refreshAll() {
   if (destroyed) return;
   clearTimeout(refreshTimer);
   refreshTimer = setTimeout(() => {
-    try { renderBall(); } catch (e) { LOG('精灵球渲染失败', e); }
+    try { renderBall(); containFloatingUi(); } catch (e) { LOG('精灵球渲染失败', e); }
     for (const m of [...dexMounts]) { try { renderDex(m); } catch (e) { LOG('图鉴渲染失败', e); } }
     try { rerenderSetups(); scanSetup(); } catch (e) { LOG(e); }
   }, 30);
@@ -3089,11 +3114,29 @@ function installFollowerGesture(el){el.addEventListener('pointermove',e=>{if(!fo
 function careInfo(name,mon){const h=panelHpInfo(mon);let amount=name==='伤药'?20:name==='橙橙果'?10:0;const heal=h.faint?0:Math.min(amount,Math.max(0,h.max-(h.hp??h.max)));return{hp:h.hp,max:h.max,heal,valid:heal>0};}
 function showCare(name,id){if(PD.getElementById('pkm-kanto-modal')){toast('对战中请在对战窗口使用道具，避免与战斗结算冲突。');return;}const pkm=readPkm(),mon=pkm.party.slots.find(m=>m.uid===id);if(!mon||!isFollowing(pkm,id)||!(Number(pkm.player.bag[name])>0))return;const effect=careInfo(name,mon);pendingCare={name,id};PD.getElementById('pkm-care-confirm')?.remove();const d=PD.createElement('div');d.id='pkm-care-confirm';d.className='pkb';d.innerHTML=`<div class="care-card"><h3>确认${name==='橙橙果'?'喂食':'使用物品'}</h3><div class="care-line">${itemIcon(name)}<b>${esc(name)}</b> → ${spriteImg(mon.species)}<b>${esc(monName(mon))}</b></div><p>HP ${effect.hp}/${effect.max}${effect.valid?' → '+(effect.hp+effect.heal)+'/'+effect.max+'（+'+effect.heal+'）':''}</p><p>${effect.valid?'确认后背包扣除 1 个；取消不消耗。':'当前使用无效：满血或濒死，不消耗物品。'}</p><div class="acts"><button class="ghost" data-care="cancel">取消</button><button class="blue" data-care="confirm" ${effect.valid?'':'disabled'}>确认使用</button></div><small>效果来自原状态栏道具说明；未新增饱腹、食物或额外羁绊数值。</small></div>`;PD.body.append(d);let ignoreTrustedUntil=0;d.addEventListener('pointerup',e=>{if(e.pointerType!=='touch')return;const b=e.target.closest('[data-care]');if(b&&!b.disabled){ignoreTrustedUntil=Date.now()+700;b.click();}});d.addEventListener('click',async e=>{if(e.isTrusted&&Date.now()<ignoreTrustedUntil)return;const act=e.target.closest('[data-care]')?.dataset.care;if(act==='cancel'){pendingCare=null;d.remove();}if(act==='confirm')await applyCare();});}
 async function applyCare(){const op=pendingCare;if(!op)return;pendingCare=null;let applied=false;await writePkm(pkm=>{applied=false;const m=pkm.party.slots.find(m=>m.uid===op.id);if(PD.getElementById('pkm-kanto-modal')||!m||!isFollowing(pkm,op.id)||(Number(pkm.player.bag[op.name])||0)<1)return;const ef=careInfo(op.name,m);if(!ef.valid)return;m.hp=ef.hp+ef.heal;pkm.player.bag[op.name]--;applied=true;});PD.getElementById('pkm-care-confirm')?.remove();if(!applied){toast('目标或物品状态已变化；未使用，也不触发开心互动。');return;}if(applied){const el=PD.querySelector('.pkm-follow-unit[data-uid="'+op.id+'"]');el?.__originalMood?.happy(op.name==='橙橙果'?'feed':'medicine');}toast('已按原道具效果使用 '+op.name+'；背包与队伍 HP 已同步。');}
-function installBagDrag(win,root){if(root.__pkmCareBinding?.owner===instance)return;root.__pkmCareBinding?.controller.abort();const controller=new win.AbortController();root.__pkmCareBinding={owner:instance,controller};cleanups.push(()=>controller.abort());const bind=(type,fn)=>root.addEventListener(type,fn,{signal:controller.signal});let active=null;bind('pointerdown',e=>{
- const item=e.target.closest('[data-p=bag] .item');if(!item)return;const name=item.querySelector('b')?.textContent.trim();if(!['伤药','橙橙果'].includes(name))return;
- e.preventDefault();const fr=win.frameElement?.getBoundingClientRect()||{left:0,top:0};active={pointer:e.pointerId,name,sx:e.clientX,sy:e.clientY,moved:false,fr};try{item.setPointerCapture(e.pointerId)}catch(_){};
- });bind('pointermove',e=>{if(!active||active.pointer!==e.pointerId)return;if(Math.hypot(e.clientX-active.sx,e.clientY-active.sy)>8)active.moved=true;if(!active.moved)return;e.preventDefault();let ghost=PD.getElementById('pkm-item-drag');if(!ghost){ghost=PD.createElement('div');ghost.id='pkm-item-drag';ghost.className='pkb';ghost.innerHTML=itemIcon(active.name);PD.body.append(ghost);}const x=e.clientX+active.fr.left,y=e.clientY+active.fr.top;ghost.style.left=x+'px';ghost.style.top=y+'px';PD.querySelectorAll('.pkm-drop-ready').forEach(n=>n.classList.remove('pkm-drop-ready'));PD.elementFromPoint(x,y)?.closest('.pkm-follow-unit')?.classList.add('pkm-drop-ready');});
- const end=e=>{if(!active)return;const a=active;active=null;PD.getElementById('pkm-item-drag')?.remove();PD.querySelectorAll('.pkm-drop-ready').forEach(n=>n.classList.remove('pkm-drop-ready'));if(e.type!=='pointerup')return;const x=e.clientX+a.fr.left,y=e.clientY+a.fr.top;const target=PD.elementFromPoint(x,y)?.closest('.pkm-follow-unit');if(a.moved&&target)showCare(a.name,target.dataset.uid);else toast('请把原背包中的物品拖到已放出的宝可梦身上；未消耗。');};bind('pointerup',end);bind('pointercancel',end);
+function installBagDrag(win,root){
+ if(root.__pkmCareBinding?.owner===instance)return;root.__pkmCareBinding?.controller.abort();
+ const controller=new win.AbortController();root.__pkmCareBinding={owner:instance,controller};cleanups.push(()=>controller.abort());
+ const bind=(type,fn,options={})=>root.addEventListener(type,fn,{...options,signal:controller.signal});let active=null;
+ const stop=()=>{if(active?.timer)win.clearTimeout(active.timer);active=null;PD.getElementById('pkm-item-drag')?.remove();PD.querySelectorAll('.pkm-drop-ready').forEach(n=>n.classList.remove('pkm-drop-ready'));};
+ bind('pointerdown',e=>{
+  const item=e.target.closest('[data-p=bag] .item');if(!item)return;const name=item.querySelector('b')?.textContent.trim();if(!['伤药','橙橙果'].includes(name))return;
+  const touch=e.pointerType==='touch';if(!touch)e.preventDefault();
+  const a=active={pointer:e.pointerId,name,sx:e.clientX,sy:e.clientY,moved:false,armed:!touch,touch,item,fr:win.frameElement?.getBoundingClientRect()||{left:0,top:0}};
+  const capture=()=>{try{item.setPointerCapture(e.pointerId)}catch(_){}};
+  if(touch)a.timer=win.setTimeout(()=>{if(active!==a)return;a.armed=true;capture();item.style.outline='2px solid #477bdf';},420);else capture();
+ });
+ // Leave normal swipes to native scrolling; only a deliberate hold starts item dragging.
+ bind('touchmove',e=>{if(active?.armed)e.preventDefault();},{passive:false});
+ bind('contextmenu',e=>{if(active?.armed)e.preventDefault();});
+ bind('pointermove',e=>{
+  if(!active||active.pointer!==e.pointerId)return;
+  if(Math.hypot(e.clientX-active.sx,e.clientY-active.sy)>8){if(!active.armed){stop();return;}active.moved=true;}
+  if(!active.moved)return;e.preventDefault();
+  let ghost=PD.getElementById('pkm-item-drag');if(!ghost){ghost=PD.createElement('div');ghost.id='pkm-item-drag';ghost.className='pkb';ghost.innerHTML=itemIcon(active.name);PD.body.append(ghost);}
+  const x=e.clientX+active.fr.left,y=e.clientY+active.fr.top;ghost.style.left=x+'px';ghost.style.top=y+'px';PD.querySelectorAll('.pkm-drop-ready').forEach(n=>n.classList.remove('pkm-drop-ready'));PD.elementFromPoint(x,y)?.closest('.pkm-follow-unit')?.classList.add('pkm-drop-ready');
+ });
+ const end=e=>{if(!active)return;const a=active;a.item.style.outline='';stop();if(e.type!=='pointerup'||!a.armed)return;const x=e.clientX+a.fr.left,y=e.clientY+a.fr.top,target=PD.elementFromPoint(x,y)?.closest('.pkm-follow-unit');if(a.moved&&target)showCare(a.name,target.dataset.uid);else if(a.moved)toast('请把原背包中的物品拖到已放出的宝可梦身上；未消耗。');};bind('pointerup',end);bind('pointercancel',end);
 }
 
 
