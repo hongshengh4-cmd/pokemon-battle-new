@@ -1,3 +1,5 @@
+import {localSprite,shinySprite,installSpriteRecovery} from '../../st-bridge/sprite-recovery.js?v=1.3.30';
+installSpriteRecovery(document);
 /* Browser UI + SillyTavern host bridge (postMessage). Engine lives in PKMBattle. */
 (function () {
   'use strict';
@@ -11,7 +13,7 @@
   const EMBED = new URLSearchParams(location.search).has('embed');
   if (EMBED) document.documentElement.classList.add('embed');
   let dataReady = false, pendingHostConfig = null, hostTag = null, hostMode = false;
-  const APP_VERSION = '1.3.29';
+  const APP_VERSION = '1.3.30';
   let formatTag = '', formatRule = ''; // v1.3.8：角色卡发来的赛制（例：3v3、3只 vs 1只），显示在行动菜单的标签上
   let typeLabel = ''; // v1.3.9：角色卡发来的对战类型（道馆战 / 训练家对战 / 劲敌对战 / 火箭队……），标签第一段
   // 宿主模式：球袋来自角色卡变量（MVU），只存在本页内存里，不读写本机存档。
@@ -112,7 +114,8 @@
     const { form, base } = spriteCandidates(p);
     const attempts = [];
     const add = (dir, id, ext) => {
-      const url = `https://play.pokemonshowdown.com/sprites/${dir}/${id}.${ext}`;
+      const originalUrl = `https://play.pokemonshowdown.com/sprites/${dir}/${id}.${ext}`;
+      const url = localSprite(p.shiny?shinySprite(originalUrl):originalUrl);
       if (!attempts.includes(url)) attempts.push(url);
     };
     if (back) {
@@ -211,7 +214,8 @@
     el.classList.toggle('is-dynamax', !!p.dynamaxed);
     el.classList.toggle('is-gmax', !!p.dynamaxed && p.dynamaxForm === 'gmax');
     const mapped = SPRITES[normId(p.speciesId)] || null;
-    const mappedUrl = mapped ? (back ? mapped.back : mapped.front) : null;
+    const mappedRaw=mapped?(back?mapped.back:mapped.front):null;
+    const mappedUrl=mappedRaw?localSprite(p.shiny?shinySprite(mappedRaw):mappedRaw):null;
     let attempts = spriteAttempts(p, back);
     if (mappedUrl) attempts = [mappedUrl, ...attempts.filter(url => url !== mappedUrl)];
     let idx = 0;
@@ -333,7 +337,7 @@
     if (!snap?.speciesId) return '';
     const back = side === 0;
     const mapped = SPRITES[normId(snap.speciesId)];
-    if (mapped) return back ? mapped.back : mapped.front;
+    if (mapped) {const u=back?mapped.back:mapped.front;return localSprite(snap.shiny?shinySprite(u):u);}
     const pseudo = { speciesId: snap.speciesId, originalSpeciesId: snap.originalSpeciesId || snap.speciesId, speciesName: snap.rawName || snap.speciesId };
     return spriteAttempts(pseudo, back)[0] || '';
   }

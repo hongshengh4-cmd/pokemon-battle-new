@@ -1,10 +1,11 @@
-import * as K from './kanto-data.js?v=1.3.29';
-import '../src/engine/ability-choice.js?v=1.3.29';
-// 宝可梦·关都之旅 · 外置桥接 v1.3.29（战斗全屏与手机横屏适配）
+import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './sprite-recovery.js?v=1.3.30';
+import * as K from './kanto-data.js?v=1.3.30';
+import '../src/engine/ability-choice.js?v=1.3.30';
+// 宝可梦·关都之旅 · 外置桥接 v1.3.30（战斗全屏与手机横屏适配）
 // 由角色卡的酒馆助手脚本加载：
 //   window.ST_BRIDGE_PACK='kanto-main';
 //   window.PKM_APP_BASE_URL='https://<你的用户名>.github.io/pokemon-battle/';
-//   await import(window.PKM_APP_BASE_URL+'st-bridge/bridge.js?v=1.3.29-battle-fullscreen-1');
+//   await import(window.PKM_APP_BASE_URL+'st-bridge/bridge.js?v=1.3.30-battle-fullscreen-1');
 // 面板布局依 v1.3.0 机制修复卡恢复：蓝色队伍卡、绿色六列仓库；队伍／仓库操作仍读写实时 MVU 变量。
 // 负责：开局登记界面、图鉴状态栏（PKMKanto.mountDex）、右下角精灵球（队伍/仓库/跟随）、
 //       附近野生遭遇、对战窗口（pkm-modal-v1 通道 ↔ 自己的 pokemon-battle 网页）、
@@ -23,6 +24,7 @@ const VERSION = K.VERSION;
 const W = window;
 const P = (() => { let p=window; try { while(p.parent!==p && p.parent.document) p=p.parent; } catch (_) {} return p; })();
 const PD = P.document;
+installSpriteRecovery(PD);
 const BASE = String(W.PKM_APP_BASE_URL || P.PKM_APP_BASE_URL || new URL('../', import.meta.url).href).replace(/\/?$/, '/');
 const CH = 'pkm-modal-v1';
 const PROMPT_KEY = 'PKM_KANTO_BRIDGE';
@@ -112,10 +114,10 @@ const zhNature = id => ZH?.natures?.[id] || (id ? id : null);
 function spriteUrl(name,{anim=false,shiny=false}={}) {
  const id=speciesId(name),asset=PERSISTENT_SPECIES[id];if(!asset)return '';
  const url=asset.front;
- return shiny?url.replace('/ani/','/ani-shiny/').replace('/gen5/','/gen5-shiny/'):url;
+ return localSprite(shiny?shinySprite(url):url);
 }
 
-const spriteImg = (name, opts = {}, cls = 'pk-spr') => { const u = spriteUrl(name, opts); return u ? `<img class="${cls}" src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">` : `<span class="${cls} pk-spr-ph">?</span>`; };
+const spriteImg = (name, opts = {}, cls = 'pk-spr') => { const u = spriteUrl(name, opts); return u ? `<img class="${cls}" src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer" > ` : `<span class="${cls} pk-spr-ph">?</span>`; };
 function itemIcon(name) {
   const slug = K.ITEM_ICONS[name];
   const emoji = (K.ITEM_EMOJI.find(([re]) => re.test(name)) || [null, '🎒'])[1];
@@ -971,6 +973,9 @@ const BASE_CSS = `
 .pkb .muted{color:#6b7385}.pkb .empty{padding:14px;text-align:center;color:#7d8597}
 `;
 const DEX_CSS = BASE_CSS + `
+.pkdex .near-row .grow{min-width:0}.pkdex .near-row .acts{flex-shrink:0}
+@media(max-width:480px){.pkdex .near-row{display:grid!important;grid-template-columns:64px minmax(0,1fr)!important;gap:8px!important}.pkdex .near-row .pk-spr{width:64px!important;max-width:64px!important}.pkdex .near-row .grow{word-break:normal!important;overflow-wrap:anywhere}.pkdex .near-row .acts{grid-column:1 / -1;display:flex!important;justify-content:flex-end;gap:8px}.pkdex .near-row .acts button{white-space:nowrap!important;min-width:66px}}
+
 html,body{background:transparent!important}
 .pkdex{margin:8px 0 4px;border-radius:18px;background:linear-gradient(160deg,#e3350d,#b3001b);padding:10px;box-shadow:0 3px 0 #6d0010,0 6px 18px rgba(0,0,0,.18)}
 .pkdex-top{display:flex;align-items:center;gap:8px;color:#fff;margin:0 4px 8px}
@@ -1007,13 +1012,13 @@ const HOST_CSS = BASE_CSS + `
 .pkm-follow-unit{position:fixed;z-index:3000;display:flex;align-items:flex-end;pointer-events:none}.pkm-follow-unit .follower{pointer-events:auto;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 3px 2px rgba(0,0,0,.25));cursor:grab;animation:pkb-bob 2.4s ease-in-out infinite;touch-action:none;user-select:none;-webkit-user-drag:none}.pkm-follow-unit .follower.hop{animation:pkb-hop .5s ease}.pkm-follow-unit.pkm-drop-ready img{filter:drop-shadow(0 0 7px #96f79c) drop-shadow(0 0 3px white)}#pkm-item-drag{position:fixed;z-index:2147483600;pointer-events:none;transform:translate(-50%,-50%);background:#fff;border:2px solid #8cba91;border-radius:10px;padding:8px}#pkm-item-drag img{width:34px;height:34px;image-rendering:pixelated}#pkm-care-confirm{position:fixed;inset:0;z-index:2147483601;display:flex;align-items:center;justify-content:center;background:#0007}#pkm-care-confirm .care-card{background:#f3f6fc;color:#243756;border:2px solid #9aaac3;border-radius:12px;width:420px;max-width:94%;padding:18px;font:13px/1.8 system-ui;box-shadow:0 16px 60px #0006}#pkm-care-confirm h3{margin:0 0 15px;color:#253b6a}#pkm-care-confirm .care-line{display:flex;align-items:center;gap:8px}#pkm-care-confirm .pk-spr{width:60px;height:60px;object-fit:contain;image-rendering:pixelated}#pkm-care-confirm small{display:block;font-size:10px;opacity:.65;margin-top:12px}#pkm-care-confirm .acts{display:flex;justify-content:flex-end;gap:10px}#pkm-care-confirm button{padding:8px 18px;border-radius:8px;border:1px solid #b6c5dc;font:inherit;cursor:pointer}#pkm-care-confirm .blue{background:#2f6fe0;color:#fff}#pkm-care-confirm button:disabled{opacity:.4;cursor:not-allowed}
 .pko textarea.pko-in{resize:vertical;min-height:130px;line-height:1.65}.pko-custom{margin-top:24px;border-top:2px solid #e1e6f2;padding-top:20px}.pko-custom h3{font-size:20px;color:#1c2c61;margin:0 0 9px}.pko-custom .pko-note{margin:10px 0 16px}.pko-custom-toggle{display:flex;align-items:center;gap:9px;font-weight:800;color:#203160;font-size:15px;cursor:pointer}.pko-custom-toggle input{width:18px;height:18px;accent-color:#eb1636}.pko-custom-header{display:flex;align-items:center;justify-content:space-between;margin:20px 0 10px;gap:12px}.pko-custom-header b{color:#23346c}.pko-custom-add{font:700 13px inherit;padding:8px 12px;border:2px solid #cfd7e9;border-radius:9px;color:#263c76;background:white;cursor:pointer}.pko-custom-row{background:#fff;border:2px solid #d8deec;border-radius:13px;padding:15px;margin-bottom:12px}.pko-custom-row-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-size:13px;font-weight:800;color:#23346c}.pko-custom-remove{background:none;border:0;color:#c33146;font-size:12px;cursor:pointer}.pko-custom-fields{display:grid;grid-template-columns:1.4fr .65fr 1fr;gap:12px}.pko-custom-fields label{display:block;font-size:12px;font-weight:700;color:#5e6d91;margin-bottom:5px}.pko-custom-fields .pko-in{font-size:14px;padding:10px;min-height:40px}.pko-custom-empty{border:2px dashed #d7deed;padding:16px;border-radius:10px;color:#8994ad;font-size:13px}.pko-custom-mon-placeholder{font-size:50px;color:#b2bdd3}.pko-custom-summary{margin-top:14px;padding:16px;background:#eef2fa;border-radius:12px;color:#23346c;font-size:14px}.pko-custom-summary ul{padding-left:20px;margin:8px 0}.pko-custom-err{color:#d6213e;font-size:13px;min-height:23px}@media(max-width:680px){.pko-custom-fields{grid-template-columns:1fr 1fr}.pko-custom-fields>div:first-child{grid-column:1/-1}.pko-custom h3{font-size:18px}}
 
-/* v1.3.29: host-independent sizing and a permanent touch fallback. */
+/* v1.3.30: host-independent sizing and a permanent touch fallback. */
 #pkm-kanto-ball{min-width:50px;min-height:50px}
 #pkm-kanto-ball .follower{width:72px;height:72px;object-fit:contain}
 #pkm-kanto-ball.following .orb{display:block!important;width:34px;height:34px;flex:0 0 34px}
 #pkm-kanto-modal{box-sizing:border-box!important;inset:auto!important;left:var(--pkm-vx,0px)!important;top:var(--pkm-vy,0px)!important;width:var(--pkm-vw,100vw)!important;height:var(--pkm-vh,100dvh)!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border:0!important;overflow:hidden!important;z-index:2147483000}
 #pkm-kanto-modal:fullscreen{left:0!important;top:0!important;width:100vw!important;height:100dvh!important}
-/* v1.3.29: portrait phone means a rotated landscape game, never a portrait game. */
+/* v1.3.30: portrait phone means a rotated landscape game, never a portrait game. */
 #pkm-kanto-modal{transform:none!important;transform-origin:50% 50%!important}
 #pkm-kanto-modal.pkm-rotate-landscape{left:calc(var(--pkm-vx,0px) + (var(--pkm-vw,100vw) - var(--pkm-vh,100dvh))/2)!important;top:calc(var(--pkm-vy,0px) + (var(--pkm-vh,100dvh) - var(--pkm-vw,100vw))/2)!important;width:var(--pkm-vh,100dvh)!important;height:var(--pkm-vw,100vw)!important;transform:rotate(90deg)!important}
 
@@ -1433,7 +1438,7 @@ function persistentFormTarget(mon){const raw=String(mon?.species||mon?.name||'')
 function repairPersistentMon(mon){
  const target=persistentFormTarget(mon),info=PERSISTENT_SPECIES[target];if(!info)return false;
  const old=String(mon.species||mon.name||''),oldHp=mon.hp,oldMax=Number(mon.maxHp);
- if(!mon.formRepair)mon.formRepair={from:old,to:info.name,previousAbility:mon.ability,previousHp:mon.hp,previousMaxHp:mon.maxHp,revision:'1.3.29'};
+ if(!mon.formRepair)mon.formRepair={from:old,to:info.name,previousAbility:mon.ability,previousHp:mon.hp,previousMaxHp:mon.maxHp,revision:'1.3.30'};
  mon.species=info.name;if(!mon.name||mon.name===old||FORM_ALIASES[mon.name])mon.name=info.name;
  const lv=Math.max(1,Math.min(100,Number(mon.lv||mon.level)||5));
  const iv=ivOk(Number(mon.stats_meta?.ivs?.hp))?Number(mon.stats_meta.ivs.hp):31;
@@ -1640,7 +1645,7 @@ async function submitSetup() {
     const party=custom?S.customParty.map((p,i)=>makeCustomSetupMon(p,i)): [makeStarter(S.starter,String(S.nickname||'').trim().slice(0,12),S.mode)];
     const box=custom?S.customBox.map((p,i)=>makeCustomSetupMon(p,i,true)):[];
     const starter=party[0];
-    const profile={v:VERSION, setupRevision:'1.3.29', mode:S.mode, name, gender, age:10, hometown,
+    const profile={v:VERSION, setupRevision:'1.3.30', mode:S.mode, name, gender, age:10, hometown,
       starter:starter.species, nickname:starter.nickname, intro:String(S.intro||'').trim().slice(0,60),background,
       customSetup:custom,
       party:party.map(m=>({species:m.species,nickname:m.nickname,level:m.lv,gender:m.gender,nature:m.nature,ability:m.ability,moves:m.moves})),
@@ -1692,7 +1697,7 @@ function scanSetup() {
 const dexMounts = new Set();
 function mountDex(win, root) {
   if (!win || !root) return;
-  const doc = win.document;
+  const doc = win.document; installSpriteRecovery(doc);
   if (!doc.getElementById('pkm-dex-style')) { const s = doc.createElement('style'); s.id = 'pkm-dex-style'; s.textContent = DEX_CSS; doc.head.appendChild(s); }
   for (const m of dexMounts) if (m.root === root) return renderDex(m);
   const m = { win, root, tab: 'trainer', loveAll: false };
@@ -1966,7 +1971,7 @@ function renderBall() {
   orb.querySelector('.count').textContent = n;
   let img = el.querySelector('.follower');
   if (fUrl) {
-    if (!img) { img = PD.createElement('img'); img.className = 'follower'; img.draggable = false; img.alt = ''; img.referrerPolicy = 'no-referrer'; img.onerror = () => { img.remove(); el.classList.remove('following'); placeBall(el); }; el.insertBefore(img, orb); }
+    if (!img) { img = PD.createElement('img'); img.className = 'follower'; img.draggable = false; img.alt = ''; img.referrerPolicy = 'no-referrer'; img.onerror = () => recoverSprite(img); el.insertBefore(img, orb); }
     if (img.getAttribute('src') !== fUrl) img.src = fUrl;
     img.title = monName(f) + '正跟在你身边（点一下听它叫；长按打开面板）';
   } else if (img) img.remove();
@@ -3067,7 +3072,8 @@ function syncMultiFollowers(pkm){
   const mon=pkm.party.slots.find(m=>m.uid===id);let el=PD.querySelector('.pkm-follow-unit[data-uid="'+id+'"]');
   const height=FOLLOWER_HEIGHTS[mon.species] || ABILITY_DEX?.[speciesId(mon.species)]?.heightm || 1;
   const size=Math.max(34,Math.min(112,height*48));
-  if(!el){el=PD.createElement('div');el.className='pkb pkm-follow-unit';el.dataset.uid=id;const im=PD.createElement('img');im.className='follower';im.draggable=false;im.src=spriteUrl(mon.species,{anim:true});el.append(im);PD.body.append(el);installOriginalFollowerMood(el);installFollowerGesture(el);}
+  if(!el){el=PD.createElement('div');el.className='pkb pkm-follow-unit';el.dataset.uid=id;const im=PD.createElement('img');im.className='follower';im.draggable=false;im.src=spriteUrl(mon.species,{anim:true,shiny:mon.shiny});el.append(im);PD.body.append(el);installOriginalFollowerMood(el);installFollowerGesture(el);}
+  const followerImg=el.querySelector('img'),desiredSprite=spriteUrl(mon.species,{anim:true,shiny:mon.shiny});if(followerImg.dataset.pkmDesired!==desiredSprite){followerImg.dataset.pkmDesired=desiredSprite;followerImg.__pkmSpriteState=null;followerImg.src=desiredSprite;}
   el.querySelector('img').style.cssText='height:'+size+'px;width:auto;max-width:150px;max-height:120px';
   el.classList.toggle('pos-l',el.getBoundingClientRect().left<150);el.classList.toggle('pos-t',el.getBoundingClientRect().top<100);const hp=panelHpInfo(mon);el.querySelector('img').title=monName(mon)+' · HP '+hp.label+' · '+height+'m；拖动摆放，长按打开原精灵球面板';
   if(!followerPositions.has(id))followerPositions.set(id,{x:w-90-(index%3)*145,y:h-150-Math.floor(index/3)*135});
@@ -3187,7 +3193,7 @@ async function start() {
     const f = findStat(), raw = f?.vars?.stat_data?.pkm;
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
-  P.PKMKanto = { __owner: instance, version: VERSION, base: BASE, mountDex, installBagDrag, speciesSprite:(id)=>PERSISTENT_SPECIES[id]?.front||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, version: VERSION, base: BASE, mountDex, installBagDrag, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
