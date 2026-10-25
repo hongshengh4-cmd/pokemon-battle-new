@@ -1,0 +1,101 @@
+name: 安全清理误传的重复音频
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pokemon-audio-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 获取所选分支
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+
+      - name: 核对完整录音并清理重复文件
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import re
+          import subprocess
+          from pathlib import Path
+
+          if subprocess.check_output(['git', 'status', '--porcelain'], text=True).strip():
+              raise SystemExit('工作区不是干净状态，停止，不删除。')
+
+          root = Path('.')
+          audio = root / 'st-bridge/audio/cries'
+          bridge = root / 'st-bridge/bridge.js'
+          manifest = json.loads((audio / 'manifest.json').read_text(encoding='utf-8'))
+          takes = manifest.get('takes', {})
+          if manifest.get('count') != 450 or len(takes) != 151:
+              raise SystemExit('清单不是已确认的450段/151种版本，停止，不删除。')
+          if not bridge.is_file():
+              raise SystemExit('正确位置的 bridge.js 不存在，停止，不删除。')
+
+          expected = set()
+          for species, count in takes.items():
+              if not re.fullmatch(r'[a-z0-9-]+', species) or type(count) is not int or not 1 <= count <= 32:
+                  raise SystemExit('清单含非预期命名或数量，停止，不删除。')
+              for number in range(1, count + 1):
+                  name = species + ('' if number == 1 else '_' + str(number)) + '.mp3'
+                  expected.add(name)
+          actual = {p.name for p in audio.glob('*.mp3') if p.is_file()}
+          if len(expected) != 450 or actual != expected:
+              raise SystemExit('正确目录中音频不完整或多出未登记录音，停止，不删除。')
+
+          def digest(path):
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+
+          before = {name: digest(audio / name) for name in expected}
+          deletions = []
+          for source in sorted(root.glob('*.mp3')):
+              target = audio / source.name
+              if source.is_symlink() or target.is_symlink():
+                  raise SystemExit('发现符号链接，停止，不删除。')
+              if source.name not in expected or digest(source) != before[source.name]:
+                  raise SystemExit('根目录音频没有相同的正确副本：' + source.name + '；停止，不删除。')
+              deletions.append(source)
+
+          misplaced = audio / 'bridge.js'
+          if misplaced.exists():
+              if misplaced.is_symlink() or digest(misplaced) != digest(bridge):
+                  raise SystemExit('两个 bridge.js 内容不同，停止；需人工确认，不删除。')
+              deletions.append(misplaced)
+
+          # All validation finishes before any deletion. Only these explicit paths can be removed.
+          if deletions:
+              for path in deletions:
+                  print('删除已确认的重复文件：', path.as_posix())
+              subprocess.run(['git', 'rm', '--', *[p.as_posix() for p in deletions]], check=True)
+          else:
+              print('没有重复文件，无需清理。')
+
+          assert all((audio / name).is_file() and digest(audio / name) == before[name] for name in expected)
+          assert bridge.is_file()
+          assert (audio / 'manifest.json').is_file()
+          print('清理检查完成：450段正确音频、播放清单和正确位置的 bridge.js 均保留。')
+          PY
+
+      - name: 提交清理结果
+        shell: bash
+        run: |
+          if git diff --cached --quiet; then
+            echo '没有需要提交的清理改动。'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "Remove misplaced duplicate Pokemon audio files"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
