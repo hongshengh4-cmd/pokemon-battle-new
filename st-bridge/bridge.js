@@ -1,11 +1,11 @@
 import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './sprite-recovery.js?v=1.3.31';
 import * as K from './kanto-data.js?v=1.3.31';
 import '../src/engine/ability-choice.js?v=1.3.31';
-// 宝可梦·关都之旅 · 外置桥接 v1.3.31（战斗全屏与手机横屏适配）
+// 宝可梦·关都之旅 · 外置桥接 v1.3.31 + portrait-panel-20261025-1（仅队伍/仓库视口修复）
 // 由角色卡的酒馆助手脚本加载：
 //   window.ST_BRIDGE_PACK='kanto-main';
 //   window.PKM_APP_BASE_URL='https://<你的用户名>.github.io/pokemon-battle/';
-//   await import(window.PKM_APP_BASE_URL+'st-bridge/bridge.js?v=1.3.31-battle-fullscreen-1');
+//   await import(window.PKM_APP_BASE_URL+'st-bridge/bridge.js?v=1.3.31-portrait-panel-20261025-1');
 // 面板布局依 v1.3.0 机制修复卡恢复：蓝色队伍卡、绿色六列仓库；队伍／仓库操作仍读写实时 MVU 变量。
 // 负责：开局登记界面、图鉴状态栏（PKMKanto.mountDex）、右下角精灵球（队伍/仓库/跟随）、
 //       附近野生遭遇、对战窗口（pkm-modal-v1 通道 ↔ 自己的 pokemon-battle 网页）、
@@ -1385,20 +1385,6 @@ const HOST_CSS = BASE_CSS + `
 #pkm-kanto-panel .pb-foot{color:#cfe3ff;font-size:11.5px;padding:0 14px 8px;display:flex;justify-content:space-between}
 #pkm-kanto-panel .toast{position:absolute;left:50%;bottom:48px;transform:translateX(-50%);background:rgba(20,30,50,.92);color:#fff;padding:7px 14px;border-radius:20px;font-size:12.5px;pointer-events:none;opacity:0;transition:.2s;z-index:9}
 #pkm-kanto-panel .toast.on{opacity:1}
-@media(max-width:680px){
- #pkm-kanto-panel{right:3vw!important;left:3vw!important;width:auto;bottom:12px!important;top:auto!important;height:84vh}
- #pkm-kanto-panel .pb-head{gap:8px;padding:8px 10px;min-height:50px}
- #pkm-kanto-panel .pb-head h3{display:none}
- #pkm-kanto-panel .pb-tools{flex:1;width:100%;justify-content:space-between;gap:8px}
- #pkm-kanto-panel .pb-tabs{min-width:0}
- #pkm-kanto-panel .pb-tabs button{padding:6px 10px}
- #pkm-kanto-panel .pb-icons{gap:6px}
- #pkm-kanto-panel .pb-x{width:34px;height:34px;flex-basis:34px}
- #pkm-kanto-panel .pb-right{display:none}
- #pkm-kanto-panel .pb-right.show{display:block;position:absolute;inset:56px 10px 10px;width:auto;z-index:5;box-shadow:0 10px 30px rgba(0,0,0,.35)}
- #pkm-kanto-panel .dt-back{display:block}
- #pkm-kanto-panel .party{grid-template-columns:1fr}
-}
 /* —— 卡内追加 —— */
 #pkm-kanto-panel img.mini{width:22px!important;height:22px!important;image-rendering:pixelated!important;object-fit:contain!important;vertical-align:-6px;margin:-5px -2px!important;display:inline-block!important}
 #pkm-kanto-panel img.big{width:60px!important;height:60px!important;image-rendering:pixelated!important;margin:0 auto!important}
@@ -1424,11 +1410,33 @@ const HOST_CSS = BASE_CSS + `
 #pkm-kanto-panel .pk-snd .r .seg button{white-space:nowrap}
 #pkm-kanto-panel .pb-foot{gap:8px;align-items:center}
 #pkm-kanto-panel .pb-foot .pf-r{text-align:right;white-space:nowrap}
-@media(max-width:680px){
- #pkm-kanto-panel .pb-body{position:relative}
- #pkm-kanto-panel .pb-right.show{display:block;position:absolute;inset:56px 10px 10px;width:auto;z-index:5;box-shadow:0 10px 30px rgba(0,0,0,.35)}
- #pkm-kanto-panel .dt-back{display:block}
-}
+/* portrait-panel-20261025-1: geometry comes only from placePanel / visualViewport.
+   Use a class rather than media queries: ST layout and visible viewport can differ. */
+#pkm-kanto-panel{box-sizing:border-box;min-width:0;min-height:0;pointer-events:auto;
+ scroll-padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+#pkm-kanto-panel .pb-head,#pkm-kanto-panel .pb-foot{flex-shrink:0}
+#pkm-kanto-panel .pb-body{position:relative;overflow:hidden}
+#pkm-kanto-panel .party,#pkm-kanto-panel .boxgrid,#pkm-kanto-panel .pb-right{min-height:0;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+#pkm-kanto-panel .party{align-content:start}
+#pkm-kanto-panel.pkm-panel-compact .pb-head{gap:6px;padding:8px;min-height:52px}
+#pkm-kanto-panel.pkm-panel-compact .pb-head h3{display:none}
+#pkm-kanto-panel.pkm-panel-compact .pb-tools{flex:1;width:100%;justify-content:space-between;gap:6px;flex-wrap:wrap}
+#pkm-kanto-panel.pkm-panel-compact .pb-tabs{min-width:0}
+#pkm-kanto-panel.pkm-panel-compact .pb-tabs button{padding:6px 9px;min-height:40px}
+#pkm-kanto-panel.pkm-panel-compact .pb-icons{gap:4px;margin-left:auto}
+#pkm-kanto-panel.pkm-panel-compact .pb-x{width:40px;height:40px;flex-basis:40px}
+#pkm-kanto-panel.pkm-panel-compact .pb-body{padding:0 8px 8px}
+#pkm-kanto-panel.pkm-panel-compact .pb-right{display:none}
+#pkm-kanto-panel.pkm-panel-compact .pb-right.show{display:block;position:absolute;inset:0 8px 8px;width:auto;z-index:5;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+#pkm-kanto-panel.pkm-panel-compact .dt-back{display:block;min-height:40px;min-width:44px}
+#pkm-kanto-panel.pkm-panel-compact .party{grid-template-columns:repeat(var(--pkm-party-cols,1),minmax(0,1fr))}
+#pkm-kanto-panel.pkm-panel-compact .boxgrid{grid-template-columns:repeat(var(--pkm-box-cols,4),minmax(0,1fr));grid-auto-rows:minmax(64px,1fr)}
+#pkm-kanto-panel.pkm-panel-compact .box-top{flex-shrink:0;flex-wrap:wrap}
+#pkm-kanto-panel.pkm-panel-compact .box-top button{min-width:36px;min-height:36px}
+#pkm-kanto-panel.pkm-panel-compact .box-top .bn{min-width:90px}
+#pkm-kanto-panel.pkm-panel-compact .pb-foot{padding:0 10px 8px;flex-wrap:wrap;gap:2px 8px}
+#pkm-kanto-panel.pkm-panel-compact .slot{min-width:0}
+#pkm-kanto-panel.pkm-panel-compact .slot .n{overflow-wrap:anywhere}
 
 `;
 function ensureHostStyle() {
@@ -1843,7 +1851,7 @@ function onDexClick(m, e) {
  * 窗口缩放 / 旋转后自动收回屏内；面板和叫声气泡会跟着球所在的象限换边。点一下（没拖动）仍然是打开 / 关闭面板。 */
 const BALL_POS_KEY = 'pkmKantoBallPos', BALL_MARGIN = 6;
 let ballDrag = null;
-const vp = () => { const d = PD.documentElement, v = P.visualViewport; return { w: v?.width || d.clientWidth || P.innerWidth, h: v?.height || d.clientHeight || P.innerHeight }; };
+const vp = () => { const d = PD.documentElement, v = P.visualViewport; return { w: v?.width || d.clientWidth || P.innerWidth, h: v?.height || d.clientHeight || P.innerHeight, x: v?.offsetLeft || 0, y: v?.offsetTop || 0 }; };
 function readBallPos() {
   try {
     const j = JSON.parse(lsGet(BALL_POS_KEY) || 'null');
@@ -1887,27 +1895,54 @@ function placeBall(el) {
 // 面板贴着球展开：球在左半边就左对齐、右半边就右对齐；上下选空间大的一侧
 function placePanel() {
   const panel = PD.getElementById('pkm-kanto-panel'); if (!panel) return;
-  const { w, h } = vp();
-  if (w <= 680) {
-    panel.style.left = '3vw'; panel.style.right = '3vw'; panel.style.width = 'auto';
-    panel.style.top = ((P.visualViewport?.offsetTop||0)+Math.max(8,h*.08))+'px'; panel.style.bottom = 'auto'; panel.style.height = Math.max(180,h*.84)+'px'; panel.style.maxHeight = Math.max(180,h*.84)+'px';
-    return;
+  const { w, h, x, y } = vp();
+  const compact = w <= 680 || (w < 1000 && !!P.matchMedia?.('(pointer:coarse)').matches);
+  panel.classList.toggle('pkm-panel-compact', compact);
+  panel.style.setProperty('--pkm-box-cols', w < 360 ? '3' : w < 600 ? '4' : '6');
+  panel.style.setProperty('--pkm-party-cols', w > 600 ? '2' : '1');
+  const cs = P.getComputedStyle(panel), safe = name => Math.max(0, parseFloat(cs[name]) || 0);
+  const edge = compact ? 8 : 14;
+  const l = x + Math.max(edge, safe('scrollPaddingLeft'));
+  const t = y + Math.max(edge, safe('scrollPaddingTop'));
+  const rr = x + w - Math.max(edge, safe('scrollPaddingRight'));
+  const bb = y + h - Math.max(edge, safe('scrollPaddingBottom'));
+  const aw = Math.max(1, rr - l), ah = Math.max(1, bb - t);
+  const pw = Math.min(compact ? aw : 760, aw);
+  let ph = Math.min(compact ? 720 : 560, ah);
+  let left = l + (aw - pw) / 2, top = compact ? bb - ph : t + (ah - ph) / 2;
+  const ball = PD.getElementById('pkm-kanto-ball');
+  if (!compact && ball) {
+    const r = ball.getBoundingClientRect(), gap = 8;
+    left = Math.max(l, Math.min(rr - pw, r.left + r.width / 2 < x + w / 2 ? r.left : r.right - pw));
+    const above = Math.max(0, Math.min(bb, r.top - gap) - t);
+    const below = Math.max(0, bb - Math.max(t, r.bottom + gap));
+    const down = below > above, available = down ? below : above;
+    // If the ball is central, don't squeeze the panel to an unusable sliver.
+    if (available >= Math.min(ph, 280)) {
+      ph = Math.min(ph, available);
+      top = down ? r.bottom + gap : r.top - gap - ph;
+    }
   }
-  const ball = PD.getElementById('pkm-kanto-ball'); if (!ball) return;
-  const r = ball.getBoundingClientRect(); if (!r.width) return;
-  const gap = 8, edge = 12, pw = Math.min(760, w - 28);
-  let left = r.left + r.width / 2 < w / 2 ? r.left : r.right - pw;
-  left = Math.max(14, Math.min(w - pw - 14, left));
-  const above = r.top - gap - edge, below = h - r.bottom - gap - edge, down = below > above;
-  const available = Math.max(160, down ? below : above);
-  panel.style.left = left + 'px'; panel.style.right = 'auto'; panel.style.width = pw + 'px';
-  panel.style.height = Math.min(560, h * 0.82) + 'px';
-  panel.style.maxHeight = Math.min(560, h * 0.82, available) + 'px';
-  if (down) { panel.style.top = Math.round(r.bottom + gap) + 'px'; panel.style.bottom = 'auto'; }
-  else { panel.style.bottom = Math.round(h - r.top + gap) + 'px'; panel.style.top = 'auto'; }
+  top = Math.max(t, Math.min(bb - ph, top));
+  // One source of truth. Override old host/mobile CSS and ignore body zoom/transforms.
+  for (const [key, value] of Object.entries({position:'fixed',left:left+'px',top:top+'px',right:'auto',bottom:'auto',
+    width:pw+'px',height:ph+'px',maxWidth:pw+'px',maxHeight:ph+'px',minWidth:'0',minHeight:'0',margin:'0',
+    boxSizing:'border-box',transform:'none',zoom:'1'})) {
+    panel.style.setProperty(key.replace(/[A-Z]/g, c => '-'+c.toLowerCase()), value, 'important');
+  }
 }
 function installBallDrag(el) {
-  let suppressUntil = 0;
+  let suppressUntil = 0, nativeClickGate = null;
+  listen(PD, 'pointerdown', () => { nativeClickGate = null; }, true);
+  listen(PD, 'click', e => {
+    if (!nativeClickGate || !e.isTrusted) return;
+    if (performance.now() > nativeClickGate.until) { nativeClickGate = null; return; }
+    // WebKit can report the compatibility click as mouse / pointerId=1.
+    // A genuine next tap clears this gate at pointerdown, so it is never swallowed.
+    if (e.detail > 0 || e.pointerId === nativeClickGate.id) {
+      nativeClickGate = null; e.preventDefault(); e.stopImmediatePropagation();
+    }
+  }, true);
   el.addEventListener('click', e => { if (performance.now() < suppressUntil) { e.stopImmediatePropagation(); e.preventDefault(); } }, true); // 拖完松手不算“点击”
   el.addEventListener('dragstart', e => e.preventDefault());
   el.addEventListener('load', () => { if (!ballDrag) placeBall(el); }, true);   // 跟随的宝可梦图片加载完、尺寸变了以后再收回屏内
@@ -1939,6 +1974,7 @@ function installBallDrag(el) {
       // Dispatch the real click synchronously while the touch gesture is still active.
       // Browsers may omit compatibility click after pointer capture or DOM refresh.
       if (e?.type === 'pointerup' && d.pointerType !== 'mouse' && d.target?.isConnected) {
+        nativeClickGate = { id:d.id, until:performance.now()+700 };
         suppressUntil = 0; d.target.click(); suppressUntil = performance.now() + 700;
         el.dataset.touchClickUntil = String(Date.now() + 700);
       }
@@ -1954,8 +1990,19 @@ function installBallDrag(el) {
   listen(PD, 'pointerup', end);
   listen(PD, 'pointercancel', end);
   listen(el, 'lostpointercapture', e => { if (e.target === el && ballDrag?.moved) end(); });   // 触屏会先把隐式捕获从球转给 el（球上也会冒泡出 lostpointercapture），只有 el 自己丢了捕获才算结束
-  listen(P, 'resize', () => {placeBall(el);refreshAll();});
-  if (P.visualViewport) { listen(P.visualViewport, 'resize', () => {placeBall(el);refreshAll();}); listen(P.visualViewport, 'scroll', () => placeBall(el)); }
+  // Relayout only: resizing/keyboard must not rebuild details or lose scroll/selection.
+  let layoutFrame = 0, settleTimer = 0;
+  const reflow = () => {
+    if (layoutFrame || destroyed) return;
+    layoutFrame = P.requestAnimationFrame(() => { layoutFrame = 0; if (destroyed) return; placeBall(el); containFloatingUi(); placePanel(); });
+  };
+  const rotate = () => { reflow(); P.clearTimeout(settleTimer); settleTimer = P.setTimeout(reflow, 350); };
+  cleanups.push(() => { P.cancelAnimationFrame(layoutFrame); P.clearTimeout(settleTimer); });
+  listen(P, 'resize', reflow);
+  listen(P, 'orientationchange', rotate);
+  listen(P, 'pageshow', reflow);
+  if (P.screen?.orientation?.addEventListener) listen(P.screen.orientation, 'change', rotate);
+  if (P.visualViewport) { listen(P.visualViewport, 'resize', reflow); listen(P.visualViewport, 'scroll', reflow); }
   listen(P, 'blur', () => { if (ballDrag) end(); });
 }
 let panelTab = 'party';
@@ -2148,7 +2195,7 @@ function panelSelect(scope, index) {
 function renderPanel() {
   let el = PD.getElementById('pkm-kanto-panel');
   if (!el) {
-    el = PD.createElement('div'); el.id = 'pkm-kanto-panel'; el.className = 'pkb show'; PD.body.appendChild(el);
+    el = PD.createElement('div'); el.id = 'pkm-kanto-panel'; el.className = 'pkb show'; PD.documentElement.appendChild(el); // outside transformed/zoomed host body
     el.addEventListener('click', onPanelClick);
     el.addEventListener('keydown', e => {
       if (e.key !== 'Enter' && e.key !== ' ') return;
