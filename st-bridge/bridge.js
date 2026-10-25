@@ -313,7 +313,7 @@ function probeCry(id) {
   return pr;
 }
 function cryUrl(id) {
-  const n = Math.max(1, Math.min(9, Math.floor(Number(cryTakes[id])) || 1));
+  const n = Math.max(1, Math.min(32, Math.floor(Number(cryTakes[id])) || 1));
   let k = 1 + Math.floor(Math.random() * n);
   if (n > 1 && k === cryLast[id]) k = k % n + 1;
   cryLast[id] = k;
