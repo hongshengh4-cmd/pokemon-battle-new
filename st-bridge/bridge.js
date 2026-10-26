@@ -1,7 +1,8 @@
 import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './sprite-recovery.js?v=1.3.31';
 import * as K from './kanto-data.js?v=1.3.31';
 import '../src/engine/ability-choice.js?v=1.3.31';
-// 宝可梦·关都之旅 · 外置桥接 v1.3.31 + portrait-panel-20261025-1（仅队伍/仓库视口修复）
+import {habitatAt, habitatPool, HABITAT_LABELS, indoorAt, isCenterLocation, completedTreatment} from './field-fixes.js?v=20261026-six-fixes-1';
+// 宝可梦·关都之旅 · 20261026-six-fixes-1（保留竖屏与多随行；水域/治疗/配音修复）
 // 由角色卡的酒馆助手脚本加载：
 //   window.ST_BRIDGE_PACK='kanto-main';
 //   window.PKM_APP_BASE_URL='https://<你的用户名>.github.io/pokemon-battle/';
@@ -475,7 +476,7 @@ function cardEntries() { const c = ctx(); const ch = c?.characters?.[c?.characte
 function defaultPkm() {
   if (!initvarCache) {
     const e = cardEntries().find(x => /\[initvar\]/i.test(x.comment || ''));
-    try { initvarCache = JSON.parse(e.content).pkm; } catch (_) { initvarCache = { player: { name: '{{user}}', money: 3000, badges: [], bag: { 精灵球: 5, 伤药: 2 }, reputation: 0 }, party: { slots: [], box: [], follow: null }, dex: { seen: {}, caught: [], shiny: {} }, world: { location: '真新镇·大木研究所', time: '第1年 5月22日 07:00', mode: '同行模式' }, npcs: { records: {} }, battle: { count: 0, wins: 0, lastResult: null, done: [] } }; }
+    try { initvarCache = JSON.parse(e.content).pkm; } catch (_) { initvarCache = { player: { name: '{{user}}', money: 3000, badges: [], bag: { 精灵球: 10, 伤药: 5 }, reputation: 0 }, party: { slots: [], box: [], follow: null }, dex: { seen: {}, caught: [], shiny: {} }, world: { location: '真新镇·大木研究所', time: '第1年 5月22日 07:00', mode: '同行模式' }, npcs: { records: {} }, battle: { count: 0, wins: 0, lastResult: null, done: [] } }; }
   }
   const pkm = clone(initvarCache);
   if (pkm.player && /\{\{user\}\}/.test(pkm.player.name || '')) pkm.player.name = userName();
@@ -696,7 +697,7 @@ function bondRules(pkm, st) {
     `- {{user}} 照顾、训练、夸奖、喂食、并肩作战的宝可梦要加羁绊：{"op":"delta","path":"/pkm/party/slots/<i>/friendship/avs/<trust|passion|insight|devotion>","value":1~3}（信任/热情/默契/亲密，0~100）${slots.length ? '。槽位：' + slots.join('、') : ''}。`,
     '- 脚本兜底：在场却没写好感变化的人物自动 +1（上限 30）；对战后出场的宝可梦自动加信任、获胜再加热情。所以你写的变化要体现剧情里真正的影响。',
     '【宝可梦叫声】宝可梦（会说话的喵喵除外）只会喊自己的名字或名字的音节，队伍里的叫法见上面的“叫声”。不要把名字截成不存在的叫法（例如小火龙不叫“小火小火”，应是“小火龙～！”“小～火龙！”）。',
-    '【能力与 PP】宝可梦的个体值、性格、能力值和招式剩余 PP 由脚本维护；在宝可梦中心治疗后，把队伍每只的 hp、status、pp 都 replace 为 null（全部回满）。'].join('\n');
+    '【能力与 PP】宝可梦的个体值、性格、能力值和招式剩余 PP 由脚本维护；只有实际完成宝可梦中心治疗后才将队伍每只 hp、status、pp replace 为 null（全部回满）；正文要明确说明治疗完成，路过、预约或治疗中不能回满。局部治疗只更新实际治疗对象。'].join('\n');
 }
 // v1.3.9：小智一行现在带着的宝可梦（按原作进度）。和他们对战时 team 要写全；没约定几对几就是两边全队
 function companionLine() {
@@ -927,10 +928,46 @@ function reconcileBonds(pkm, mesid, presentKeys) {
   return changed;
 }
 
+
+// Center recovery uses this project's hp/status/pp=null convention: full health, healthy, full PP.
+function centerLocation(pkm){return latestState()?.state?.地点||pkm.world.location||'';}
+function healParty(pkm,plan={all:true,targets:[]}){
+ let changed=false;
+ for(const m of pkm.party.slots){if(!hasMon(m))continue;
+  if(!plan.all&&!plan.targets.includes(m.uid||m.slot||m.species||m.name))continue;
+  for(const k of ['hp','status','pp'])if(m[k]!==null){m[k]=null;changed=true;}
+ }
+ return changed;
+}
+function applyCenterHealing(pkm,mesid){
+ const msg=chat()[mesid];
+ if(!msg||msg.is_user||msg.is_system||mesid!==lastAiId()||PD.getElementById('pkm-kanto-modal'))return false;
+ const loc=parseState(msg.mes)?.地点||pkm.world.location;
+ const plan=completedTreatment({text:msg.mes,location:loc,party:pkm.party.slots,playerName:pkm.player.name||userName()});
+ if(!plan)return false;
+ const key='center:'+mesid+':'+(msg.swipe_id??0);
+ if(!isObj(pkm.integration))pkm.integration={};
+ const receipts=Array.isArray(pkm.integration.centerHeals)?pkm.integration.centerHeals:[];
+ if(receipts.includes(key))return false;
+ healParty(pkm,plan);
+ pkm.integration.centerHeals=[...receipts,key].slice(-32);
+ return true;
+}
+async function healAtCenter(){
+ await writePkm(pkm=>{
+  if(PD.getElementById('pkm-kanto-modal'))throw Error('请先结束当前对战，再接受中心治疗。');
+  if(!isCenterLocation(centerLocation(pkm)))throw Error('请先进入宝可梦中心；门口、路过或前往途中不能治疗。');
+  if(!pkm.party.slots.some(hasMon))throw Error('队伍里还没有宝可梦。');
+  applyCenterHealing(pkm,lastAiId());healParty(pkm);
+ });
+ toast('宝可梦中心：队伍 HP、异常状态和 PP 已全部恢复；未消耗物品。');
+}
+function repairCenterHealing(){const id=lastAiId();if(id<0)return;const probe=readPkm();if(applyCenterHealing(probe,id))writePkm(p=>{applyCenterHealing(p,id);}).catch(e=>LOG('中心治疗同步失败',e));}
+
 function applySync(pkm, mesid, opts = {}) {
   if (opts.full) { const ops = parsePatchOps(chat()[mesid]?.mes); if (ops.length) applyOpsGeneric(pkm, ops); }
   const st = parseState(chat()[mesid]?.mes);
-  let changed = !!opts.full;
+  let changed = applyCenterHealing(pkm, mesid) || !!opts.full;
   const present = [];
   if (!st) return reconcileBonds(pkm, mesid, present) || changed;
   const set = (obj, k, v) => { if (v != null && v !== '' && obj[k] !== v) { obj[k] = v; changed = true; } };
@@ -1586,7 +1623,7 @@ function renderSetup(el) {
     const o = OPEN_STARTERS[S.starter] || {};
     body = head('04', 'READY TO GO', '一切就绪，出发吧！', '确认后：档案写入变量、初始伙伴放进队伍，并自动发送第一条消息开始旅程。') +
       `<div class="pko-confirm"><div class="pko-cf-partner" style="--c:${o.color || '#dc0a2d'}">${starterArt(S.starter)}<b>${esc(S.nickname ? S.nickname + '（' + S.starter + '）' : S.starter)}</b><span>${typeChips(S.starter)} Lv5</span></div>${license}</div>
-      <div class="pko-cf-list"><span>🎒 精灵球 ×5 · 伤药 ×2</span><span>💴 3000 元</span><span>🕖 ${esc(info.start.time)}</span><span>📍 ${esc(info.start.location)}</span></div>
+      <div class="pko-cf-list"><span>🎒 精灵球 ×10 · 伤药 ×5</span><span>💴 3000 元</span><span>🕖 ${esc(info.start.time)}</span><span>📍 ${esc(info.start.location)}</span></div>
       ${S.error ? `<div class="pko-err">${esc(S.error)}</div>` : ''}`;
     if (S.mode !== '小智模式' && S.background.trim()) body += `<div class="pko-note"><b>人物背景</b><div style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(S.background)}</div></div>`;
     if (S.mode === '沙盒模式' && S.customEnabled) body += customSummary();
@@ -1669,6 +1706,9 @@ async function submitSetup() {
     await writePkm(pkm=>{
       // A retry after a send failure must not reroll or overwrite an already-registered opening.
       if(pkm.integration.profile) return;
+      // New registrations only; never top up an existing player's inventory.
+      pkm.player.bag.精灵球=Math.max(10,Number(pkm.player.bag.精灵球)||0);
+      pkm.player.bag.伤药=Math.max(5,Number(pkm.player.bag.伤药)||0);
       Object.assign(pkm.player,{name,gender,hometown,id:S.lic,background});
       pkm.world.mode=S.mode;pkm.world.time=info.start.time;pkm.world.location=info.start.location;
       pkm.party.slots=Array.from({length:6},(_,i)=>party[i] || emptySlot(i+1));
@@ -1760,7 +1800,7 @@ function dexTrainer(pkm, st) {
     <div style="grid-column:1/-1"><b>剧情</b>${esc(st.剧情 || '—')}</div>${st.在场 ? `<div style="grid-column:1/-1"><b>在场</b>${esc(st.在场)}</div>` : ''}</div>
     <div class="badges">${K.BADGES.map(b => `<span class="badge ${pl.badges.includes(b) ? 'on' : ''}" title="${esc(b)} · ${esc(K.BADGE_GYM[b])}" style="background:${K.BADGE_COLORS[b]}">${esc(b[0])}</span>`).join('')}<span class="muted" style="align-self:center;font-size:12px">徽章 ${pl.badges.length}/8</span></div>
     ${party.length ? party.map(s => `<div class="mon-row">${spriteImg(s.species || s.name, { shiny: s.shiny })}<div class="grow">${monLine(s, pkm)}<small>${esc((s.moves || []).filter(Boolean).join(' / ') || '—')}${s.hp != null && s.maxHp ? ` · HP ${s.hp}/${s.maxHp}` : ''}</small>${hpBar(s)}</div></div>`).join('') : '<div class="empty">还没有宝可梦。</div>'}
-    <div class="pk-note">队伍管理、换首发、跟随：点右下角的精灵球。</div>`;
+    ${isCenterLocation(centerLocation(pkm))?'<div class="pk-note"><button type="button" class="blue" data-center-heal="1">宝可梦中心 · 治疗全队</button> 恢复 HP、状态与 PP，不消耗物品。</div>':''}<div class="pk-note">队伍管理、换首发、跟随：点右下角的精灵球。</div>`;
 }
 function dexDex(pkm) {
   const seen = Object.entries(pkm.dex.seen), caught = new Set(pkm.dex.caught);
@@ -1802,11 +1842,15 @@ function dexMap(pkm, st) {
 function nearbyList(pkm, st) {
   const loc = String(st.地点 || pkm.world.location || '').replace(/皮卡丘森林/g,'皮卡丘的森林');
   if (!loc) return { list: [], reason: '还不知道当前位置。' };
-  if (K.INDOOR_WORDS.some(w => loc.includes(w)) && !/道路|森林|山|野|草/.test(loc)) return { list: [], reason: '这里是室内或城镇设施，没有野生宝可梦。去道路、森林或水边看看吧。' };
+  if (indoorAt(loc)) return { list: [], reason: '这里是室内或城镇设施，没有野生宝可梦。去道路、森林或水边看看吧。' };
+  const habitat=habitatAt(loc);
+  if(habitat==='unknownWater')return {list:[],reason:'当前只写了水边／岸边，无法判断栖息地。请将地点写为河边、湖畔、海边或具体海路，避免混出不符合环境的宝可梦。',loc,habitat};
+  const waterTable=habitatPool(habitat);
   const node = locateNode(loc);
   let table = loc.includes('皮卡丘的森林') ? K.ENCOUNTERS.vforest : ((node && K.ENCOUNTERS[node.id]) || null);
   if (!table) { const lv = Math.max(3, (pkm.party.slots.filter(hasMon).reduce((a, s) => Math.max(a, Number(s.lv) || 5), 5)) - 2); table = [['波波', lv - 2, lv + 2, 3], ['小拉达', lv - 2, lv + 2, 3], ['烈雀', lv - 1, lv + 2, 2], ['绿毛虫', lv - 2, lv, 2], ['独角虫', lv - 2, lv, 2]]; }
-  if (K.WATER_WORDS.some(w => loc.includes(w))) table = table.concat(K.WATER_ENCOUNTERS);
+  if(waterTable)table=waterTable;
+  else if(node?.id!=='seafoam'){const aquaticOnly=new Set(['鲤鱼王','角金鱼','金鱼王','玛瑙水母','毒刺水母','墨海马','海刺龙','大舌贝','铁甲贝','海星星','宝石海星']);table=table.filter(t=>!aquaticOnly.has(t[0]));}
   const d = parseDate(st.时间 || pkm.world.time);
   const seedKey = `${loc}|${d ? d.day : 0}|${d ? Math.floor(d.h / 4) : 0}`;
   const r = rng(hash(seedKey));
@@ -1821,18 +1865,19 @@ function nearbyList(pkm, st) {
     list.push({ key, species: pick[0], level: lv, gender, shiny: r() < 1 / 400 });
   }
   if(loc.includes('皮卡丘的森林')){list[0]={...list[0],species:'皮卡丘'};list[1]={...list[1],species:'皮卡丘'};}
-  return { list: list.filter(w => !pkm.wild.used[w.key]), reason: '', loc };
+  return { list: list.filter(w => !pkm.wild.used[w.key]), reason: '', loc, habitat };
 }
 function dexNear(pkm, st) {
-  const { list, reason } = nearbyList(pkm, st);
+  const { list, reason, habitat } = nearbyList(pkm, st);
   const canFight = pkm.party.slots.some(s => hasMon(s) && s.status !== '濒死' && s.hp !== 0);
   const balls = Object.entries(K.ZH_BALL).map(([zh]) => Number(pkm.player.bag[zh]) || 0).reduce((a, b) => a + b, 0);
   if (reason) return `<div class="empty">${esc(reason)}</div>`;
-  return `${list.length ? list.map(w => `<div class="near-row">${spriteImg(w.species, { anim: true, shiny: w.shiny })}<div class="grow"><b>${esc(w.species)}</b>${w.shiny ? '<span class="tag gold">✨</span>' : ''} <span class="muted">Lv${w.level} ${genderMark(w.gender)}</span><br><span class="muted" style="font-size:11.5px">在草丛里窸窸窣窣……</span></div><div class="acts"><button class="red" data-wild="${w.key}" data-mode="fight" ${canFight ? '' : 'disabled'}>对战</button><button class="blue" data-wild="${w.key}" data-mode="catch" ${canFight ? '' : 'disabled'}>捕捉</button></div></div>`).join('') : '<div class="empty">附近的宝可梦都跑开了。换个地方或过一会儿再来。</div>'}
+  return `${list.length ? list.map(w => `<div class="near-row">${spriteImg(w.species, { anim: true, shiny: w.shiny })}<div class="grow"><b>${esc(w.species)}</b>${w.shiny ? '<span class="tag gold">✨</span>' : ''} <span class="muted">Lv${w.level} ${genderMark(w.gender)}</span><br><span class="muted" style="font-size:11.5px">${esc(habitat&&habitat!=='land'?'在'+(HABITAT_LABELS[habitat]||'水域')+'中活动……':'在草丛里窸窸窣窣……')}</span></div><div class="acts"><button class="red" data-wild="${w.key}" data-mode="fight" ${canFight ? '' : 'disabled'}>对战</button><button class="blue" data-wild="${w.key}" data-mode="catch" ${canFight ? '' : 'disabled'}>捕捉</button></div></div>`).join('') : '<div class="empty">附近的宝可梦都跑开了。换个地方或过一会儿再来。</div>'}
     <div class="pk-note">${canFight ? `背包里的精灵球：${balls} 个。` : '队伍里没有能战斗的宝可梦，先去宝可梦中心吧。'}“捕捉”会直接打开对战里的精灵球菜单，投球后才判定；结果会填进输入框，发送后剧情继续。附近名单每 4 小时（游戏时间）或换地点刷新。</div>`;
 }
 function onDexClick(m, e) {
   const t = e.target.closest('button'); if (!t) return;
+  if(t.dataset.centerHeal){healAtCenter().catch(e=>toast(e.message,'warning'));return;}
   if (t.dataset.tab) { m.tab = t.dataset.tab; renderDex(m); return; }
   if (t.dataset.loveAll) { m.loveAll = !m.loveAll; renderDex(m); return; }
   if (t.dataset.wild) {
@@ -2211,6 +2256,11 @@ function renderPanel() {
     const source = panelSelection.scope === 'party' ? pkm.party.slots : pkm.party.box;
     if (!hasMon(source?.[panelSelection.index])) panelSelection = null;
   }
+  const viewKey=JSON.stringify([panelTab,panelBoxPage,panelSelection]);
+  const keepScroll=el.dataset.viewKey===viewKey;
+  const scrolls=keepScroll?['.pb-right','.party','.boxgrid'].map(q=>[q,el.querySelector(q)?.scrollTop||0]):[];
+  const pageScroll=PD.scrollingElement?{x:PD.scrollingElement.scrollLeft,y:PD.scrollingElement.scrollTop}:null;
+  el.dataset.viewKey=viewKey;
   let muted = false; try { muted = P.localStorage?.getItem('pkmKantoMute') === '1'; } catch (_) {}
   const resetIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-6.6 8-13A8 8 0 1 0 4 9c0 6.4 8 13 8 13Z" fill="#ff557c"/><circle cx="12" cy="9" r="2.5" fill="#fff"/></svg>';
   const soundIcon = muted
@@ -2218,10 +2268,14 @@ function renderPanel() {
     : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3Z" fill="currentColor"/><path d="M16 8a6 6 0 0 1 0 8M18.5 5.5a9.5 9.5 0 0 1 0 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
   const closeIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>';
   el.innerHTML = `<div class="pb-head"><h3><i></i>宝可梦</h3><div class="pb-tools"><div class="pb-tabs"><button type="button" data-tab="party" class="${panelTab === 'party' ? 'on' : ''}">队伍 ${count}/6</button><button type="button" data-tab="box" class="${panelTab === 'box' ? 'on' : ''}">仓库</button></div>
-    <div class="pb-icons"><button type="button" class="pb-x" data-op="resetpos" title="把精灵球放回右下角" aria-label="复位精灵球">${resetIcon}</button><button type="button" class="pb-x" data-op="mute" title="跟随宝可梦的叫声" aria-label="切换叫声">${soundIcon}</button><button type="button" class="pb-x" data-op="close" aria-label="关闭">${closeIcon}</button></div></div></div>
+    <div class="pb-icons">${isCenterLocation(centerLocation(pkm))?'<button type="button" class="pb-x" data-op="center-heal" title="宝可梦中心：恢复全队 HP、状态与 PP" aria-label="宝可梦中心治疗全队">✚</button>':''}<button type="button" class="pb-x" data-op="resetpos" title="把精灵球放回右下角" aria-label="复位精灵球">${resetIcon}</button><button type="button" class="pb-x" data-op="mute" title="跟随宝可梦的叫声" aria-label="切换叫声">${soundIcon}</button><button type="button" class="pb-x" data-op="close" aria-label="关闭">${closeIcon}</button></div></div></div>
     <div class="pb-body"><div class="pb-left">${panelTab === 'party' ? panelPartyMarkup(pkm) : panelStorageMarkup(pkm)}</div><div class="pb-right ${panelSelection ? 'show' : ''}">${panelDetailMarkup(pkm)}</div></div>
     <div class="pb-foot"><span>点击宝可梦查看详情</span><span class="pf-r">队伍 ${count}/6 · 仓库 ${pkm.party.box.length}</span></div><div class="toast"></div>`;
   placePanel();
+  const restoreScroll=()=>{if(!keepScroll||!el.isConnected||el.dataset.viewKey!==viewKey)return;for(const[q,y]of scrolls){const n=el.querySelector(q);if(n)n.scrollTop=y;}};
+  restoreScroll();
+  if(keepScroll&&pageScroll&&PD.scrollingElement){PD.scrollingElement.scrollTop=pageScroll.y;PD.scrollingElement.scrollLeft=pageScroll.x;}
+  P.requestAnimationFrame(restoreScroll);
   const mons = panelTab === 'party' ? pkm.party.slots.filter(hasMon) : pkm.party.box.filter(hasMon);
   probePanel(mons);
 }
@@ -2231,12 +2285,18 @@ function onPanelInput(e) {
   lsSet('pkmKantoCryVol', t.value); const v = t.parentElement?.querySelector('.vv'); if (v) v.textContent = t.value;
 }
 function onPanelChange(e) { const t = e.target; if (t?.dataset?.op === 'vol') { lsSet('pkmKantoCryVol', t.value); previewCry(); } }
-function previewMon() { const p = readPkm(), mons = [...p.party.slots, ...p.party.box].filter(hasMon); return mons.find(x => x.uid && x.uid === p.party.follow) || mons.find(x => x.isLead) || mons[0] || null; }
+function previewMon() {
+ const p=readPkm();
+ const selected=panelSelection && (panelSelection.scope==='box'?p.party.box:p.party.slots)[panelSelection.index];
+ if(hasMon(selected))return selected;
+ const mons=[...p.party.slots,...p.party.box].filter(hasMon);
+ return mons.find(x=>x.uid&&x.uid===p.party.follow)||mons.find(x=>x.isLead)||mons[0]||null;
+}
 function previewCry(s = previewMon(), voice) { if (s) cry(s, voice); }
 // 配音相关按钮（不写变量，只改本机设置；单只设置需要宝可梦的 uid，没有就先写一次变量补上）
 async function onVoiceOp(b) {
   const op = b.dataset.op;
-  if (op === 'gvoice') { lsSet('pkmKantoCrySrc', VOICES.includes(b.dataset.v) ? b.dataset.v : 'anime'); renderPanel(); previewCry(); return; }
+  if (op === 'gvoice') { lsSet('pkmKantoCrySrc', VOICES.includes(b.dataset.v) ? b.dataset.v : 'anime'); renderPanel(); previewCry(undefined, VOICES.includes(b.dataset.v)?b.dataset.v:undefined); return; }
   if (op === 'fallback') { lsSet('pkmKantoCryFallback', FALLBACKS.includes(b.dataset.v) ? b.dataset.v : 'game'); renderPanel(); previewCry(undefined, 'anime'); return; }
   if (op === 'cbase-save') {
     const v = String(b.parentElement?.querySelector('[data-op=cbase]')?.value || '').trim();
@@ -2267,6 +2327,7 @@ async function onPanelClick(e) {
     }
     const op = b.dataset.op, i = Number(b.dataset.i);
     if (['voice', 'hear', 'gvoice', 'fallback', 'cbase-save'].includes(op)) { try { await onVoiceOp(b); } catch (err) { toast(err?.message || String(err), 'warning'); } return; }
+    if(op==='center-heal'){try{await healAtCenter();}catch(err){toast(err.message,'warning');}return;}
     if (op === 'close') { PD.getElementById('pkm-kanto-panel')?.remove(); return; }
     if (op === 'back') { panelSelection = null; renderPanel(); return; }
     if (op === 'resetpos') { saveBallPos(null); placeBall(PD.getElementById('pkm-kanto-ball')); return; }
@@ -2889,7 +2950,7 @@ function rekickFrames() {
     if (st && /没有连上对战系统|正在读取对战块/.test(st.textContent || '') && (f.getAttribute('srcdoc') || '').includes(CH)) { try { f.srcdoc = f.getAttribute('srcdoc'); } catch (_) {} }
   });
 }
-function onChatEvent() { eventCache = null; initvarCache = null; lastInjection = ''; refreshAll(); refreshInjection(); setTimeout(rekickFrames, 400); }
+function onChatEvent() { eventCache = null; initvarCache = null; lastInjection = ''; refreshAll(); refreshInjection(); repairCenterHealing(); setTimeout(rekickFrames, 400); }
 function onMessageReceived(id) {
   const mesid = Number.isInteger(id) ? id : lastAiId();
   refreshInjection(); refreshAll();
@@ -3144,7 +3205,9 @@ function syncMultiFollowers(pkm){
   const mon=pkm.party.slots.find(m=>m.uid===id);let el=PD.querySelector('.pkm-follow-unit[data-uid="'+id+'"]');
   const height=FOLLOWER_HEIGHTS[mon.species] || ABILITY_DEX?.[speciesId(mon.species)]?.heightm || 1;
   const size=Math.max(34,Math.min(112,height*48));
-  if(!el){el=PD.createElement('div');el.className='pkb pkm-follow-unit';el.dataset.uid=id;const im=PD.createElement('img');im.className='follower';im.draggable=false;im.src=spriteUrl(mon.species,{anim:true,shiny:mon.shiny});el.append(im);PD.body.append(el);installOriginalFollowerMood(el);installFollowerGesture(el);}
+  if(!el){el=PD.createElement('div');el.className='pkb pkm-follow-unit';el.dataset.uid=id;const im=PD.createElement('img');im.className='follower';im.draggable=false;im.src=spriteUrl(mon.species,{anim:true,shiny:mon.shiny});el.append(im);PD.body.append(el);installOriginalFollowerMood(el);installFollowerGesture(el);
+  el.tabIndex=0;el.setAttribute('role','button');el.setAttribute('aria-label',monName(mon)+'，点击互动并听叫声，长按查看详情');
+  el.addEventListener('keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;e.preventDefault();const m=readPkm().party.slots.find(m=>m.uid===el.dataset.uid);if(hasMon(m)&&panelHpInfo(m).hp!==0){playCry(m,pickCryLine(m));el.__originalMood?.interact();}});}
   const followerImg=el.querySelector('img'),desiredSprite=spriteUrl(mon.species,{anim:true,shiny:mon.shiny});if(followerImg.dataset.pkmDesired!==desiredSprite){followerImg.dataset.pkmDesired=desiredSprite;followerImg.__pkmSpriteState=null;followerImg.src=desiredSprite;}
   el.querySelector('img').style.cssText='height:'+size+'px;width:auto;max-width:150px;max-height:120px';
   el.classList.toggle('pos-l',el.getBoundingClientRect().left<150);el.classList.toggle('pos-t',el.getBoundingClientRect().top<100);const hp=panelHpInfo(mon);el.querySelector('img').title=monName(mon)+' · HP '+hp.label+' · '+height+'m；拖动摆放，长按打开原精灵球面板';
@@ -3156,7 +3219,7 @@ function installFollowerGesture(el){el.addEventListener('pointermove',e=>{if(!fo
  if(e.button>0)return;e.preventDefault();e.stopPropagation();const r=el.getBoundingClientRect();followerGesture={id:e.pointerId,el,x:e.clientX,y:e.clientY,left:r.left,top:r.top,moved:false,held:false};try{el.setPointerCapture(e.pointerId)}catch(_){}
  followerGesture.timer=setTimeout(()=>{if(!el.isConnected||!followerGesture||followerGesture.moved)return;followerGesture.held=true;const pkm=readPkm(),i=pkm.party.slots.findIndex(m=>m.uid===el.dataset.uid);panelSelection={scope:'party',index:i};openPanel();},550);
  });el.addEventListener('pointermove',e=>{const g=followerGesture;if(!g||g.el!==el||g.id!==e.pointerId)return;const dx=e.clientX-g.x,dy=e.clientY-g.y;const dd=e.clientX-(g.lastX??g.x);g.lastX=e.clientX;if(Math.abs(dd)>2&&Math.abs(dx)<56&&Math.abs(dy)<40){const dir=dd>0?1:-1;if(dir!==g.strokeDir){g.strokeDir=dir;g.strokes=(g.strokes||0)+1;}if(g.strokes>=5){g.petting=true;g.moved=true;clearTimeout(g.timer);followerPositions.set(el.dataset.uid,{x:g.left,y:g.top});el.style.left=g.left+'px';el.style.top=g.top+'px';el.__originalMood?.pet();}}if(g.petting)return;if(Math.hypot(dx,dy)>12){g.moved=true;clearTimeout(g.timer)}if(!g.moved)return;e.preventDefault();const v=vp();const pos={x:Math.max(6,Math.min(v.w-el.offsetWidth-6,g.left+dx)),y:Math.max(42,Math.min(v.h-el.offsetHeight-8,g.top+dy))};followerPositions.set(el.dataset.uid,pos);el.style.left=pos.x+'px';el.style.top=pos.y+'px';});
- el.addEventListener('pointerup',e=>{const g=followerGesture;if(!g||g.el!==el)return;clearTimeout(g.timer);if(g.moved)persistFollowers();if(!g.moved&&!g.held){el.__originalMood?.interact();}followerGesture=null;});el.addEventListener('pointercancel',()=>{clearTimeout(followerGesture?.timer);followerGesture=null;});
+ el.addEventListener('pointerup',e=>{const g=followerGesture;if(!g||g.el!==el)return;clearTimeout(g.timer);if(g.moved)persistFollowers();if(!g.moved&&!g.held){const mon=readPkm().party.slots.find(m=>m.uid===el.dataset.uid);if(hasMon(mon)&&panelHpInfo(mon).hp!==0)playCry(mon,pickCryLine(mon));el.__originalMood?.interact();}followerGesture=null;});el.addEventListener('pointercancel',()=>{clearTimeout(followerGesture?.timer);followerGesture=null;});
 }
 function careInfo(name,mon){const h=panelHpInfo(mon);let amount=name==='伤药'?20:name==='橙橙果'?10:0;const heal=h.faint?0:Math.min(amount,Math.max(0,h.max-(h.hp??h.max)));return{hp:h.hp,max:h.max,heal,valid:heal>0};}
 function showCare(name,id){if(PD.getElementById('pkm-kanto-modal')){toast('对战中请在对战窗口使用道具，避免与战斗结算冲突。');return;}const pkm=readPkm(),mon=pkm.party.slots.find(m=>m.uid===id);if(!mon||!isFollowing(pkm,id)||!(Number(pkm.player.bag[name])>0))return;const effect=careInfo(name,mon);pendingCare={name,id};PD.getElementById('pkm-care-confirm')?.remove();const d=PD.createElement('div');d.id='pkm-care-confirm';d.className='pkb';d.innerHTML=`<div class="care-card"><h3>确认${name==='橙橙果'?'喂食':'使用物品'}</h3><div class="care-line">${itemIcon(name)}<b>${esc(name)}</b> → ${spriteImg(mon.species)}<b>${esc(monName(mon))}</b></div><p>HP ${effect.hp}/${effect.max}${effect.valid?' → '+(effect.hp+effect.heal)+'/'+effect.max+'（+'+effect.heal+'）':''}</p><p>${effect.valid?'确认后背包扣除 1 个；取消不消耗。':'当前使用无效：满血或濒死，不消耗物品。'}</p><div class="acts"><button class="ghost" data-care="cancel">取消</button><button class="blue" data-care="confirm" ${effect.valid?'':'disabled'}>确认使用</button></div><small>效果来自原状态栏道具说明；未新增饱腹、食物或额外羁绊数值。</small></div>`;PD.body.append(d);let ignoreTrustedUntil=0;d.addEventListener('pointerup',e=>{if(e.pointerType!=='touch')return;const b=e.target.closest('[data-care]');if(b&&!b.disabled){ignoreTrustedUntil=Date.now()+700;b.click();}});d.addEventListener('click',async e=>{if(e.isTrusted&&Date.now()<ignoreTrustedUntil)return;const act=e.target.closest('[data-care]')?.dataset.care;if(act==='cancel'){pendingCare=null;d.remove();}if(act==='confirm')await applyCare();});}
@@ -3283,7 +3346,7 @@ async function start() {
     const f = findStat(), raw = f?.vars?.stat_data?.pkm;
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
-  P.PKMKanto = { __owner: instance, version: VERSION, base: BASE, mountDex, installBagDrag, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261026-six-fixes-1", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
