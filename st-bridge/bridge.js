@@ -581,66 +581,108 @@ function makeStarter(species, nickname, mode) {
  * 3. 剧情节点（读取卡内世界书的事件详情 / 阶段条目）
  * ==================================================================== */
 let eventCache = null;
+/* ===== v1.3.31-plot-fix ①：事件表优先读线上世界书（和脚本同版本发布），失败回退卡内嵌 ===== */
+let onlineEntries = null, onlineMeta = null;
+const worldReady = fetch(BASE + 'st-bridge/kanto-world.json?v=' + VERSION)
+  .then(r => (r.ok ? r.json() : null))
+  .then(j => {
+    if (j && Array.isArray(j.entries) && j.entries.length) {
+      onlineEntries = j.entries; onlineMeta = { version: j.version || null, count: j.entries.length };
+      eventCache = null; refreshInjection();
+      LOG('线上世界书已加载 ' + j.entries.length + ' 条' + (j.version ? ' v' + j.version : ''));
+    } else LOG('线上世界书为空，改用卡内嵌世界书');
+  })
+  .catch(e => LOG('线上世界书加载失败，改用卡内嵌世界书', (e && e.message) || e));
+function worldEntries() { return onlineEntries || cardEntries(); }
 function events() {
   if (eventCache) return eventCache;
-  const list = [], stages = {};
-  for (const e of cardEntries()) {
+  const list = [], stages = {}, seenEvt = new Set();
+  for (const e of worldEntries()) {
     const keys = e.keys || e.key || [];
     const evt = keys.find(k => /^EVT_/.test(k));
     const stg = keys.find(k => /^STAGE_\d+/.test(k));
     if (evt) {
+      if (seenEvt.has(evt)) continue;              /* ② 去重：同一事件只认第一条，防重复导入 */
+      seenEvt.add(evt);
       const content = String(e.content || '');
       const nodeText = (content.split(/\n- 节点:\s*\n/)[1] || '').split(/\n\s*介入点[：:]|\n- 对战机会/)[0];
       const nodes = nodeText ? nodeText.split(/\n(?=\s{2}\d+\.\s)/).map(t => t.trim()).filter(Boolean) : [];
       list.push({ id: evt.slice(4), title: String(e.comment || '').split('｜').slice(1).join('｜') || evt, content,
         stage: (content.match(/阶段[:：]\s*(S\d+[^\n]*)/) || [])[1] || '', date: parseDate((content.match(/时间[:：]\s*([^\n（(]+)/) || [])[1]),
         nodes: nodes.length ? nodes : ['（全事件）'],
-        hook: (content.match(/介入点[：:]\s*([^\n]+)/) || [])[1] || '', battle: (content.match(/对战机会[:：]\s*([^\n]+)/) || [])[1] || '' });
+        hook: (content.match(/介入点[：:]\s*([^\n]+)/) || [])[1] || '', battle: (content.match(/对战机会[:：]\s*([^\n]+)/) || [])[1] || '', ord: list.length });
     } else if (stg) {
       const n = 'S' + Number(stg.slice(6));
       (stages[n] = stages[n] || []).push({ comment: e.comment, content: String(e.content || '') });
     }
   }
-  return (eventCache = { list, stages });
+  /* ② 不迷信条目顺序：按事件参考日期升序排（日期相同保留原顺序）。世界书条目被拖动/乱序也不会定位错。 */
+  const dated = list.filter(e => e.date), undated = list.filter(e => !e.date);
+  dated.sort((a, b) => (a.date.day - b.date.day) || (a.ord - b.ord));
+  return (eventCache = { list: dated.concat(undated), stages });
 }
+
+const PLOT_START_EVENT = 'EP001';        /* ③ 开局锚点：没有进度时显式从这里开始，不取 list[0] */
+const PLOT_DATE_SANITY = 60;             /* ④ 日期自检阈值：实测相邻事件间隔最大 14 天，超过 60 天判为定位异常 */
+const PLOT_RE = /([A-Z]{2,3}\d{2,3})\s*[｜|]\s*节点\s*(\d+)\s*[｜|]\s*(进行中|节点完成|完成|跳过)/;
+const PLOT_FREE_RE = /自由\s*[｜|]\s*节点\s*(\d+)\s*[｜|]\s*(进行中|节点完成|完成|跳过)/;
 function plotPosition() {
   const { list } = events(); if (!list.length) return null;
   const index = Object.fromEntries(list.map((e, i) => [e.id, i]));
-  const done = new Set(); let last = null, maxIdx = -1;
+  const done = new Set(); let last = null, maxIdx = -1, freeTail = false;
   const c = chat();
   for (let i = 0; i < c.length; i++) {
     if (c[i]?.is_user) continue;
     const st = parseState(c[i]?.mes); if (!st?.剧情) continue;
-    const m = st.剧情.match(/([A-Z]{2,3}\d{2,3})\s*[｜|]\s*节点\s*(\d+)\s*[｜|]\s*(进行中|节点完成|完成|跳过)/);
-    if (!m || index[m[1]] === undefined) continue;
+    const g = String(st.剧情);
+    const m = g.match(PLOT_RE);
+    if (!m || index[m[1]] === undefined) { freeTail = PLOT_FREE_RE.test(g) || /自由/.test(g); continue; }
+    freeTail = false;
     last = { id: m[1], node: +m[2], status: m[3] };
     if (m[3] === '完成' || m[3] === '跳过') done.add(m[1]);
     maxIdx = Math.max(maxIdx, index[m[1]]);
   }
   const mode = latestState()?.state?.模式 || readPkm().world.mode || '同行模式';
   const now = parseDate(latestState()?.state?.时间 || readPkm().world.time);
-  let cur, node = 1, note = '';
+  /* ⑤ 脚本侧进度兜底：聊天里读不到时，用 pkm.world.event（world 已声明 extensible） */
+  const w = readPkm().world || {};
+  if (!last && w.event && index[w.event] !== undefined && !done.has(w.event)) {
+    last = { id: w.event, node: Number(w.node) || 1, status: w.nodeStatus || '进行中' };
+    maxIdx = Math.max(maxIdx, index[last.id]);
+  }
+  let cur, node = 1, note = '', free = false;
   if (last && !done.has(last.id)) {
     cur = list[index[last.id]];
     node = last.status === '节点完成' ? last.node + 1 : last.node;
     if (node > cur.nodes.length) { node = cur.nodes.length; note = '上一节点已演完：本轮收束这个事件，状态栏写“完成”。'; }
+    free = freeTail;    /* 上一幕是"自由"→ 保持进度不动，不回退也不强推 */
   } else {
+    free = freeTail;
     let i = maxIdx + 1;
     while (i < list.length && done.has(list[i].id)) i++;
-    // 沙盒模式：事件按日期在各地发生，过期 3 天以上视作背景中已经发生
     const skipped = [];
     if (mode.includes('沙盒') && now) while (i < list.length - 1 && list[i].date && now.day - list[i].date.day > 3) { skipped.push(list[i].id); i++; }
     if (i >= list.length) return { finished: true, mode };
     cur = list[i];
     if (skipped.length) note = `沙盒模式：${skipped.join('、')} 已按日期在背景中发生，{{user}} 只能听到公开的消息。`;
   }
-  let gap = '';
-  if (now && cur.date) {
-    const d = cur.date.day - now.day;
-    if (d > 0) gap = mode.includes('沙盒') ? `事件参考日期还有 ${d} 天，可以先写自由旅行与日常。` : `正文时间比事件参考日期早 ${d} 天：先写赶路、训练和日常，必要时一两句带过几天，再自然进入事件。`;
+  if (!last && !done.size && cur && cur.id !== PLOT_START_EVENT && index[PLOT_START_EVENT] !== undefined) {
+    const anchor = list[index[PLOT_START_EVENT]];
+    if (anchor) { note = (note ? note + ' ' : '') + `【开局锚点】未读到进度，按开局事件 ${anchor.id} 定位（原命中 ${cur.id}）。`; cur = anchor; node = 1; }
   }
-  return { event: cur, node, total: cur.nodes.length, nodeText: cur.nodes[node - 1] || '', note, gap, mode };
+  let gap = '', gapDays = 0, suspect = false;
+  if (now && cur.date) {
+    gapDays = cur.date.day - now.day;
+    if (gapDays > PLOT_DATE_SANITY) {
+      suspect = true;
+      gap = `准备好的事件 ${cur.id} 参考日期是 ${cur.date.text}，比正文时间晚 ${gapDays} 天（相邻事件间隔最多 14 天），判定为定位异常。`;
+    } else if (gapDays > 0) {
+      gap = mode.includes('沙盒') ? `事件参考日期还有 ${gapDays} 天，可以先写自由旅行与日常。` : `正文时间比事件参考日期早 ${gapDays} 天：先写赶路、训练和日常，必要时一两句带过几天，再自然进入事件。`;
+    }
+  }
+  return { event: cur, node, total: cur.nodes.length, nodeText: cur.nodes[node - 1] || '', note, gap, gapDays, suspect, free, mode };
 }
+
 
 /* ======================================================================
  * 4. 生成前注入：剧情节点 + 变量摘要
@@ -726,22 +768,43 @@ function buildInjection() {
     const g = ctx()?.characters?.[ctx()?.characterId]?.data?.alternate_greetings?.[K.MODE_INFO[mode]?.greeting ?? 0];
     parts.push(`【开局】玩家刚在开局界面提交了训练家档案（见上一条 <pkm_profile>），初始伙伴已由脚本写入队伍，不要重复添加。请写第一幕：从“${mode}”的开场开始，下面的备选开场白只作场景与语气参考，要按档案（名字、性别、初始伙伴）改写，不要照抄：\n${subUser(String(g || '').replace(/<pkm_state>[\s\S]*?<\/pkm_state>/i, '').replace(/<\/?content>/g, '').trim()).slice(0, 1800)}`);
   }
-  const pos = plotPosition();
+  /* ⑥ 第一幕（还没有任何 AI 回复）只给【开局】引导，不注入主线事件/节点，
+     避免"写玩家自己的开场"和"演事件节点1"两条指令打架 —— 这就是第一轮注入错位的直接原因 */
+  const pos = aiCount ? plotPosition() : null;
+  if (!aiCount) parts.push('【主线】第一幕只演开场：登记、领伙伴、出发准备。不要写主线事件的节点，也不要提前出现主线的其他人物；从下一轮起脚本会自动注入当前主线事件与节点，届时再按注入推进。');
   if (pos?.finished) { parts.push('主线：动画关都篇的事件已全部结束，自由剧情。'); const cl = companionLine(); if (cl) parts.push(cl); }
   else if (pos) {
     const e = pos.event;
-    parts.push(`当前主线事件：${e.id}｜${e.title}（${e.stage}${e.date ? '｜参考日期 ' + e.date.text : ''}）\n进度：节点 ${pos.node} / ${pos.total}。本轮只演这个节点里的一幕，停在需要 {{user}} 回应处；状态栏写“剧情：${e.id}｜节点${pos.node}｜进行中”，确实演完再写“节点完成”${pos.node === pos.total ? '，最后一个节点收束时写“完成”' : ''}。`);
-    if (pos.note) parts.push(pos.note);
-    if (pos.gap) parts.push('[日期] ' + pos.gap);
-    parts.push(`【当前节点】\n${pos.nodeText}`);
-    if (e.hook) parts.push('介入点：' + e.hook);
-    if (e.battle) parts.push('对战机会（参考阵容，按 {{user}} 实力调整）：' + e.battle);
-    const ef = K.EVENT_FORMATS?.[e.id];
-    if (ef) parts.push(`本事件赛制：${ef.rule}（${ef.n}v${ef.n}）。发起这场${ef.type === 'gym' ? '道馆战' : '比赛'}时 pkm_battle 顶层写 "teamSize":${ef.n}，对手 team 不超过 ${ef.n} 只；开战前由裁判或对手在正文里说明规矩。`);
-    const cl = companionLine(); if (cl) parts.push(cl);
-    const stageNo = (e.stage.match(/S\d+/) || [])[0];
-    for (const s of events().stages[stageNo] || []) parts.push(s.content);
+    const cl = companionLine();
+    if (pos.suspect) {
+      /* ④ 日期自检没过：不注入任何事件内容，防止把很久以后的剧情塞进当前这一幕 */
+      parts.push('【注入自检未通过】' + pos.gap);
+      parts.push('本轮按自由剧情写，状态栏写“剧情：自由｜节点0｜进行中”；不要使用任何尚未到来的事件、人物、地点与情节。');
+      if (cl) parts.push(cl);
+    } else if (pos.free) {
+      parts.push(`【自由剧情】上一幕没有推进主线，脚本保持进度不动：${e.id}｜${e.title}（${e.stage}）节点 ${pos.node} / ${pos.total}。`);
+      parts.push('本轮可以继续写日常、赶路、训练，不必强行推进主线；也可以自然转入这个事件。状态栏二选一（两种都能被脚本识别）：写了主线内容就写“剧情：' + e.id + '｜节点' + pos.node + '｜进行中”，仍是日常就写“剧情：自由｜节点0｜进行中”。不要写成“自由剧情”这类无法识别的格式。');
+      if (e.hook) parts.push('介入点（想推进主线时可用）：' + e.hook);
+      if (pos.note) parts.push(pos.note);
+      if (pos.gap) parts.push('[日期] ' + pos.gap);
+      if (cl) parts.push(cl);
+      const stageNo = (e.stage.match(/S\d+/) || [])[0];
+      for (const s of events().stages[stageNo] || []) parts.push(s.content);
+    } else {
+      parts.push(`当前主线事件：${e.id}｜${e.title}（${e.stage}${e.date ? '｜参考日期 ' + e.date.text : ''}）\n进度：节点 ${pos.node} / ${pos.total}。本轮只演这个节点里的一幕，停在需要 {{user}} 回应处；状态栏写“剧情：${e.id}｜节点${pos.node}｜进行中”，确实演完再写“节点完成”${pos.node === pos.total ? '，最后一个节点收束时写“完成”' : ''}；本轮没有演到主线内容时写“剧情：自由｜节点0｜进行中”，不要写“自由剧情”这类无法识别的格式。`);
+      if (pos.note) parts.push(pos.note);
+      if (pos.gap) parts.push('[日期] ' + pos.gap);
+      parts.push(`【当前节点】\n${pos.nodeText}`);
+      if (e.hook) parts.push('介入点：' + e.hook);
+      if (e.battle) parts.push('对战机会（参考阵容，按 {{user}} 实力调整）：' + e.battle);
+      const ef = K.EVENT_FORMATS?.[e.id];
+      if (ef) parts.push(`本事件赛制：${ef.rule}（${ef.n}对${ef.n}）。发起这场${ef.type === 'gym' ? '道馆战' : '比赛'}时 pkm_battle 顶层写 "teamSize":${ef.n}，对手 team 不超过 ${ef.n} 只；开战前由裁判或对手在正文里说明规矩。`);
+      if (cl) parts.push(cl);
+      const stageNo = (e.stage.match(/S\d+/) || [])[0];
+      for (const s of events().stages[stageNo] || []) parts.push(s.content);
+    }
   }
+
   const lastUser = [...c].reverse().find(m => m.is_user);
   if (lastUser && /<pkm_result>/i.test(lastUser.mes || '')) parts.push('【对战结果】玩家的上一条消息带有 <pkm_result>：按结果续写战斗经过，不改写胜负。HP/状态、精灵球消耗、收服入队、图鉴登记已由脚本写入变量，不要重复写。');
   parts.push('【变量摘要（脚本生成，以此为准）】\n' + summaryText(pkm));
@@ -2951,9 +3014,26 @@ function rekickFrames() {
   });
 }
 function onChatEvent() { eventCache = null; initvarCache = null; lastInjection = ''; refreshAll(); refreshInjection(); repairCenterHealing(); setTimeout(rekickFrames, 400); }
+/* ===== v1.3.31-plot-fix ⑤：把 AI 状态栏里的剧情进度写进脚本侧变量 pkm.world =====
+   world 在变量 schema 里是 extensible/recursiveExtensible，新增 event/node/nodeStatus/free 是安全的。
+   作用：AI 连写几轮"自由｜节点0｜进行中"时，进度不会回退到节点 1。 */
+function syncStoryState() {
+  try {
+    const st = parseState(chat()[lastAiId()]?.mes);
+    const g = String(st?.剧情 || '');
+    if (!g) return;
+    return writePkm(pkm => {
+      pkm.world = isObj(pkm.world) ? pkm.world : {};
+      const m = g.match(/([A-Z]{2,3}\d{2,3})\s*[｜|]\s*节点\s*(\d+)\s*[｜|]\s*(进行中|节点完成|完成|跳过)/);
+      if (m) { pkm.world.event = m[1]; pkm.world.node = +m[2]; pkm.world.nodeStatus = m[3]; pkm.world.free = false; }
+      else if (/自由/.test(g)) { pkm.world.free = true; }
+    }).catch(e => LOG('剧情进度写入失败', (e && e.message) || e));
+  } catch (e) { LOG('剧情进度读取失败', (e && e.message) || e); }
+}
 function onMessageReceived(id) {
   const mesid = Number.isInteger(id) ? id : lastAiId();
   refreshInjection(); refreshAll();
+  syncStoryState();
   scheduleSync(mesid);
 }
 // v1.3.4：等 MVU 先处理完这一楼再同步；MVU 一直没有写入（没装、报错）时，按 AI 的 JSONPatch 自己写入
