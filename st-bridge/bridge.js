@@ -1494,7 +1494,12 @@ const HOST_CSS = BASE_CSS + `
 #pkm-kanto-panel .bond em i b{display:block;height:100%;border-radius:4px}
 #pkm-kanto-panel .pb-warn{margin:0 10px 8px;background:#fff4d6;color:#7a5b00;border-radius:10px;padding:6px 10px;font-size:12px}
 
+/* ===== v1.3.31-panel-fix: crisp panel text and draggable compact panel ===== */
+#pkm-kanto-panel,#pkm-kanto-panel *{text-shadow:none!important;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
+#pkm-kanto-panel.show{animation:none!important}
 #pkm-kanto-panel .pb-head h3{min-width:0}
+#pkm-kanto-panel .pb-drag-grip{display:inline-flex;align-items:center;justify-content:center;flex:0 0 26px;width:26px;height:30px;border-radius:7px;background:rgba(0,0,0,.2);color:#fff;font:900 18px/1 system-ui,sans-serif;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
+#pkm-kanto-panel .pb-drag-grip:active{cursor:grabbing;background:rgba(0,0,0,.35)}
 #pkm-kanto-panel .slot .fo{position:absolute;left:8px;top:-8px;background:#39a8db;color:#fff;font-size:10px;font-weight:900;border-radius:6px;padding:1px 6px;border:2px solid #fff;z-index:1}
 #pkm-kanto-panel .bx .fo{position:absolute;left:2px;top:2px;background:#39a8db;color:#fff;font-size:9px;font-weight:900;border-radius:5px;padding:0 4px;z-index:1}
 #pkm-kanto-panel .held-img{width:22px!important;height:22px!important;image-rendering:pixelated!important;object-fit:contain!important;vertical-align:-6px;margin:-5px -2px!important;display:inline-block!important}
@@ -2000,9 +2005,29 @@ function placeBall(el) {
   if (r.left < m - 0.5 || r.top < m - 0.5 || r.right > w - m + 0.5 || r.bottom > h - m + 0.5) setBallAnchor(el, ballPosFromRect(r));
   placePanel();
 }
+// 面板可拖动，位置保存在本机；拖动手柄是标题栏左侧的“⠿”。
+const PANEL_POS_KEY='pkmKantoPanelPos-v1';
+let panelDrag=null;
+function readPanelPos(){try{const p=JSON.parse(lsGet(PANEL_POS_KEY)||'null');return p&&Number.isFinite(p.x)&&Number.isFinite(p.y)?p:null}catch(_){return null}}
+function installPanelDrag(panel){
+  panel.addEventListener('pointerdown',e=>{
+    if(!e.isPrimary||(e.pointerType==='mouse'&&e.button!==0)||!e.target.closest?.('.pb-drag-grip'))return;
+    const r=panel.getBoundingClientRect();panelDrag={id:e.pointerId,el:panel,sx:e.clientX,sy:e.clientY,x:r.left,y:r.top,moved:false};
+    e.preventDefault();try{panel.setPointerCapture(e.pointerId)}catch(_){}
+  });
+  panel.addEventListener('pointermove',e=>{
+    const d=panelDrag;if(!d||d.el!==panel||d.id!==e.pointerId)return;
+    const dx=e.clientX-d.sx,dy=e.clientY-d.sy;if(Math.hypot(dx,dy)>2)d.moved=true;if(!d.moved)return;
+    e.preventDefault();const {w,h,x,y}=vp(),r=panel.getBoundingClientRect();
+    const left=Math.max(x+4,Math.min(x+w-r.width-4,d.x+dx)),top=Math.max(y+4,Math.min(y+h-r.height-4,d.y+dy));
+    panel.style.setProperty('left',left+'px','important');panel.style.setProperty('top',top+'px','important');panel.style.setProperty('right','auto','important');panel.style.setProperty('bottom','auto','important');
+  },{passive:false});
+  const end=e=>{const d=panelDrag;if(!d||d.el!==panel||(e&&e.pointerId!==d.id))return;panelDrag=null;try{panel.releasePointerCapture(d.id)}catch(_){}if(d.moved){const r=panel.getBoundingClientRect();lsSet(PANEL_POS_KEY,JSON.stringify({x:r.left,y:r.top}));}};
+  panel.addEventListener('pointerup',end);panel.addEventListener('pointercancel',end);
+}
 // 面板贴着球展开：球在左半边就左对齐、右半边就右对齐；上下选空间大的一侧
 function placePanel() {
-  const panel = PD.getElementById('pkm-kanto-panel'); if (!panel) return;
+  const panel = PD.getElementById('pkm-kanto-panel'); if (!panel || panelDrag?.el===panel) return;
   const { w, h, x, y } = vp();
   const compact = w <= 680 || (w < 1000 && !!P.matchMedia?.('(pointer:coarse)').matches);
   panel.classList.toggle('pkm-panel-compact', compact);
@@ -2015,9 +2040,10 @@ function placePanel() {
   const rr = x + w - Math.max(edge, safe('scrollPaddingRight'));
   const bb = y + h - Math.max(edge, safe('scrollPaddingBottom'));
   const aw = Math.max(1, rr - l), ah = Math.max(1, bb - t);
-  const pw = Math.min(compact ? aw : 760, aw);
-  let ph = Math.min(compact ? 720 : 560, ah);
-  let left = l + (aw - pw) / 2, top = compact ? bb - ph : t + (ah - ph) / 2;
+  // 窄屏也留出边缘空间，避免变成无法移动的全屏遮罩。
+  const pw = Math.min(compact ? aw * 0.96 : 760, aw);
+  let ph = Math.min(compact ? ah * 0.90 : 560, ah);
+  let left = l + (aw - pw) / 2, top = t + (ah - ph) / 2;
   const ball = PD.getElementById('pkm-kanto-ball');
   if (!compact && ball) {
     const r = ball.getBoundingClientRect(), gap = 8;
@@ -2031,6 +2057,9 @@ function placePanel() {
       top = down ? r.bottom + gap : r.top - gap - ph;
     }
   }
+  const savedPanelPos=readPanelPos();
+  if(savedPanelPos){left=savedPanelPos.x;top=savedPanelPos.y;}
+  left=Math.max(l,Math.min(rr-pw,left));
   top = Math.max(t, Math.min(bb - ph, top));
   // One source of truth. Override old host/mobile CSS and ignore body zoom/transforms.
   for (const [key, value] of Object.entries({position:'fixed',left:left+'px',top:top+'px',right:'auto',bottom:'auto',
@@ -2305,6 +2334,7 @@ function renderPanel() {
   if (!el) {
     el = PD.createElement('div'); el.id = 'pkm-kanto-panel'; el.className = 'pkb show'; PD.documentElement.appendChild(el); // outside transformed/zoomed host body
     el.addEventListener('click', onPanelClick);
+    installPanelDrag(el);
     el.addEventListener('keydown', e => {
       if (e.key !== 'Enter' && e.key !== ' ') return;
       const pick = e.target.closest?.('[data-select]'); if (!pick) return;
@@ -2330,7 +2360,7 @@ function renderPanel() {
     ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3Z" fill="currentColor"/><path d="m16 9 5 6m0-6-5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
     : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3Z" fill="currentColor"/><path d="M16 8a6 6 0 0 1 0 8M18.5 5.5a9.5 9.5 0 0 1 0 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
   const closeIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>';
-  el.innerHTML = `<div class="pb-head"><h3><i></i>宝可梦</h3><div class="pb-tools"><div class="pb-tabs"><button type="button" data-tab="party" class="${panelTab === 'party' ? 'on' : ''}">队伍 ${count}/6</button><button type="button" data-tab="box" class="${panelTab === 'box' ? 'on' : ''}">仓库</button></div>
+  el.innerHTML = `<div class="pb-head"><div class="pb-drag-grip" title="按住拖动队伍栏" aria-label="拖动队伍栏">⠿</div><h3><i></i>宝可梦</h3><div class="pb-tools"><div class="pb-tabs"><button type="button" data-tab="party" class="${panelTab === 'party' ? 'on' : ''}">队伍 ${count}/6</button><button type="button" data-tab="box" class="${panelTab === 'box' ? 'on' : ''}">仓库</button></div>
     <div class="pb-icons">${isCenterLocation(centerLocation(pkm))?'<button type="button" class="pb-x" data-op="center-heal" title="宝可梦中心：恢复全队 HP、状态与 PP" aria-label="宝可梦中心治疗全队">✚</button>':''}<button type="button" class="pb-x" data-op="resetpos" title="把精灵球放回右下角" aria-label="复位精灵球">${resetIcon}</button><button type="button" class="pb-x" data-op="mute" title="跟随宝可梦的叫声" aria-label="切换叫声">${soundIcon}</button><button type="button" class="pb-x" data-op="close" aria-label="关闭">${closeIcon}</button></div></div></div>
     <div class="pb-body"><div class="pb-left">${panelTab === 'party' ? panelPartyMarkup(pkm) : panelStorageMarkup(pkm)}</div><div class="pb-right ${panelSelection ? 'show' : ''}">${panelDetailMarkup(pkm)}</div></div>
     <div class="pb-foot"><span>点击宝可梦查看详情</span><span class="pf-r">队伍 ${count}/6 · 仓库 ${pkm.party.box.length}</span></div><div class="toast"></div>`;
