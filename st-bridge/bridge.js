@@ -1166,6 +1166,8 @@ const HOST_CSS = BASE_CSS + `
 #pkm-kanto-screen-overlay:fullscreen,#pkm-kanto-screen-overlay:-webkit-full-screen{position:fixed!important;inset:0!important;width:100vw!important;height:100dvh!important;background:#070a14!important}
 html.pkm-kanto-pseudo-fullscreen,html.pkm-kanto-pseudo-fullscreen body{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;height:100dvh!important;overflow:hidden!important;background:#070a14!important;border-radius:0!important;z-index:2147483647!important}
 html.pkm-kanto-pseudo-fullscreen #pkm-kanto-screen-overlay{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;height:100dvh!important;max-width:none!important;max-height:none!important;z-index:2147483647!important;display:block!important}
+/* Fullscreen has no in-game header/buttons: Esc or mobile Back returns to the story. */
+html.pkm-kanto-native-fullscreen #pkm-kanto-modal>.bar,html.pkm-kanto-pseudo-fullscreen #pkm-kanto-modal>.bar{display:none!important}
 #pkm-kanto-modal.pkm-overlay-mode{position:absolute!important;inset:auto!important;left:0!important;top:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border:0!important;z-index:1!important}
 #pkm-kanto-modal.pkm-overlay-mode.pkm-rotate-landscape{left:calc((var(--pkm-vw,100vw) - var(--pkm-vh,100dvh))/2)!important;top:calc((var(--pkm-vh,100dvh) - var(--pkm-vw,100vw))/2)!important;width:var(--pkm-vh,100dvh)!important;height:var(--pkm-vw,100vw)!important}
 
@@ -2844,13 +2846,14 @@ function openBattle(spec) {
   let historyPushed=false;
   try { P.history.pushState({...P.history.state,__pkmBattle:historyToken},'',P.location.href);historyPushed=true; } catch(_) {}
   const onBack=()=>{if(modal===currentModal){currentModal.closedByHistory=true;closeBattle();}};
-  const onEscape=e=>{if(e.key==='Escape'&&modal===currentModal){e.preventDefault();e.stopImmediatePropagation();if(isBattleNativeFullscreen()){(PD.exitFullscreen||PD.webkitExitFullscreen)?.call(PD);return;}if(currentModal.pseudoFullscreen){setBattlePseudoFullscreen(currentModal,false);setBar('已退出伪全屏；战斗仍保持覆盖层。');syncNativeFullscreen();return;}if(currentModal.overlay)exitBattleOverlay(currentModal);else closeBattle();}};
+  const onEscape=e=>{if(e.key==='Escape'&&modal===currentModal){e.preventDefault();e.stopImmediatePropagation();closeBattle();}};
   P.addEventListener('popstate',onBack);P.addEventListener('keydown',onEscape,true);
   currentModal.returnCleanup=()=>{P.removeEventListener('popstate',onBack);P.removeEventListener('keydown',onEscape,true);if(historyPushed&&!currentModal.closedByHistory&&P.history.state?.__pkmBattle===historyToken)P.history.back();};
   const fullBtn=el.querySelector('[data-op=fullscreen]');
-  const syncNativeFullscreen=()=>{if(modal===currentModal&&fullBtn)fullBtn.textContent=(isBattleNativeFullscreen()||currentModal.pseudoFullscreen)?'退出全屏':'全屏';};
+  let nativeWasActive=false;
+  const syncNativeFullscreen=()=>{if(modal!==currentModal)return;const native=isBattleNativeFullscreen();if(native)nativeWasActive=true;PD.documentElement.classList.toggle('pkm-kanto-native-fullscreen',native);if(fullBtn)fullBtn.textContent=(native||currentModal.pseudoFullscreen)?'退出全屏':'全屏';if(!native&&nativeWasActive){closeBattle();return;}};
   PD.addEventListener('fullscreenchange',syncNativeFullscreen);PD.addEventListener('webkitfullscreenchange',syncNativeFullscreen);
-  currentModal.fullscreenCleanup=()=>{PD.removeEventListener('fullscreenchange',syncNativeFullscreen);PD.removeEventListener('webkitfullscreenchange',syncNativeFullscreen);setBattlePseudoFullscreen(currentModal,false);};
+  currentModal.fullscreenCleanup=()=>{PD.removeEventListener('fullscreenchange',syncNativeFullscreen);PD.removeEventListener('webkitfullscreenchange',syncNativeFullscreen);PD.documentElement.classList.remove('pkm-kanto-native-fullscreen');setBattlePseudoFullscreen(currentModal,false);};
   fullBtn.onclick=async()=>{
     if(!currentModal.overlay)enterBattleOverlay(currentModal);
     if(isBattleNativeFullscreen()){
@@ -3644,7 +3647,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：队伍栏位置持久、参考卡式覆盖层全屏、野外经验分享、濒死治疗与呼吸回血、连续刷级');
-  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261031-pokemonpink-fullscreen-7", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261031-fullscreen-no-toolbar-9", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
