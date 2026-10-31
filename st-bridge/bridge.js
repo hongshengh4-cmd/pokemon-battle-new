@@ -1163,6 +1163,7 @@ const HOST_CSS = BASE_CSS + `
 #pkm-kanto-modal{transform:none!important;transform-origin:50% 50%!important}
 #pkm-kanto-modal.pkm-rotate-landscape{left:calc(var(--pkm-vx,0px) + (var(--pkm-vw,100vw) - var(--pkm-vh,100dvh))/2)!important;top:calc(var(--pkm-vy,0px) + (var(--pkm-vh,100dvh) - var(--pkm-vw,100vw))/2)!important;width:var(--pkm-vh,100dvh)!important;height:var(--pkm-vw,100vw)!important;transform:rotate(90deg)!important}
 #pkm-kanto-screen-overlay{position:fixed!important;inset:0!important;width:100vw!important;height:100dvh!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;box-sizing:border-box!important;overflow:hidden!important;background:rgba(7,10,20,.96)!important;z-index:2147483647!important}
+#pkm-kanto-screen-overlay:fullscreen,#pkm-kanto-screen-overlay:-webkit-full-screen{position:fixed!important;inset:0!important;width:100vw!important;height:100dvh!important;background:#070a14!important}
 #pkm-kanto-modal.pkm-overlay-mode{position:absolute!important;inset:auto!important;left:0!important;top:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border:0!important;z-index:1!important}
 #pkm-kanto-modal.pkm-overlay-mode.pkm-rotate-landscape{left:calc((var(--pkm-vw,100vw) - var(--pkm-vh,100dvh))/2)!important;top:calc((var(--pkm-vh,100dvh) - var(--pkm-vw,100vw))/2)!important;width:var(--pkm-vh,100dvh)!important;height:var(--pkm-vw,100vw)!important}
 
@@ -2814,7 +2815,7 @@ function openBattle(spec) {
   ensureHostStyle();
   const el = PD.createElement('div'); el.id = 'pkm-kanto-modal'; el.className = 'pkb';
   const title = cfg.title || `${K.TYPE_LABEL[fmt.type] || '对战'}${cfg.opponent ? ' · ' + cfg.opponent : ''}`;
-  el.innerHTML = `<div class="bar"><span class="t">⚔️ ${esc(title)}</span><span class="fmt" title="${esc(fmt.rule)}">${esc(fmt.label)}</span><span class="s"></span><button type="button" data-op="fullscreen">全屏</button><button class="red" data-op="close">返回剧情</button></div><div class="stage"></div>`;
+  el.innerHTML = `<div class="bar"><span class="t">⚔️ ${esc(title)}</span><span class="s"></span><button type="button" data-op="fullscreen" aria-label="浏览器全屏">全屏</button><button class="red" data-op="close">返回剧情</button></div><div class="stage"></div>`;
   PD.body.appendChild(el);
   try { if (el.showPopover) { el.setAttribute('popover', 'manual'); el.showPopover(); } } catch (_) {}
   const syncViewport = () => {
@@ -2841,13 +2842,22 @@ function openBattle(spec) {
   let historyPushed=false;
   try { P.history.pushState({...P.history.state,__pkmBattle:historyToken},'',P.location.href);historyPushed=true; } catch(_) {}
   const onBack=()=>{if(modal===currentModal){currentModal.closedByHistory=true;closeBattle();}};
-  const onEscape=e=>{if(e.key==='Escape'&&modal===currentModal){e.preventDefault();e.stopImmediatePropagation();if(currentModal.overlay)exitBattleOverlay(currentModal);else closeBattle();}};
+  const onEscape=e=>{if(e.key==='Escape'&&modal===currentModal){e.preventDefault();e.stopImmediatePropagation();if(PD.fullscreenElement===currentModal.overlay&&PD.exitFullscreen){PD.exitFullscreen().catch(()=>{});return;}if(currentModal.overlay)exitBattleOverlay(currentModal);else closeBattle();}};
   P.addEventListener('popstate',onBack);P.addEventListener('keydown',onEscape,true);
   currentModal.returnCleanup=()=>{P.removeEventListener('popstate',onBack);P.removeEventListener('keydown',onEscape,true);if(historyPushed&&!currentModal.closedByHistory&&P.history.state?.__pkmBattle===historyToken)P.history.back();};
-  el.querySelector('[data-op=fullscreen]').onclick = () => {
-    if (currentModal.overlay) exitBattleOverlay(currentModal);
-    else enterBattleOverlay(currentModal);
+  const fullBtn=el.querySelector('[data-op=fullscreen]');
+  const syncNativeFullscreen=()=>{if(modal===currentModal&&fullBtn)fullBtn.textContent=PD.fullscreenElement===currentModal.overlay?'退出全屏':'全屏';};
+  PD.addEventListener('fullscreenchange',syncNativeFullscreen);
+  currentModal.fullscreenCleanup=()=>PD.removeEventListener('fullscreenchange',syncNativeFullscreen);
+  fullBtn.onclick=async()=>{
+    if(!currentModal.overlay)enterBattleOverlay(currentModal);
+    if(PD.fullscreenElement===currentModal.overlay){try{await PD.exitFullscreen();}catch(_){}return;}
+    try{if(!currentModal.overlay?.requestFullscreen)throw Error('当前浏览器不支持原生全屏');await currentModal.overlay.requestFullscreen();}
+    catch(_){toast('已保持覆盖层全屏；浏览器未允许隐藏地址栏和系统栏。','info');}
+    syncNativeFullscreen();
   };
+  // 与参考卡的小樱快跑入口一致：进入战斗后立即打开覆盖层，覆盖聊天上方栏和底部输入区。
+  enterBattleOverlay(currentModal);
   if (comp.added.length) toast(`${comp.who}现在带着 ${cfg.team.length} 只：对战块漏写的${comp.added.join('、')}已按原作进度补上`, 'info');
   if (!fmt.wild && !fmt.full && entries.length > fmt.playerMax && !Array.isArray(spec.pick)) showPicker(modal, pkm, entries);
   else launchBattle(modal, spec.pick || null);
@@ -2871,7 +2881,7 @@ function enterBattleOverlay(m) {
   m.overlay = overlay;
   try { overlay.showPopover?.(); } catch (_) {}
   const btn = m.el.querySelector('[data-op=fullscreen]');
-  if (btn) { btn.textContent = '退出全屏'; btn.setAttribute('aria-label', '退出全屏覆盖层'); }
+  if (btn) { btn.textContent = PD.fullscreenElement===overlay ? '退出全屏' : '全屏'; btn.setAttribute('aria-label', '浏览器全屏'); }
   syncOverlayViewport(m);
 }
 function syncOverlayViewport(m) {
@@ -2897,7 +2907,7 @@ function exitBattleOverlay(m) {
   m.overlayParent = null;
   m.overlayNext = null;
   const btn = m.el.querySelector('[data-op=fullscreen]');
-  if (btn) { btn.textContent = '全屏'; btn.setAttribute('aria-label', '全屏覆盖层'); }
+  if (btn) { btn.textContent = '全屏'; btn.setAttribute('aria-label', '浏览器全屏'); }
   try { m.el._viewportSync?.(); } catch (_) {}
 }
 // 真正开战：建对战网页的 iframe 并发配置（选人之后才走到这里）
@@ -2962,7 +2972,8 @@ function showPicker(m, pkm, entries) {
 function setBar(text) { const s = modal?.el.querySelector('.bar .s'); if (s) s.textContent = text; if (/失败|有误|较慢/.test(text) && modal) {let error=modal.el.querySelector('.pkm-battle-error');if(!error){error=PD.createElement('div');error.className='pkm-battle-error';error.style.cssText='position:absolute;inset:20% 10% auto;z-index:9;background:#fff5ed;color:#6a2919;padding:20px;border:2px solid #cd7362;border-radius:12px;white-space:normal';modal.el.append(error);}error.textContent=text;} }
 function closeBattle(silent) {
   if (!modal) return;
-  const m = modal; modal = null; clearTimeout(m.timer); m.el._viewportCleanup?.(); m.el._restoreOverflow?.(); m.returnCleanup?.();
+  const m = modal; modal = null; clearTimeout(m.timer); m.el._viewportCleanup?.(); m.el._restoreOverflow?.(); m.returnCleanup?.(); m.fullscreenCleanup?.();
+  if (PD.fullscreenElement===m.overlay&&PD.exitFullscreen)try{PD.exitFullscreen().catch(()=>{});}catch(_){}
   if (m.overlay) exitBattleOverlay(m);
   m.el.remove();
   if (m.sess) { if (!m.done) m.sess.status = 'idle'; entryStatus(m.sess); }
@@ -3605,7 +3616,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：队伍栏位置持久、参考卡式覆盖层全屏、野外经验分享、濒死治疗与呼吸回血、连续刷级');
-  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261031-exp-heal-regen-4", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261031-battle-overlay-autostart-5", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
