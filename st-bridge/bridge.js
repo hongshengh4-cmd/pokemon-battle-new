@@ -1158,12 +1158,14 @@ const HOST_CSS = BASE_CSS + `
 #pkm-kanto-ball .follower{width:72px;height:72px;object-fit:contain}
 #pkm-kanto-ball.following .orb{display:block!important;width:34px;height:34px;flex:0 0 34px}
 #pkm-kanto-modal{box-sizing:border-box!important;inset:auto!important;left:var(--pkm-vx,0px)!important;top:var(--pkm-vy,0px)!important;width:var(--pkm-vw,100vw)!important;height:var(--pkm-vh,100dvh)!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border:0!important;overflow:hidden!important;z-index:2147483000}
-#pkm-kanto-modal:fullscreen,#pkm-kanto-modal:-webkit-full-screen{position:fixed!important;inset:0!important;left:0!important;top:0!important;width:100vw!important;height:100dvh!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border:0!important;z-index:2147483647!important;overflow:hidden!important}
+#pkm-kanto-modal:fullscreen,#pkm-kanto-modal:-webkit-full-screen,#pkm-kanto-modal.pkm-overlay-mode:fullscreen,#pkm-kanto-modal.pkm-overlay-mode:-webkit-full-screen{position:fixed!important;inset:0!important;left:0!important;top:0!important;width:100vw!important;height:100dvh!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border:0!important;z-index:2147483647!important;overflow:hidden!important}
 /* v1.3.31: portrait phone means a rotated landscape game, never a portrait game. */
 #pkm-kanto-modal{transform:none!important;transform-origin:50% 50%!important}
 #pkm-kanto-modal.pkm-rotate-landscape{left:calc(var(--pkm-vx,0px) + (var(--pkm-vw,100vw) - var(--pkm-vh,100dvh))/2)!important;top:calc(var(--pkm-vy,0px) + (var(--pkm-vh,100dvh) - var(--pkm-vw,100vw))/2)!important;width:var(--pkm-vh,100dvh)!important;height:var(--pkm-vw,100vw)!important;transform:rotate(90deg)!important}
 #pkm-kanto-screen-overlay{position:fixed!important;inset:0!important;width:100vw!important;height:100dvh!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;box-sizing:border-box!important;overflow:hidden!important;background:rgba(7,10,20,.96)!important;z-index:2147483647!important}
 #pkm-kanto-screen-overlay:fullscreen,#pkm-kanto-screen-overlay:-webkit-full-screen{position:fixed!important;inset:0!important;width:100vw!important;height:100dvh!important;background:#070a14!important}
+html.pkm-kanto-pseudo-fullscreen,html.pkm-kanto-pseudo-fullscreen body{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;height:100dvh!important;overflow:hidden!important;background:#070a14!important;border-radius:0!important;z-index:2147483647!important}
+html.pkm-kanto-pseudo-fullscreen #pkm-kanto-screen-overlay{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;height:100dvh!important;max-width:none!important;max-height:none!important;z-index:2147483647!important;display:block!important}
 #pkm-kanto-modal.pkm-overlay-mode{position:absolute!important;inset:auto!important;left:0!important;top:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border:0!important;z-index:1!important}
 #pkm-kanto-modal.pkm-overlay-mode.pkm-rotate-landscape{left:calc((var(--pkm-vw,100vw) - var(--pkm-vh,100dvh))/2)!important;top:calc((var(--pkm-vh,100dvh) - var(--pkm-vw,100vw))/2)!important;width:var(--pkm-vh,100dvh)!important;height:var(--pkm-vw,100vw)!important}
 
@@ -2842,18 +2844,32 @@ function openBattle(spec) {
   let historyPushed=false;
   try { P.history.pushState({...P.history.state,__pkmBattle:historyToken},'',P.location.href);historyPushed=true; } catch(_) {}
   const onBack=()=>{if(modal===currentModal){currentModal.closedByHistory=true;closeBattle();}};
-  const onEscape=e=>{if(e.key==='Escape'&&modal===currentModal){e.preventDefault();e.stopImmediatePropagation();if(PD.fullscreenElement===currentModal.overlay&&PD.exitFullscreen){PD.exitFullscreen().catch(()=>{});return;}if(currentModal.overlay)exitBattleOverlay(currentModal);else closeBattle();}};
+  const onEscape=e=>{if(e.key==='Escape'&&modal===currentModal){e.preventDefault();e.stopImmediatePropagation();if(isBattleNativeFullscreen()){(PD.exitFullscreen||PD.webkitExitFullscreen)?.call(PD);return;}if(currentModal.pseudoFullscreen){setBattlePseudoFullscreen(currentModal,false);setBar('已退出伪全屏；战斗仍保持覆盖层。');syncNativeFullscreen();return;}if(currentModal.overlay)exitBattleOverlay(currentModal);else closeBattle();}};
   P.addEventListener('popstate',onBack);P.addEventListener('keydown',onEscape,true);
   currentModal.returnCleanup=()=>{P.removeEventListener('popstate',onBack);P.removeEventListener('keydown',onEscape,true);if(historyPushed&&!currentModal.closedByHistory&&P.history.state?.__pkmBattle===historyToken)P.history.back();};
   const fullBtn=el.querySelector('[data-op=fullscreen]');
-  const syncNativeFullscreen=()=>{if(modal===currentModal&&fullBtn)fullBtn.textContent=PD.fullscreenElement===currentModal.overlay?'退出全屏':'全屏';};
-  PD.addEventListener('fullscreenchange',syncNativeFullscreen);
-  currentModal.fullscreenCleanup=()=>PD.removeEventListener('fullscreenchange',syncNativeFullscreen);
+  const syncNativeFullscreen=()=>{if(modal===currentModal&&fullBtn)fullBtn.textContent=(isBattleNativeFullscreen()||currentModal.pseudoFullscreen)?'退出全屏':'全屏';};
+  PD.addEventListener('fullscreenchange',syncNativeFullscreen);PD.addEventListener('webkitfullscreenchange',syncNativeFullscreen);
+  currentModal.fullscreenCleanup=()=>{PD.removeEventListener('fullscreenchange',syncNativeFullscreen);PD.removeEventListener('webkitfullscreenchange',syncNativeFullscreen);setBattlePseudoFullscreen(currentModal,false);};
   fullBtn.onclick=async()=>{
     if(!currentModal.overlay)enterBattleOverlay(currentModal);
-    if(PD.fullscreenElement===currentModal.overlay){try{await PD.exitFullscreen();}catch(_){}return;}
-    try{if(!currentModal.overlay?.requestFullscreen)throw Error('当前浏览器不支持原生全屏');await currentModal.overlay.requestFullscreen();}
-    catch(_){toast('已保持覆盖层全屏；浏览器未允许隐藏地址栏和系统栏。','info');}
+    if(isBattleNativeFullscreen()){
+      try{const exit=PD.exitFullscreen||PD.webkitExitFullscreen||PD.msExitFullscreen;await exit?.call(PD);setBar('已退出浏览器全屏；战斗仍保持覆盖层。');}
+      catch(e){setBar('退出浏览器全屏失败：'+(e?.message||e));}
+      syncNativeFullscreen();return;
+    }
+    if(currentModal.pseudoFullscreen){setBattlePseudoFullscreen(currentModal,false);setBar('已退出伪全屏；战斗仍保持覆盖层。');syncNativeFullscreen();return;}
+    setBar('正在请求浏览器全屏……');
+    const root=PD.documentElement,request=root.requestFullscreen||root.webkitRequestFullscreen||root.msRequestFullscreen;
+    if(request){
+      try{
+        try{await request.call(root,{navigationUI:'hide'});}
+        catch(first){await request.call(root);}
+        syncNativeFullscreen();return;
+      }catch(e){LOG('浏览器原生全屏未获准，切换视口回退',e);}
+    }
+    setBattlePseudoFullscreen(currentModal,true);
+    setBar('已启用视口全屏回退；覆盖层已铺满网页。浏览器地址栏/系统栏由浏览器控制，可按 F11 切换。');
     syncNativeFullscreen();
   };
   // 与参考卡的小樱快跑入口一致：进入战斗后立即打开覆盖层，覆盖聊天上方栏和底部输入区。
@@ -2862,7 +2878,7 @@ function openBattle(spec) {
   if (!fmt.wild && !fmt.full && entries.length > fmt.playerMax && !Array.isArray(spec.pick)) showPicker(modal, pkm, entries);
   else launchBattle(modal, spec.pick || null);
 }
-// 模仿参考卡的覆盖层全屏：创建 fixed 视口层，将战斗窗口移入；不请求浏览器原生全屏。
+// 参考 Pokemon Pink：战斗层先自动进入 fixed 覆盖层；用户点击按钮时再对外层 documentElement 请求原生全屏，并提供伪全屏回退。
 function enterBattleOverlay(m) {
   if (!m?.el?.isConnected || m.overlay) return;
   const overlay = PD.createElement('div');
@@ -2881,7 +2897,7 @@ function enterBattleOverlay(m) {
   m.overlay = overlay;
   try { overlay.showPopover?.(); } catch (_) {}
   const btn = m.el.querySelector('[data-op=fullscreen]');
-  if (btn) { btn.textContent = PD.fullscreenElement===overlay ? '退出全屏' : '全屏'; btn.setAttribute('aria-label', '浏览器全屏'); }
+  if (btn) { btn.textContent = (isBattleNativeFullscreen() || m.pseudoFullscreen) ? '退出全屏' : '全屏'; btn.setAttribute('aria-label', '浏览器全屏'); }
   syncOverlayViewport(m);
 }
 function syncOverlayViewport(m) {
@@ -2909,6 +2925,16 @@ function exitBattleOverlay(m) {
   const btn = m.el.querySelector('[data-op=fullscreen]');
   if (btn) { btn.textContent = '全屏'; btn.setAttribute('aria-label', '浏览器全屏'); }
   try { m.el._viewportSync?.(); } catch (_) {}
+}
+function isBattleNativeFullscreen() {
+  const fs = PD.fullscreenElement || PD.webkitFullscreenElement || PD.msFullscreenElement || null;
+  return fs === PD.documentElement || fs === modal?.el || fs === modal?.overlay;
+}
+function setBattlePseudoFullscreen(m, active) {
+  const root = PD.documentElement;
+  if (!root) return;
+  root.classList.toggle('pkm-kanto-pseudo-fullscreen', !!active);
+  if (m) m.pseudoFullscreen = !!active;
 }
 // 真正开战：建对战网页的 iframe 并发配置（选人之后才走到这里）
 function launchBattle(m, pick) {
@@ -2973,7 +2999,9 @@ function setBar(text) { const s = modal?.el.querySelector('.bar .s'); if (s) s.t
 function closeBattle(silent) {
   if (!modal) return;
   const m = modal; modal = null; clearTimeout(m.timer); m.el._viewportCleanup?.(); m.el._restoreOverflow?.(); m.returnCleanup?.(); m.fullscreenCleanup?.();
-  if (PD.fullscreenElement===m.overlay&&PD.exitFullscreen)try{PD.exitFullscreen().catch(()=>{});}catch(_){}
+  const fs=PD.fullscreenElement||PD.webkitFullscreenElement||PD.msFullscreenElement||null;
+  if ((fs===PD.documentElement||fs===m.el||fs===m.overlay)){try{const exit=PD.exitFullscreen||PD.webkitExitFullscreen||PD.msExitFullscreen;const r=exit?.call(PD);if(r?.catch)r.catch(()=>{});}catch(_) {}}
+  setBattlePseudoFullscreen(m,false);
   if (m.overlay) exitBattleOverlay(m);
   m.el.remove();
   if (m.sess) { if (!m.done) m.sess.status = 'idle'; entryStatus(m.sess); }
@@ -3616,7 +3644,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：队伍栏位置持久、参考卡式覆盖层全屏、野外经验分享、濒死治疗与呼吸回血、连续刷级');
-  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261031-battle-overlay-autostart-5", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261031-pokemonpink-fullscreen-7", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
