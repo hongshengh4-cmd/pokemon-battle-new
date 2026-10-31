@@ -1,5 +1,5 @@
 import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.js?v=1.3.31';
-// External status runtime v1.3.31; original card UI retained.
+// External status runtime 20261031-badge-ecology-13; original card UI retained.
 // v1.3.17 + v1.2.1 状态栏：只读 UI，独立命名空间，保留现有外置桥接。
 (function () {
  'use strict';
@@ -68,7 +68,38 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
   const pkImg = (d, sh, cls, still) => d && d.id ? `<img class="${cls || ''}" src="${still ? staUrl(d, sh) : aniUrl(d, sh)}" data-fb="${staUrl(d, sh)}" alt="" loading="lazy" draggable="false">` : `<img class="${cls || ''}" alt="" style="visibility:hidden">`;
   const itemImg = (n, cls) => { const it = item(n); return it.id ? `<img class="${cls || 'iimg'}" src="${PA[0]}items/${it.id}.png" data-fb="${PA[1]}items/${it.id}.png" alt="${esc(n)}" title="${esc(n)}">` : ''; };
   const BADGES = ['灰色徽章', '蓝色徽章', '橙色徽章', '彩虹徽章', '粉红徽章', '金色徽章', '深红徽章', '绿色徽章'];
-  const BADGE_ALIAS = { '岩石徽章': '灰色徽章', '灰徽章': '灰色徽章', '蓝徽章': '蓝色徽章', '水之徽章': '蓝色徽章', '橘色徽章': '橙色徽章', '橙徽章': '橙色徽章', '雷电徽章': '橙色徽章', '彩虹色徽章': '彩虹徽章', '粉色徽章': '粉红徽章', '粉红色徽章': '粉红徽章', '金黄徽章': '金色徽章', '金徽章': '金色徽章', '红色徽章': '深红徽章', '火山徽章': '深红徽章', '绿徽章': '绿色徽章', '大地徽章': '绿色徽章' };
+  const BADGE_ALIAS = { '灰色': '灰色徽章', '灰': '灰色徽章', '岩石': '灰色徽章', '蓝色': '蓝色徽章', '橙色': '橙色徽章', '彩虹': '彩虹徽章', '粉红': '粉红徽章', '粉色': '粉红徽章', '金色': '金色徽章', '金黄': '金色徽章', '深红': '深红徽章', '绿色': '绿色徽章', '绿': '绿色徽章', '岩石徽章': '灰色徽章', '岩石系徽章': '灰色徽章', '深灰徽章': '灰色徽章', '灰徽章': '灰色徽章', 'boulderbadge': '灰色徽章', '华蓝徽章': '蓝色徽章', '蓝徽章': '蓝色徽章', '水之徽章': '蓝色徽章', 'cascadebadge': '蓝色徽章', '橘色徽章': '橙色徽章', '橙徽章': '橙色徽章', '雷电徽章': '橙色徽章', '枯叶徽章': '橙色徽章', 'thunderbadge': '橙色徽章', '彩虹色徽章': '彩虹徽章', '玉虹徽章': '彩虹徽章', 'rainbowbadge': '彩虹徽章', '粉色徽章': '粉红徽章', '粉红色徽章': '粉红徽章', '浅红徽章': '粉红徽章', '灵魂徽章': '粉红徽章', 'soulbadge': '粉红徽章', '金黄徽章': '金色徽章', '金徽章': '金色徽章', '金黄市徽章': '金色徽章', 'marshbadge': '金色徽章', '红色徽章': '深红徽章', '火山徽章': '深红徽章', '红莲徽章': '深红徽章', 'volcanobadge': '深红徽章', '绿徽章': '绿色徽章', '大地徽章': '绿色徽章', '常磐徽章': '绿色徽章', 'earthbadge': '绿色徽章' };
+  const BADGE_CITIES = { '小刚':'灰色徽章', '深灰道馆':'灰色徽章', '深灰市':'灰色徽章', '小霞':'蓝色徽章', '华蓝道馆':'蓝色徽章', '华蓝市':'蓝色徽章', '马志士':'橙色徽章', '枯叶道馆':'橙色徽章', '枯叶市':'橙色徽章', '莉佳':'彩虹徽章', '玉虹道馆':'彩虹徽章', '玉虹市':'彩虹徽章', '阿桔':'粉红徽章', '浅红道馆':'粉红徽章', '浅红市':'粉红徽章', '娜姿':'金色徽章', '金黄道馆':'金色徽章', '金黄市':'金色徽章', '夏伯':'深红徽章', '红莲道馆':'深红徽章', '红莲镇':'深红徽章', '坂木':'绿色徽章', '常磐道馆':'绿色徽章', '常磐市':'绿色徽章' };
+  function badgeName(value) {
+    if (value && typeof value === 'object') {
+      if (value.owned === false || value.obtained === false || value.has === false || value.获得 === false) return null;
+      value = value.name || value.badge || value.title || value.id || value.key || value.gym || value;
+      if (value && typeof value === 'object') return null;
+    }
+    if (typeof value === 'number' && Number.isInteger(value)) return value >= 1 && value <= 8 ? BADGES[value - 1] : (value === 0 ? BADGES[0] : null);
+    const raw = String(value == null ? '' : value).trim(); if (!raw) return null;
+    const token = raw.toLowerCase().replace(/[\s\u3000_\-·・:：()（）【】\[\]「」『』]/g, '');
+    if (/^[1-8]$/.test(token)) return BADGES[Number(token)-1];
+    const direct = BADGES.find(n => token === n.toLowerCase()); if (direct) return direct;
+    if (BADGE_ALIAS[token]) return BADGE_ALIAS[token];
+    for (const [needle, canonical] of Object.entries(BADGE_ALIAS)) if (needle.length > 2 && token.includes(needle)) return canonical;
+    for (const [needle, canonical] of Object.entries(BADGE_CITIES)) if (raw.includes(needle)) return canonical;
+    const signals = [['灰色徽章','灰色徽章'],['岩石徽章','灰色徽章'],['深灰','灰色徽章'],['boulder','灰色徽章'],['蓝色徽章','蓝色徽章'],['华蓝','蓝色徽章'],['水之','蓝色徽章'],['cascade','蓝色徽章'],['橙色徽章','橙色徽章'],['橘色徽章','橙色徽章'],['雷电徽章','橙色徽章'],['枯叶','橙色徽章'],['thunder','橙色徽章'],['彩虹','彩虹徽章'],['玉虹','彩虹徽章'],['rainbow','彩虹徽章'],['粉红','粉红徽章'],['粉色徽章','粉红徽章'],['浅红','粉红徽章'],['灵魂','粉红徽章'],['soul','粉红徽章'],['金黄','金色徽章'],['金色徽章','金色徽章'],['marsh','金色徽章'],['深红','深红徽章'],['火山','深红徽章'],['红莲','深红徽章'],['volcano','深红徽章'],['绿色徽章','绿色徽章'],['大地','绿色徽章'],['常磐','绿色徽章'],['earth','绿色徽章']];
+    const found = signals.find(([needle]) => token.includes(needle.toLowerCase())); return found ? found[1] : null;
+  }
+  function normalizeBadges(pk) {
+    const out = new Set(), pl = pk?.player || {};
+    const add = v => {
+      if (Array.isArray(v)) { v.forEach(add); return; }
+      if (typeof v === 'string') { v.split(/[、,，;；|\n]+/).forEach(x => { const b = badgeName(x); if (b) out.add(b); }); return; }
+      if (typeof v === 'number') { const b = badgeName(v); if (b) out.add(b); return; }
+      if (!v || typeof v !== 'object') return;
+      if (v.name || v.badge || v.title || v.id || v.key || v.gym) { const b = badgeName(v); if (b) out.add(b); return; }
+      for (const [k, flag] of Object.entries(v)) if (flag === true || (Number.isFinite(+flag) && +flag > 0)) { const b = badgeName(k); if (b) out.add(b); }
+    };
+    add(pl.badges); add(pl.badge); add(pk?.badges); add(pk?.gym?.badges);
+    return BADGES.filter(b => out.has(b));
+  }
   // PokeAPI sprites/badges/1~8：按游戏顺序 灰色 蓝色 橙色 彩虹 粉红 金色 深红 绿色
   const badgeImg = i => `<img src="${PA[0]}badges/${i + 1}.png" data-fb="${PA[1]}badges/${i + 1}.png" alt="">`;
   const SPK = '<svg class="spk" viewBox="0 0 16 16"><path d="M8 0l1.9 6.1L16 8l-6.1 1.9L8 16l-1.9-6.1L0 8l6.1-1.9z" fill="#ffc400" stroke="#b07800" stroke-width=".8"/></svg>';
@@ -230,7 +261,7 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
     const addItem = (n, c) => { const cnt = num(c, 1); if (!n || cnt <= 0) return; const it = item(n); bag[it.pk].push({ name: String(n), c: cnt, d: it.d }); };
     if (Array.isArray(B)) B.forEach(x => typeof x === 'string' ? addItem(x, 1) : x && addItem(x.name, x.count)); else Object.keys(B).forEach(k => { const v = B[k]; if (v && typeof v === 'object' && !Array.isArray(v)) Object.keys(v).forEach(k2 => addItem(k2, v[k2])); else addItem(k, v); });
     // 徽章
-    const badges = (Array.isArray(pl.badges) ? pl.badges : []).map(b => BADGE_ALIAS[String(b).trim()] || String(b).trim());
+    const badges = normalizeBadges(pk);
     // 人物
     const recs = (pk.npcs && pk.npcs.records) || {};
     const npcs = Object.keys(recs).map(k => { const r = recs[k] || {}; const def = NPC_DEF[k] || [];
@@ -257,6 +288,11 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
     let prev = null; if (vi != null) { const pi = varMid(vi); const pd = pi == null ? null : readAt(pi); prev = pd && pd.stat_data.pkm; }
     let pk = d && d.stat_data.pkm;
     if (!pk) { try { pk = host.PKMKanto?.read?.(); } catch (_) {} }
+    // 当前最新回复的 MVU 快照偶尔比运行时变量晚一拍；只对最新 AI 楼层合并运行时徽章，旧楼层仍严格显示当时历史，不泄漏未来徽章。
+    if (pk && mesid != null) {
+      let latestAI = -1; for (let i = chat.length - 1; i >= 0; i--) if (chat[i] && !chat[i].is_user && !chat[i].is_system) { latestAI = i; break; }
+      if (mesid === latestAI) { try { const live = host.PKMKanto?.read?.(); if (live?.player) { const merged = [...new Set([...normalizeBadges(pk), ...normalizeBadges(live)])]; pk = { ...pk, player: { ...(pk.player || {}), badges: merged } }; } } catch (_) {} }
+    }
     const msg = vi != null ? chat[vi] : null;
     const pending = msg && !msg.is_user ? pendingBagFromMessage(msg.mes, prev, pk) : { items: [], money: null };
     const S = view(pk, st, prev); S.pendingBag = pending.items; S.pendingMoney = pending.money;
