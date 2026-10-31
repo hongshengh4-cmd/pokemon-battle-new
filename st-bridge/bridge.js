@@ -1988,14 +1988,45 @@ function dexNear(pkm, st) {
   const balls = Object.entries(K.ZH_BALL).map(([zh]) => Number(pkm.player.bag[zh]) || 0).reduce((a, b) => a + b, 0);
   if (reason) return `<div class="empty">${esc(reason)}</div>`;
   const pending = Array.isArray(pkm.wild.pendingResults) ? pkm.wild.pendingResults.length : 0;
-  return `${list.length ? list.map(w => `<div class="near-row near-wild" data-wild-cry="${w.key}" role="group" tabindex="0" aria-label="附近的${esc(w.species)}，点击本体可听叫声" title="点击宝可梦本体可听叫声">${spriteImg(w.species, { anim: true, shiny: w.shiny })}<div class="grow"><b>${esc(w.species)}</b>${w.shiny ? '<span class="tag gold">✨</span>' : ''} <span class="muted">Lv${w.level} ${genderMark(w.gender)}</span><br><span class="muted" style="font-size:11.5px">${esc(habitat&&habitat!=='land'?'在'+(HABITAT_LABELS[habitat]||'水域')+'中活动……':'在草丛里窸窸窣窣……')}</span></div><div class="acts"><button class="red" data-wild="${w.key}" data-mode="fight" ${canFight ? '' : 'disabled'}>对战</button><button class="blue" data-wild="${w.key}" data-mode="catch" ${canFight ? '' : 'disabled'}>捕捉</button></div></div>`).join('') : '<div class="empty">暂时没有可挑战的遭遇，刷新图鉴或稍后再看。</div>'}
-    <div class="pk-note">${canFight ? `背包里的精灵球：${balls} 个。` : '队伍里没有能战斗的宝可梦，先去宝可梦中心吧。'}当前显示 6 只附近宝可梦；点击宝可梦本体可听叫声，点击“对战”直接开战，结束后会自动补充新遭遇，不必等待 AI 推进剧情。每场的变量立即结算，刷完再统一提交战斗摘要。</div>
+  return `${list.length ? list.map(w => `<div class="near-row near-wild" data-wild-cry="${w.key}" role="group" tabindex="0" aria-label="附近的${esc(w.species)}，点击本体可听叫声" title="点击可听叫声；短时间连点可能激怒它">${spriteImg(w.species, { anim: true, shiny: w.shiny })}<div class="grow"><b>${esc(w.species)}</b>${w.shiny ? '<span class="tag gold">✨</span>' : ''} <span class="muted">Lv${w.level} ${genderMark(w.gender)}</span><br><span class="muted" style="font-size:11.5px">${esc(habitat&&habitat!=='land'?'在'+(HABITAT_LABELS[habitat]||'水域')+'中活动……':'在草丛里窸窸窣窣……')}</span></div><div class="acts"><button class="red" data-wild="${w.key}" data-mode="fight" ${canFight ? '' : 'disabled'}>对战</button><button class="blue" data-wild="${w.key}" data-mode="catch" ${canFight ? '' : 'disabled'}>捕捉</button></div></div>`).join('') : '<div class="empty">暂时没有可挑战的遭遇，刷新图鉴或稍后再看。</div>'}
+    <div class="pk-note">${canFight ? `背包里的精灵球：${balls} 个。` : '队伍里没有能战斗的宝可梦，先去宝可梦中心吧。'}当前显示 6 只附近宝可梦；点击宝可梦本体可听叫声，短时间连点可能激怒它：它有时会主动进攻，有时会受惊逃走并刷新遭遇。点击“对战”可直接开战，结束后会自动补充新遭遇，不必等待 AI 推进剧情。每场的变量立即结算，刷完再统一提交战斗摘要。</div>
     ${pending ? `<div class="near-row"><div class="grow"><b>连续训练记录</b><br><span class="muted">已完成 ${pending} 场；结果和升级已暂存。</span></div><div class="acts"><button class="blue" data-wild-batch-finish="1">结束刷级并回剧情</button></div></div>` : ''}`;
+}
+const wildAttentionMemory=new Map();
+function wildAttentionKey(){return 'pkmKantoWildAttention-v1:'+hash(String(ctx()?.chatId||'current-chat'));}
+function recordWildAttention(key){
+ const storeKey=wildAttentionKey();let store={};
+ try{store=JSON.parse(lsGet(storeKey)||'{}')||{};}catch(_){}
+ if(!store||typeof store!=='object'||Array.isArray(store))store={};
+ const now=Date.now(),cached=wildAttentionMemory.get(storeKey+':'+key),entry=store[key]||cached||{};
+ let count=Number(entry.count)||0,lastAt=Number(entry.lastAt)||0,triggered=!!entry.triggered;
+ if(now-lastAt>15000){count=0;triggered=false;}
+ if(triggered)return null;
+ count++;lastAt=now;
+ const chance=count<3?0:count>=7?1:Math.min(.9,.25+.2*(count-3));
+ let reaction=null;if(Math.random()<chance){reaction=Math.random()<.5?'attack':'flee';triggered=true;}
+ const next={count,lastAt,triggered};store[key]=next;wildAttentionMemory.set(storeKey+':'+key,next);
+ const recent=Object.entries(store).sort((a,b)=>(Number(b[1]?.lastAt)||0)-(Number(a[1]?.lastAt)||0)).slice(0,80);store=Object.fromEntries(recent);
+ lsSet(storeKey,JSON.stringify(store));return reaction;
+}
+function startWildBattle(w,ui=null){
+ openBattle({source:'wild',key:'wild|'+w.key,wildKey:w.key,cfg:{id:'野生-'+w.species,event:'自由',type:'wild',opponent:'野生'+w.species,title:`野生的${w.species}被惹恼了，主动发起进攻！`,team:[{species:w.species,level:w.level,gender:w.gender,shiny:w.shiny}]},ui});
+}
+async function fleeWildEncounter(m,w,canFight){
+ try{
+  await writePkm(pkm=>{pkm.wild.used[w.key]='fled';});
+  toast(canFight?`${w.species}被连番打扰后受惊逃走了，附近出现了新的宝可梦。`:`${w.species}被惹恼后趁机逃开了；队伍暂时无法应战，附近遭遇已刷新。`,'warning');
+  renderDex(m);
+ }catch(e){toast('附近宝可梦逃走了，但刷新记录没有写入：'+(e.message||e),'warning');}
 }
 function wildCryAt(m,key) {
   const pkm=readPkm(),st=parseState(chat()[mesOfFrame(m.win)]?.mes)||latestState()?.state||{};
   const w=nearbyList(pkm,st).list.find(x=>x.key===key);if(!w)return;
   lastEcoInteraction=Date.now();const line=pickCryLine(w);playCry(w,line);
+  const reaction=recordWildAttention(key);if(!reaction)return;
+  const canFight=pkm.party.slots.some(s=>hasMon(s)&&s.status!=='濒死'&&s.hp!==0);
+  if(reaction==='attack'&&canFight){toast(`${w.species}被你连番点击激怒，主动发起进攻！`,'warning');startWildBattle(w);}
+  else fleeWildEncounter(m,w,canFight);
 }
 let ambientCryTimer=0;
 function scheduleAmbientCry(delay=16000+Math.random()*15000){if(destroyed)return;if(ambientCryTimer)P.clearTimeout(ambientCryTimer);ambientCryTimer=P.setTimeout(runAmbientCry,delay);}
@@ -2023,7 +2054,7 @@ function onDexClick(m, e) {
     const pkm = readPkm(); const st = parseState(chat()[mesOfFrame(m.win)]?.mes) || latestState()?.state || {};
     const w = nearbyList(pkm, st).list.find(x => x.key === t.dataset.wild);
     if (!w) { toast('这只宝可梦已经不在附近了'); renderDex(m); return; }
-    openBattle({ source: 'wild', key: 'wild|' + w.key, wildKey: w.key, cfg: { id: '野生-' + w.species, event: '自由', type: 'wild', opponent: '野生' + w.species, title: `野生的${w.species}出现了！`, team: [{ species: w.species, level: w.level, gender: w.gender, shiny: w.shiny }] }, ui: t.dataset.mode === 'catch' ? { openBalls: true } : null });
+    startWildBattle(w,t.dataset.mode==='catch'?{openBalls:true}:null);
   }
 }
 
@@ -3719,7 +3750,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261031-follow-drag-cry-14", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261031-wild-reaction-15", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
