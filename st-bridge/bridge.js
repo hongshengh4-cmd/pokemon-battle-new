@@ -2819,7 +2819,7 @@ function openBattle(spec) {
   ensureHostStyle();
   const el = PD.createElement('div'); el.id = 'pkm-kanto-modal'; el.className = 'pkb';
   const title = cfg.title || `${K.TYPE_LABEL[fmt.type] || '对战'}${cfg.opponent ? ' · ' + cfg.opponent : ''}`;
-  el.innerHTML = `<div class="bar"><span class="t">⚔️ ${esc(title)}</span><span class="s"></span><button type="button" data-op="fullscreen" aria-label="浏览器全屏">全屏</button><button class="red" data-op="close">返回剧情</button></div><div class="stage"></div>`;
+  el.innerHTML = `<div class="stage"></div>`;
   PD.body.appendChild(el);
   try { if (el.showPopover) { el.setAttribute('popover', 'manual'); el.showPopover(); } } catch (_) {}
   const syncViewport = () => {
@@ -2841,7 +2841,6 @@ function openBattle(spec) {
   syncViewport();
   modal = { el, frame: null, tag: null, key: spec.key, spec, cfg, comp, fmt, engine: null, balls: null, type: fmt.type, sent: false, done: false, sess, timer: null };
   if (sess) { sess.status = 'open'; sess.error = null; entryStatus(sess); }
-  el.querySelector('[data-op=close]').onclick = closeBattle;
   const currentModal=modal, historyToken=uid();
   let historyPushed=false;
   try { P.history.pushState({...P.history.state,__pkmBattle:historyToken},'',P.location.href);historyPushed=true; } catch(_) {}
@@ -2849,39 +2848,18 @@ function openBattle(spec) {
   const onEscape=e=>{if(e.key==='Escape'&&modal===currentModal){e.preventDefault();e.stopImmediatePropagation();closeBattle();}};
   P.addEventListener('popstate',onBack);P.addEventListener('keydown',onEscape,true);
   currentModal.returnCleanup=()=>{P.removeEventListener('popstate',onBack);P.removeEventListener('keydown',onEscape,true);if(historyPushed&&!currentModal.closedByHistory&&P.history.state?.__pkmBattle===historyToken)P.history.back();};
-  const fullBtn=el.querySelector('[data-op=fullscreen]');
   let nativeWasActive=false;
-  const syncNativeFullscreen=()=>{if(modal!==currentModal)return;const native=isBattleNativeFullscreen();if(native)nativeWasActive=true;PD.documentElement.classList.toggle('pkm-kanto-native-fullscreen',native);if(fullBtn)fullBtn.textContent=(native||currentModal.pseudoFullscreen)?'退出全屏':'全屏';if(!native&&nativeWasActive){closeBattle();return;}};
+  const syncNativeFullscreen=()=>{if(modal!==currentModal)return;const native=isBattleNativeFullscreen();if(native)nativeWasActive=true;PD.documentElement.classList.toggle('pkm-kanto-native-fullscreen',native);if(!native&&nativeWasActive)closeBattle();};
   PD.addEventListener('fullscreenchange',syncNativeFullscreen);PD.addEventListener('webkitfullscreenchange',syncNativeFullscreen);
   currentModal.fullscreenCleanup=()=>{PD.removeEventListener('fullscreenchange',syncNativeFullscreen);PD.removeEventListener('webkitfullscreenchange',syncNativeFullscreen);PD.documentElement.classList.remove('pkm-kanto-native-fullscreen');setBattlePseudoFullscreen(currentModal,false);};
-  fullBtn.onclick=async()=>{
-    if(!currentModal.overlay)enterBattleOverlay(currentModal);
-    if(isBattleNativeFullscreen()){
-      try{const exit=PD.exitFullscreen||PD.webkitExitFullscreen||PD.msExitFullscreen;await exit?.call(PD);setBar('已退出浏览器全屏；战斗仍保持覆盖层。');}
-      catch(e){setBar('退出浏览器全屏失败：'+(e?.message||e));}
-      syncNativeFullscreen();return;
-    }
-    if(currentModal.pseudoFullscreen){setBattlePseudoFullscreen(currentModal,false);setBar('已退出伪全屏；战斗仍保持覆盖层。');syncNativeFullscreen();return;}
-    setBar('正在请求浏览器全屏……');
-    const root=PD.documentElement,request=root.requestFullscreen||root.webkitRequestFullscreen||root.msRequestFullscreen;
-    if(request){
-      try{
-        try{await request.call(root,{navigationUI:'hide'});}
-        catch(first){await request.call(root);}
-        syncNativeFullscreen();return;
-      }catch(e){LOG('浏览器原生全屏未获准，切换视口回退',e);}
-    }
-    setBattlePseudoFullscreen(currentModal,true);
-    setBar('已启用视口全屏回退；覆盖层已铺满网页。浏览器地址栏/系统栏由浏览器控制，可按 F11 切换。');
-    syncNativeFullscreen();
-  };
-  // 与参考卡的小樱快跑入口一致：进入战斗后立即打开覆盖层，覆盖聊天上方栏和底部输入区。
+  // 先把战斗挂进顶层覆盖层，再立即从本轮启动调用中请求原生全屏；如果浏览器拒绝则保留伪全屏覆盖层。
   enterBattleOverlay(currentModal);
+  requestBattleFullscreen(currentModal);
   if (comp.added.length) toast(`${comp.who}现在带着 ${cfg.team.length} 只：对战块漏写的${comp.added.join('、')}已按原作进度补上`, 'info');
   if (!fmt.wild && !fmt.full && entries.length > fmt.playerMax && !Array.isArray(spec.pick)) showPicker(modal, pkm, entries);
   else launchBattle(modal, spec.pick || null);
 }
-// 参考 Pokemon Pink：战斗层先自动进入 fixed 覆盖层；用户点击按钮时再对外层 documentElement 请求原生全屏，并提供伪全屏回退。
+// 参考 Pokemon Pink：用户点击战斗后立即请求外层 documentElement 原生全屏；同时自动建立 fixed 覆盖层，失败时启用伪全屏回退。
 function enterBattleOverlay(m) {
   if (!m?.el?.isConnected || m.overlay) return;
   const overlay = PD.createElement('div');
@@ -2938,6 +2916,24 @@ function setBattlePseudoFullscreen(m, active) {
   if (!root) return;
   root.classList.toggle('pkm-kanto-pseudo-fullscreen', !!active);
   if (m) m.pseudoFullscreen = !!active;
+}
+function requestBattleFullscreen(m) {
+  const root = PD.documentElement;
+  if (!root || modal !== m) return;
+  const request = root.requestFullscreen || root.webkitRequestFullscreen || root.msRequestFullscreen;
+  const fallback = err => {
+    if (modal !== m) return;
+    setBattlePseudoFullscreen(m, true);
+    if (err) LOG('浏览器拒绝自动原生全屏，已切换覆盖层伪全屏', err);
+  };
+  if (!request) { fallback(); return; }
+  try {
+    const result = request.call(root);
+    if (result && typeof result.then === 'function') result.then(() => {
+      if (modal === m) PD.documentElement.classList.add('pkm-kanto-native-fullscreen');
+    }).catch(fallback);
+    else PD.documentElement.classList.add('pkm-kanto-native-fullscreen');
+  } catch (e) { fallback(e); }
 }
 // 真正开战：建对战网页的 iframe 并发配置（选人之后才走到这里）
 function launchBattle(m, pick) {
@@ -3647,7 +3643,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：队伍栏位置持久、参考卡式覆盖层全屏、野外经验分享、濒死治疗与呼吸回血、连续刷级');
-  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261031-fullscreen-no-toolbar-9", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261031-battle-autofullscreen-clean-10", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
