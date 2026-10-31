@@ -993,13 +993,45 @@ function reconcileBonds(pkm, mesid, presentKeys) {
 }
 
 
-// Center recovery uses this project's hp/status/pp=null convention: full health, healthy, full PP.
+// 呼吸回血：仅按角色卡游戏时间推进，每完整经过 1 游戏小时，队伍中每只未濒死宝可梦恢复 1 HP。
+function gameMinute(value){const d=parseDate(value);return d?d.day*1440+d.h*60+d.mi:null;}
+function regenKey(mon,index){return String(mon?.uid||`slot:${index}`);}
+function regenClock(pkm){if(!isObj(pkm.integration))pkm.integration={};if(!isObj(pkm.integration.hpRegenGameMinute))pkm.integration.hpRegenGameMinute={};return pkm.integration.hpRegenGameMinute;}
+function setHpRegenBaseline(pkm,mon,timeValue){const t=gameMinute(timeValue??latestState()?.state?.时间??pkm.world?.time);if(t==null||!hasMon(mon))return;const i=pkm.party.slots.indexOf(mon);regenClock(pkm)[regenKey(mon,i<0?0:i)]=t;}
+function applyPassiveRegen(pkm,timeValue){
+ const now=gameMinute(timeValue);if(now==null)return false;
+ const clocks=regenClock(pkm);let changed=false;
+ for(let i=0;i<pkm.party.slots.length;i++){
+  const mon=pkm.party.slots[i];if(!hasMon(mon))continue;
+  const key=regenKey(mon,i),prev=Number(clocks[key]),h=panelHpInfo(mon);
+  if(!Number.isFinite(prev)){clocks[key]=now;changed=true;continue;}
+  if(now<prev){clocks[key]=now;changed=true;continue;}
+  const hours=Math.floor((now-prev)/60);if(hours<=0)continue;
+  clocks[key]=prev+hours*60;changed=true;
+  if(h.faint||!h.max||h.hp==null||h.hp>=h.max){clocks[key]=now;continue;}
+  const hp=Math.min(h.max,Math.floor(h.hp)+hours);
+  if(hp!==mon.hp){mon.hp=hp;mon.maxHp=h.max;changed=true;}
+  if(hp>=h.max)clocks[key]=now;
+ }
+ // 移出队伍的宝可梦不继续积攒时间；回到队伍时从当前时刻重新计时。
+ for(const key of Object.keys(clocks))if(!pkm.party.slots.some((m,i)=>hasMon(m)&&regenKey(m,i)===key)){delete clocks[key];changed=true;}
+ return changed;
+}
+// Center recovery writes explicit numeric full HP and clears status/PP, so the stored roster cannot keep a stale fainted flag.
 function centerLocation(pkm){return latestState()?.state?.地点||pkm.world.location||'';}
 function healParty(pkm,plan={all:true,targets:[]}){
  let changed=false;
+ const targets=new Set((plan.targets||[]).map(x=>String(x)));
  for(const m of pkm.party.slots){if(!hasMon(m))continue;
-  if(!plan.all&&!plan.targets.includes(m.uid||m.slot||m.species||m.name))continue;
-  for(const k of ['hp','status','pp'])if(m[k]!==null){m[k]=null;changed=true;}
+  const ids=[m.uid,m.slot,m.nickname,m.species,m.name].filter(x=>x!=null).map(String);
+  if(!plan.all&&!ids.some(x=>targets.has(x)))continue;
+  // 写入明确的数值满血，避免变量/面板把 hp=null 误读为 0 或“濒死”；状态和 PP 同步清除。
+  const max=Number(m.maxHp)>0?Number(m.maxHp):(monStats(m)?.hp||1);
+  if(m.maxHp!==max){m.maxHp=max;changed=true;}
+  if(m.hp!==max){m.hp=max;changed=true;}
+  if(m.status!==null){m.status=null;changed=true;}
+  if(m.pp!==null){m.pp=null;changed=true;}
+  setHpRegenBaseline(pkm,m);
  }
  return changed;
 }
@@ -1033,9 +1065,10 @@ function applySync(pkm, mesid, opts = {}) {
   const st = parseState(chat()[mesid]?.mes);
   let changed = applyCenterHealing(pkm, mesid) || !!opts.full;
   const present = [];
-  if (!st) return reconcileBonds(pkm, mesid, present) || changed;
+  if (!st) { changed=applyPassiveRegen(pkm,pkm.world.time)||changed; return reconcileBonds(pkm, mesid, present) || changed; }
   const set = (obj, k, v) => { if (v != null && v !== '' && obj[k] !== v) { obj[k] = v; changed = true; } };
   set(pkm.world, 'location', st.地点); set(pkm.world, 'time', st.时间);
+  if(st.时间)changed=applyPassiveRegen(pkm,st.时间)||changed;
   if (/同行|小智|沙盒/.test(st.模式 || '')) set(pkm.world, 'mode', (st.模式.match(/(同行|小智|沙盒)模式/) || [])[0]);
   const names = String(st.在场 || '').split(/[、，,／/；;\s]+/).map(s => s.replace(/[（(].*?[)）]/g, '').trim()).filter(Boolean);
   if (names.length) for (const [key, r] of Object.entries(pkm.npcs.records)) {
@@ -1110,8 +1143,7 @@ html,body{background:transparent!important}
 .tog{font-size:11.5px;margin-left:auto}
 `;
 const HOST_CSS = BASE_CSS + `
-/* Mobile immersion preview: original UI, no outer battle chrome. */
-#pkm-kanto-modal>.bar{display:none!important}
+/* Bridge fullscreen is an in-page fixed overlay, not browser-chrome hiding. Keep the battle controls reachable. */
 #pkm-kanto-modal>iframe{height:100%!important;flex:1 1 100%!important}
 #pkm-kanto-modal>.stage{flex:1;min-height:0;overflow:auto;touch-action:pan-y}
 #pkm-kanto-ball{z-index:2147482000!important;max-width:calc(100vw - 12px);visibility:visible}
@@ -1126,10 +1158,13 @@ const HOST_CSS = BASE_CSS + `
 #pkm-kanto-ball .follower{width:72px;height:72px;object-fit:contain}
 #pkm-kanto-ball.following .orb{display:block!important;width:34px;height:34px;flex:0 0 34px}
 #pkm-kanto-modal{box-sizing:border-box!important;inset:auto!important;left:var(--pkm-vx,0px)!important;top:var(--pkm-vy,0px)!important;width:var(--pkm-vw,100vw)!important;height:var(--pkm-vh,100dvh)!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border:0!important;overflow:hidden!important;z-index:2147483000}
-#pkm-kanto-modal:fullscreen{left:0!important;top:0!important;width:100vw!important;height:100dvh!important}
+#pkm-kanto-modal:fullscreen,#pkm-kanto-modal:-webkit-full-screen{position:fixed!important;inset:0!important;left:0!important;top:0!important;width:100vw!important;height:100dvh!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border:0!important;z-index:2147483647!important;overflow:hidden!important}
 /* v1.3.31: portrait phone means a rotated landscape game, never a portrait game. */
 #pkm-kanto-modal{transform:none!important;transform-origin:50% 50%!important}
 #pkm-kanto-modal.pkm-rotate-landscape{left:calc(var(--pkm-vx,0px) + (var(--pkm-vw,100vw) - var(--pkm-vh,100dvh))/2)!important;top:calc(var(--pkm-vy,0px) + (var(--pkm-vh,100dvh) - var(--pkm-vw,100vw))/2)!important;width:var(--pkm-vh,100dvh)!important;height:var(--pkm-vw,100vw)!important;transform:rotate(90deg)!important}
+#pkm-kanto-screen-overlay{position:fixed!important;inset:0!important;width:100vw!important;height:100dvh!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;box-sizing:border-box!important;overflow:hidden!important;background:rgba(7,10,20,.96)!important;z-index:2147483647!important}
+#pkm-kanto-modal.pkm-overlay-mode{position:absolute!important;inset:auto!important;left:0!important;top:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border:0!important;z-index:1!important}
+#pkm-kanto-modal.pkm-overlay-mode.pkm-rotate-landscape{left:calc((var(--pkm-vw,100vw) - var(--pkm-vh,100dvh))/2)!important;top:calc((var(--pkm-vh,100dvh) - var(--pkm-vw,100vw))/2)!important;width:var(--pkm-vh,100dvh)!important;height:var(--pkm-vw,100vw)!important}
 
 #pkm-kanto-modal>.bar{box-sizing:border-box;min-width:0;gap:6px;flex:0 0 auto;padding:4px max(6px,env(safe-area-inset-right)) 4px max(6px,env(safe-area-inset-left))}
 #pkm-kanto-modal>.bar .t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
@@ -2013,8 +2048,11 @@ function placeBall(el) {
 }
 // 面板可拖动，位置保存在本机；拖动手柄是标题栏左侧的“⠿”。
 const PANEL_POS_KEY='pkmKantoPanelPos-v1';
-let panelDrag=null;
-function readPanelPos(){try{const p=JSON.parse(lsGet(PANEL_POS_KEY)||'null');return p&&Number.isFinite(p.x)&&Number.isFinite(p.y)?p:null}catch(_){return null}}
+let panelDrag=null, panelManualPosition=null;
+function readPanelPos(){
+  if(panelManualPosition&&Number.isFinite(panelManualPosition.x)&&Number.isFinite(panelManualPosition.y))return panelManualPosition;
+  try{const p=JSON.parse(lsGet(PANEL_POS_KEY)||'null');return p&&Number.isFinite(p.x)&&Number.isFinite(p.y)?p:null}catch(_){return null}
+}
 function installPanelDrag(panel){
   panel.addEventListener('pointerdown',e=>{
     if(!e.isPrimary||(e.pointerType==='mouse'&&e.button!==0)||!e.target.closest?.('.pb-drag-grip'))return;
@@ -2027,8 +2065,9 @@ function installPanelDrag(panel){
     e.preventDefault();const {w,h,x,y}=vp(),r=panel.getBoundingClientRect();
     const left=Math.max(x+4,Math.min(x+w-r.width-4,d.x+dx)),top=Math.max(y+4,Math.min(y+h-r.height-4,d.y+dy));
     panel.style.setProperty('left',left+'px','important');panel.style.setProperty('top',top+'px','important');panel.style.setProperty('right','auto','important');panel.style.setProperty('bottom','auto','important');
+    panelManualPosition={x:left,y:top};panel.dataset.userPosition='1';
   },{passive:false});
-  const end=e=>{const d=panelDrag;if(!d||d.el!==panel||(e&&e.pointerId!==d.id))return;panelDrag=null;try{panel.releasePointerCapture(d.id)}catch(_){}if(d.moved){const r=panel.getBoundingClientRect();lsSet(PANEL_POS_KEY,JSON.stringify({x:r.left,y:r.top}));}};
+  const end=e=>{const d=panelDrag;if(!d||d.el!==panel||(e&&e.pointerId!==d.id))return;panelDrag=null;try{panel.releasePointerCapture(d.id)}catch(_){}if(d.moved){const r=panel.getBoundingClientRect();panelManualPosition={x:r.left,y:r.top};panel.dataset.userPosition='1';lsSet(PANEL_POS_KEY,JSON.stringify(panelManualPosition));}};
   panel.addEventListener('pointerup',end);panel.addEventListener('pointercancel',end);
 }
 // 面板贴着球展开：球在左半边就左对齐、右半边就右对齐；上下选空间大的一侧
@@ -2063,7 +2102,11 @@ function placePanel() {
       top = down ? r.bottom + gap : r.top - gap - ph;
     }
   }
-  const savedPanelPos=readPanelPos();
+  let savedPanelPos=readPanelPos();
+  if(!savedPanelPos&&panel.dataset.userPosition==='1'){
+    const currentLeft=parseFloat(panel.style.left),currentTop=parseFloat(panel.style.top);
+    if(Number.isFinite(currentLeft)&&Number.isFinite(currentTop))savedPanelPos={x:currentLeft,y:currentTop};
+  }
   if(savedPanelPos){left=savedPanelPos.x;top=savedPanelPos.y;}
   left=Math.max(l,Math.min(rr-pw,left));
   top = Math.max(t, Math.min(bb - ph, top));
@@ -2263,7 +2306,7 @@ function panelPartyMarkup(pkm) {
       ${state !== '—' ? `<span class="stt"${hp.faint ? ' style="background:#555"' : ''}>${esc(state)}</span>` : ''}
     </div>`;
   }).join('');
-  return `<div class="party">${cards}${count < 6 ? '<div class="slot empty">空位</div>' : ''}</div>`;
+  return `<div class="party">${cards}${count < 6 ? '<div class="slot empty">空位</div>' : ''}</div><div class="pk-note">呼吸恢复：每经过 1 游戏小时，队伍中未濒死的宝可梦恢复 1 HP；濒死须用伤药或到宝可梦中心复苏。</div>`;
 }
 function panelStorageMarkup(pkm) {
   const box = pkm.party.box || [];
@@ -2784,8 +2827,10 @@ function openBattle(spec) {
     const width=v?.width || P.innerWidth, height=v?.height || P.innerHeight;
     el.classList.toggle('pkm-rotate-landscape', width < height && (width <= 680 || P.matchMedia('(pointer: coarse)').matches));
   };
-  P.addEventListener('resize',syncViewport); P.visualViewport?.addEventListener('resize',syncViewport); P.visualViewport?.addEventListener('scroll',syncViewport);
-  el._viewportCleanup=()=>{P.removeEventListener('resize',syncViewport);P.visualViewport?.removeEventListener('resize',syncViewport);P.visualViewport?.removeEventListener('scroll',syncViewport);};
+  el._viewportSync=syncViewport;
+  const onViewportChange=()=>{syncViewport();if(modal?.el===el)syncOverlayViewport(modal);};
+  P.addEventListener('resize',onViewportChange); P.visualViewport?.addEventListener('resize',onViewportChange); P.visualViewport?.addEventListener('scroll',onViewportChange);
+  el._viewportCleanup=()=>{P.removeEventListener('resize',onViewportChange);P.visualViewport?.removeEventListener('resize',onViewportChange);P.visualViewport?.removeEventListener('scroll',onViewportChange);};
   const oldOverflow=PD.documentElement.style.overflow; PD.documentElement.style.overflow='hidden';
   el._restoreOverflow=()=>{PD.documentElement.style.overflow=oldOverflow;};
   syncViewport();
@@ -2796,28 +2841,64 @@ function openBattle(spec) {
   let historyPushed=false;
   try { P.history.pushState({...P.history.state,__pkmBattle:historyToken},'',P.location.href);historyPushed=true; } catch(_) {}
   const onBack=()=>{if(modal===currentModal){currentModal.closedByHistory=true;closeBattle();}};
-  const onEscape=e=>{if(e.key==='Escape'&&modal===currentModal){e.preventDefault();e.stopImmediatePropagation();closeBattle();}};
+  const onEscape=e=>{if(e.key==='Escape'&&modal===currentModal){e.preventDefault();e.stopImmediatePropagation();if(currentModal.overlay)exitBattleOverlay(currentModal);else closeBattle();}};
   P.addEventListener('popstate',onBack);P.addEventListener('keydown',onEscape,true);
   currentModal.returnCleanup=()=>{P.removeEventListener('popstate',onBack);P.removeEventListener('keydown',onEscape,true);if(historyPushed&&!currentModal.closedByHistory&&P.history.state?.__pkmBattle===historyToken)P.history.back();};
-  el.querySelector('.bar').setAttribute('aria-hidden','true');
-  const restoreTopLayer = () => {
-    if (el.isConnected && !PD.fullscreenElement && el.showPopover) { try { el.showPopover(); } catch (_) {} }
-  };
-  el.addEventListener('fullscreenchange', () => { restoreTopLayer(); syncViewport(); });
-  el.querySelector('[data-op=fullscreen]').onclick = async () => {
-    try {
-      if (PD.fullscreenElement) await PD.exitFullscreen();
-      else if (el.requestFullscreen) {
-        // A showing popover cannot request fullscreen. Leave the top layer first.
-        try { el.hidePopover?.(); } catch (_) {}
-        await el.requestFullscreen();
-      } else toast('当前浏览器不支持系统全屏，已使用可用视口铺满模式；可横置手机');
-    } catch (_) { toast('系统全屏不可用，保留视口铺满模式；可横置手机'); }
-    restoreTopLayer(); syncViewport();
+  el.querySelector('[data-op=fullscreen]').onclick = () => {
+    if (currentModal.overlay) exitBattleOverlay(currentModal);
+    else enterBattleOverlay(currentModal);
   };
   if (comp.added.length) toast(`${comp.who}现在带着 ${cfg.team.length} 只：对战块漏写的${comp.added.join('、')}已按原作进度补上`, 'info');
   if (!fmt.wild && !fmt.full && entries.length > fmt.playerMax && !Array.isArray(spec.pick)) showPicker(modal, pkm, entries);
   else launchBattle(modal, spec.pick || null);
+}
+// 模仿参考卡的覆盖层全屏：创建 fixed 视口层，将战斗窗口移入；不请求浏览器原生全屏。
+function enterBattleOverlay(m) {
+  if (!m?.el?.isConnected || m.overlay) return;
+  const overlay = PD.createElement('div');
+  overlay.id = 'pkm-kanto-screen-overlay';
+  overlay.setAttribute('popover', 'manual');
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-label', '宝可梦全屏对战');
+  m.overlayParent = m.el.parentNode;
+  m.overlayNext = m.el.nextSibling;
+  m.overlayHadPopover = m.el.hasAttribute('popover');
+  try { m.el.hidePopover?.(); } catch (_) {}
+  m.el.removeAttribute('popover');
+  m.el.classList.add('pkm-overlay-mode');
+  overlay.appendChild(m.el);
+  (PD.body || PD.documentElement).appendChild(overlay);
+  m.overlay = overlay;
+  try { overlay.showPopover?.(); } catch (_) {}
+  const btn = m.el.querySelector('[data-op=fullscreen]');
+  if (btn) { btn.textContent = '退出全屏'; btn.setAttribute('aria-label', '退出全屏覆盖层'); }
+  syncOverlayViewport(m);
+}
+function syncOverlayViewport(m) {
+  if (!m?.overlay || !m.el?.isConnected) return;
+  const v = P.visualViewport;
+  m.el.style.setProperty('--pkm-vw', (v?.width || P.innerWidth) + 'px');
+  m.el.style.setProperty('--pkm-vh', (v?.height || P.innerHeight) + 'px');
+}
+function exitBattleOverlay(m) {
+  const overlay = m?.overlay;
+  if (!overlay) return;
+  try { overlay.hidePopover?.(); } catch (_) {}
+  const parent = m.overlayParent?.isConnected ? m.overlayParent : (PD.body || PD.documentElement);
+  if (m.overlayNext?.parentNode === parent) parent.insertBefore(m.el, m.overlayNext);
+  else parent.appendChild(m.el);
+  m.el.classList.remove('pkm-overlay-mode');
+  if (m.overlayHadPopover) {
+    m.el.setAttribute('popover', 'manual');
+    try { m.el.showPopover?.(); } catch (_) {}
+  }
+  overlay.remove();
+  m.overlay = null;
+  m.overlayParent = null;
+  m.overlayNext = null;
+  const btn = m.el.querySelector('[data-op=fullscreen]');
+  if (btn) { btn.textContent = '全屏'; btn.setAttribute('aria-label', '全屏覆盖层'); }
+  try { m.el._viewportSync?.(); } catch (_) {}
 }
 // 真正开战：建对战网页的 iframe 并发配置（选人之后才走到这里）
 function launchBattle(m, pick) {
@@ -2882,7 +2963,7 @@ function setBar(text) { const s = modal?.el.querySelector('.bar .s'); if (s) s.t
 function closeBattle(silent) {
   if (!modal) return;
   const m = modal; modal = null; clearTimeout(m.timer); m.el._viewportCleanup?.(); m.el._restoreOverflow?.(); m.returnCleanup?.();
-  if (PD.fullscreenElement === m.el) PD.exitFullscreen?.().catch(() => {});
+  if (m.overlay) exitBattleOverlay(m);
   m.el.remove();
   if (m.sess) { if (!m.done) m.sess.status = 'idle'; entryStatus(m.sess); }
   if (!m.done && silent !== true) toast(m.frame ? '对战没有结束，已放弃。可以重新点“开始对战”。' : '还没开战，已取消。可以重新点“开始对战”。');
@@ -2929,12 +3010,14 @@ function verdictText(outcome, fmt, pTeam, eTeam) {
   return '对战中止，不计胜负';
 }
 function awardBattleExperience(pkm, payload, outcome, battleType) {
-  const gained=[]; if (outcome !== 'victory') return gained;
+  const gained=[]; if(outcome!=='victory')return gained;
   const enemyLv=Math.max(1,...(payload.enemyTeam||[]).map(e=>Number(e.level)||1));
-  const participants=(payload.playerTeam||[]).filter(p=>p.participated!==false&&Number.isInteger(Number(p.hostSlot)));
-  const gain=Math.max(1,Math.floor(enemyLv*enemyLv*1.2*(battleType==='wild'?1:1.25)));
-  for(const p of participants){
-    const mon=pkm.party.slots[Number(p.hostSlot)];if(!hasMon(mon))continue;
+  const baseGain=Math.max(1,Math.floor(enemyLv*enemyLv*1.2*(battleType==='wild'?1:1.25)));
+  const participated=new Set((payload.playerTeam||[])
+    .filter(p=>p.participated!==false&&Number.isInteger(Number(p.hostSlot)))
+    .map(p=>Number(p.hostSlot)));
+  const award=(mon,gain,entered)=>{
+    if(!hasMon(mon)||gain<=0)return;
     const oldLv=Math.max(1,Math.min(100,Math.floor(Number(mon.lv)||5)));
     const oldStats=monStats(mon),oldMax=Number(mon.maxHp)>0?Number(mon.maxHp):(oldStats?.hp||1);
     const total=(mon.exp!=null&&Number.isFinite(Number(mon.exp))?Number(mon.exp):oldLv**3)+gain;
@@ -2944,7 +3027,14 @@ function awardBattleExperience(pkm, payload, outcome, battleType) {
       const newMax=monStats(mon)?.hp||oldMax;
       if(mon.hp==null){mon.maxHp=newMax;}else if(mon.hp===0||mon.status==='濒死'){mon.maxHp=newMax;mon.hp=0;}else{mon.hp=Math.min(newMax,Number(mon.hp)+Math.max(0,newMax-oldMax));mon.maxHp=newMax;}
     }
-    gained.push({name:monName(mon),species:mon.species||mon.name,exp:gain,from:oldLv,to:newLv});
+    gained.push({name:monName(mon),species:mon.species||mon.name,exp:gain,from:oldLv,to:newLv,entered,share:entered?'全额':'50%'});
+  };
+  if(battleType==='wild'){
+    // 野外：经验不按参战人数瓜分。出场者各得完整等级公式经验，队伍其余成员各得一半。
+    pkm.party.slots.forEach((mon,i)=>{if(!hasMon(mon))return;const entered=participated.has(i);award(mon,entered?baseGain:Math.max(1,Math.floor(baseGain/2)),entered);});
+  }else{
+    // 训练家战保持原规则：实际出场者获得完整经验（含训练家 1.25 倍）。
+    for(const p of payload.playerTeam||[]){if(p.participated===false||!Number.isInteger(Number(p.hostSlot)))continue;award(pkm.party.slots[Number(p.hostSlot)],baseGain,true);}
   }
   return gained;
 }
@@ -2953,7 +3043,7 @@ async function finishWildBatch(){
   if(!items.length){toast('目前没有待提交的连续战斗记录。');return;}
   const ta=PD.getElementById('send_textarea');if(!ta){toast('找不到酒馆输入框；战斗变量已保存，暂时无法提交摘要。','warning');return;}
   const data={type:'wild-training-batch',count:items.length,battles:items};
-  const lines=items.map((x,i)=>`${i+1}. ${x.outcome==='victory'?'胜利':x.outcome==='captured'?'收服':x.outcome==='defeat'?'败北':'中止'}：野生${x.species} Lv${x.level}，${x.turns||0}回合${(x.exp||[]).length?'；经验/升级：'+x.exp.map(g=>`${g.name} +${g.exp}经验${g.to>g.from?'，Lv'+g.from+'→Lv'+g.to:''}`).join('、'):''}`).join('\n');
+  const lines=items.map((x,i)=>`${i+1}. ${x.outcome==='victory'?'胜利':x.outcome==='captured'?'收服':x.outcome==='defeat'?'败北':'中止'}：野生${x.species} Lv${x.level}，${x.turns||0}回合${(x.exp||[]).length?'；经验/升级：'+x.exp.map(g=>`${g.name} +${g.exp}经验（${g.share||'出场'}）${g.to>g.from?'，Lv'+g.from+'→Lv'+g.to:''}`).join('、'):''}`).join('\n');
   const text=`<pkm_result>${JSON.stringify(data)}</pkm_result>\n【战斗结果】连续野外训练汇总｜共 ${items.length} 场\n${lines}\n（各场战斗的 HP、状态、PP、经验、等级、羁绊和战绩均已即时写入变量。请依据这份汇总简要描写训练过程并回到当前剧情，不要重新结算或改写胜负，也不要重复写入这些变量。）`;
   await writePkm(pkm=>{pkm.wild.pendingResults=[];});
   fillInput(text);toast(`已将 ${items.length} 场连续训练汇总到输入框；发送这一条即可回剧情。`);
@@ -2975,6 +3065,7 @@ async function applyResult(m, payload) {
     for (const p of payload.playerTeam || []) {
       const s = pkm.party.slots[p.hostSlot]; if (!hasMon(s)) continue;
       s.hp = p.fainted ? 0 : p.hp; s.maxHp = p.maxHp; s.status = p.fainted ? '濒死' : (K.STATUS_TO_ZH[p.status] || null);
+      if(p.participated!==false)setHpRegenBaseline(pkm,s);
       // v1.3.4：剩余 PP 写回（按招式中文名记录；满的不记）
       if (Array.isArray(p.moves)) {
         const pp = {};
@@ -2989,7 +3080,7 @@ async function applyResult(m, payload) {
         bondNotes.push(`${monName(s)}信任+1${won ? '、热情+1' : ''}`);
       }
     }
-    // 1.5) 胜利经验：实际出场者按对手等级获得经验，达到等级阈值后自动升级并同步最大 HP。
+    // 1.5) 胜利经验：野外出场者各得全额、队伍其余成员各得一半；其他战斗仍按原参战规则。升级同步最大 HP。
     xpGains=awardBattleExperience(pkm,payload,outcome,m.type);
     // 2) 精灵球消耗（按差值扣，避免覆盖期间的其他变化）
     for (const [id, zh] of Object.entries(K.BALL_ZH)) {
@@ -3051,9 +3142,9 @@ async function applyResult(m, payload) {
     res.capture ? `收服：用${res.capture.ball}收服了 ${res.capture.species} Lv${res.capture.level}，已放进${placed}。` : '',
     used.length ? `消耗：${used.join('、')}` : '',
     bondNotes.length ? `羁绊（脚本已加）：${bondNotes.join('，')}` : '',
-    xpGains.length ? `经验（脚本已加）：${xpGains.map(x=>`${x.name} +${x.exp}，Lv${x.from}${x.to>x.from?'→Lv'+x.to:''}`).join('；')}` : '',
+    xpGains.length ? `经验（脚本已加）：${xpGains.map(x=>`${x.name} +${x.exp}（${x.share||'出场'}），Lv${x.from}${x.to>x.from?'→Lv'+x.to:''}`).join('；')}` : '',
     line ? `对手的台词（供续写）：「${line}」` : '',
-    '（变量已写入：体力/状态、剩余PP、精灵球、收服入队、图鉴、战斗羁绊。请按此结果续写战斗经过，不改写胜负，也不要重复写入这些变量。）'].filter(Boolean).join('\n');
+    '（变量已写入：体力/状态、剩余PP、经验与等级、精灵球、收服入队、图鉴、战斗羁绊。请按此结果续写战斗经过，不改写胜负，也不要重复写入这些变量。）'].filter(Boolean).join('\n');
   const text = `<pkm_result>${JSON.stringify({...res, experience:xpGains})}</pkm_result>\n${human}`;
   if(m.type==='wild'){
     const pendingCount=readPkm().wild.pendingResults?.length||0;
@@ -3388,9 +3479,9 @@ function installFollowerGesture(el){el.addEventListener('pointermove',e=>{if(!fo
  });el.addEventListener('pointermove',e=>{const g=followerGesture;if(!g||g.el!==el||g.id!==e.pointerId)return;const dx=e.clientX-g.x,dy=e.clientY-g.y;const dd=e.clientX-(g.lastX??g.x);g.lastX=e.clientX;if(Math.abs(dd)>2&&Math.abs(dx)<56&&Math.abs(dy)<40){const dir=dd>0?1:-1;if(dir!==g.strokeDir){g.strokeDir=dir;g.strokes=(g.strokes||0)+1;}if(g.strokes>=5){g.petting=true;g.moved=true;clearTimeout(g.timer);followerPositions.set(el.dataset.uid,{x:g.left,y:g.top});el.style.left=g.left+'px';el.style.top=g.top+'px';el.__originalMood?.pet();}}if(g.petting)return;if(Math.hypot(dx,dy)>12){g.moved=true;clearTimeout(g.timer)}if(!g.moved)return;e.preventDefault();const v=vp();const pos={x:Math.max(6,Math.min(v.w-el.offsetWidth-6,g.left+dx)),y:Math.max(42,Math.min(v.h-el.offsetHeight-8,g.top+dy))};followerPositions.set(el.dataset.uid,pos);el.style.left=pos.x+'px';el.style.top=pos.y+'px';});
  el.addEventListener('pointerup',e=>{const g=followerGesture;if(!g||g.el!==el)return;clearTimeout(g.timer);if(g.moved)persistFollowers();if(!g.moved&&!g.held){const mon=readPkm().party.slots.find(m=>m.uid===el.dataset.uid);if(hasMon(mon)&&panelHpInfo(mon).hp!==0)playCry(mon,pickCryLine(mon));el.__originalMood?.interact();}followerGesture=null;});el.addEventListener('pointercancel',()=>{clearTimeout(followerGesture?.timer);followerGesture=null;});
 }
-function careInfo(name,mon){const h=panelHpInfo(mon);let amount=name==='伤药'?20:name==='橙橙果'?10:0;const heal=h.faint?0:Math.min(amount,Math.max(0,h.max-(h.hp??h.max)));return{hp:h.hp,max:h.max,heal,valid:heal>0};}
-function showCare(name,id){if(PD.getElementById('pkm-kanto-modal')){toast('对战中请在对战窗口使用道具，避免与战斗结算冲突。');return;}const pkm=readPkm(),mon=pkm.party.slots.find(m=>m.uid===id);if(!mon||!isFollowing(pkm,id)||!(Number(pkm.player.bag[name])>0))return;const effect=careInfo(name,mon);pendingCare={name,id};PD.getElementById('pkm-care-confirm')?.remove();const d=PD.createElement('div');d.id='pkm-care-confirm';d.className='pkb';d.innerHTML=`<div class="care-card"><h3>确认${name==='橙橙果'?'喂食':'使用物品'}</h3><div class="care-line">${itemIcon(name)}<b>${esc(name)}</b> → ${spriteImg(mon.species)}<b>${esc(monName(mon))}</b></div><p>HP ${effect.hp}/${effect.max}${effect.valid?' → '+(effect.hp+effect.heal)+'/'+effect.max+'（+'+effect.heal+'）':''}</p><p>${effect.valid?'确认后背包扣除 1 个；取消不消耗。':'当前使用无效：满血或濒死，不消耗物品。'}</p><div class="acts"><button class="ghost" data-care="cancel">取消</button><button class="blue" data-care="confirm" ${effect.valid?'':'disabled'}>确认使用</button></div><small>效果来自原状态栏道具说明；未新增饱腹、食物或额外羁绊数值。</small></div>`;PD.body.append(d);let ignoreTrustedUntil=0;d.addEventListener('pointerup',e=>{if(e.pointerType!=='touch')return;const b=e.target.closest('[data-care]');if(b&&!b.disabled){ignoreTrustedUntil=Date.now()+700;b.click();}});d.addEventListener('click',async e=>{if(e.isTrusted&&Date.now()<ignoreTrustedUntil)return;const act=e.target.closest('[data-care]')?.dataset.care;if(act==='cancel'){pendingCare=null;d.remove();}if(act==='confirm')await applyCare();});}
-async function applyCare(){const op=pendingCare;if(!op)return;pendingCare=null;let applied=false;await writePkm(pkm=>{applied=false;const m=pkm.party.slots.find(m=>m.uid===op.id);if(PD.getElementById('pkm-kanto-modal')||!m||!isFollowing(pkm,op.id)||(Number(pkm.player.bag[op.name])||0)<1)return;const ef=careInfo(op.name,m);if(!ef.valid)return;m.hp=ef.hp+ef.heal;pkm.player.bag[op.name]--;applied=true;});PD.getElementById('pkm-care-confirm')?.remove();if(!applied){toast('目标或物品状态已变化；未使用，也不触发开心互动。');return;}if(applied){const el=PD.querySelector('.pkm-follow-unit[data-uid="'+op.id+'"]');el?.__originalMood?.happy(op.name==='橙橙果'?'feed':'medicine');}toast('已按原道具效果使用 '+op.name+'；背包与队伍 HP 已同步。');}
+function careInfo(name,mon){const h=panelHpInfo(mon);const amount=name==='伤药'?20:name==='橙橙果'?10:0;const max=h.max||monStats(mon)?.hp||1;const revive=!!h.faint&&name==='伤药';const heal=revive?Math.min(amount,max):(h.faint?0:Math.min(amount,Math.max(0,max-(h.hp??max))));return{hp:h.faint?0:h.hp,max,heal,revive,valid:heal>0};}
+function showCare(name,id){if(PD.getElementById('pkm-kanto-modal')){toast('对战中请在对战窗口使用道具，避免与战斗结算冲突。');return;}const pkm=readPkm(),mon=pkm.party.slots.find(m=>m.uid===id);if(!mon||!isFollowing(pkm,id)||!(Number(pkm.player.bag[name])>0))return;const effect=careInfo(name,mon);pendingCare={name,id};PD.getElementById('pkm-care-confirm')?.remove();const d=PD.createElement('div');d.id='pkm-care-confirm';d.className='pkb';d.innerHTML=`<div class="care-card"><h3>确认${name==='橙橙果'?'喂食':'使用物品'}</h3><div class="care-line">${itemIcon(name)}<b>${esc(name)}</b> → ${spriteImg(mon.species)}<b>${esc(monName(mon))}</b></div><p>HP ${effect.hp}/${effect.max}${effect.valid?' → '+(effect.revive?effect.heal:effect.hp+effect.heal)+'/'+effect.max+'（+'+effect.heal+'）':''}</p><p>${effect.revive?'濒死状态可用伤药复苏并恢复 20 HP。':effect.valid?'确认后背包扣除 1 个；取消不消耗。':'当前使用无效：满血或该物品不能治疗濒死状态，不消耗物品。'}</p><div class="acts"><button class="ghost" data-care="cancel">取消</button><button class="blue" data-care="confirm" ${effect.valid?'':'disabled'}>确认使用</button></div><small>效果来自原状态栏道具说明；未新增饱腹、食物或额外羁绊数值。</small></div>`;PD.body.append(d);let ignoreTrustedUntil=0;d.addEventListener('pointerup',e=>{if(e.pointerType!=='touch')return;const b=e.target.closest('[data-care]');if(b&&!b.disabled){ignoreTrustedUntil=Date.now()+700;b.click();}});d.addEventListener('click',async e=>{if(e.isTrusted&&Date.now()<ignoreTrustedUntil)return;const act=e.target.closest('[data-care]')?.dataset.care;if(act==='cancel'){pendingCare=null;d.remove();}if(act==='confirm')await applyCare();});}
+async function applyCare(){const op=pendingCare;if(!op)return;pendingCare=null;let applied=false,revived=false;await writePkm(pkm=>{applied=false;revived=false;const m=pkm.party.slots.find(m=>m.uid===op.id);if(PD.getElementById('pkm-kanto-modal')||!m||!isFollowing(pkm,op.id)||(Number(pkm.player.bag[op.name])||0)<1)return;const ef=careInfo(op.name,m);if(!ef.valid)return;m.hp=Math.min(ef.max,ef.revive?ef.heal:ef.hp+ef.heal);m.maxHp=ef.max;if(ef.revive)m.status=null;pkm.player.bag[op.name]--;setHpRegenBaseline(pkm,m);revived=ef.revive;applied=true;});PD.getElementById('pkm-care-confirm')?.remove();if(!applied){toast('目标或物品状态已变化；未使用，也不触发开心互动。');return;}if(applied){const el=PD.querySelector('.pkm-follow-unit[data-uid="'+op.id+'"]');el?.__originalMood?.happy(op.name==='橙橙果'?'feed':'medicine');}toast(revived?'伤药已使濒死宝可梦复苏到 20 HP；背包与队伍状态已同步。':'已按原道具效果使用 '+op.name+'；背包与队伍 HP 已同步。');}
 function installBagDrag(win,root){
  if(root.__pkmCareBinding?.owner===instance)return;root.__pkmCareBinding?.controller.abort();
  const controller=new win.AbortController();root.__pkmCareBinding={owner:instance,controller};cleanups.push(()=>controller.abort());
@@ -3513,8 +3604,8 @@ async function start() {
     const f = findStat(), raw = f?.vars?.stat_data?.pkm;
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
-  LOG('连续刷级优化版已加载：6只附近遭遇、即时结算、批次汇总、胜利经验');
-  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261031-grind-batch-1", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, refresh: refreshAll };
+  LOG('修复版已加载：队伍栏位置持久、参考卡式覆盖层全屏、野外经验分享、濒死治疗与呼吸回血、连续刷级');
+  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261031-exp-heal-regen-4", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
