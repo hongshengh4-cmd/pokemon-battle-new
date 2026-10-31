@@ -52,7 +52,7 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
   const QUALITY_IV = { low: 10, medium: 20, high: 27, perfect: 31 };
   // 道具：中文名 → [PokeAPI 道具图 id, 口袋, 说明]
   const POCKETS = ['道具', '回复', '精灵球', '重要物品'];
-  const IT_ALIAS = { '老旧鱼竿': '破旧钓竿', '旧鱼竿': '破旧钓竿', '破旧鱼竿': '破旧钓竿', '鱼竿': '破旧钓竿', '钓竿': '破旧钓竿', '好鱼竿': '好钓竿', '厉害鱼竿': '厉害钓竿', '脚踏车': '自行车', '单车': '自行车', '解毒剂': '解毒药', '解麻痹药': '解麻药', '烧伤药': '灼伤药', '全复药': '全复药', '圣特安努号船票': '船票', '地图': '城镇地图', '学习机': '学习装置' };
+  const IT_ALIAS = { '老旧鱼竿': '破旧钓竿', '旧鱼竿': '破旧钓竿', '破旧鱼竿': '破旧钓竿', '鱼竿': '破旧钓竿', '钓竿': '破旧钓竿', '好鱼竿': '好钓竿', '厉害鱼竿': '厉害钓竿', '脚踏车': '自行车', '单车': '自行车', '解毒剂': '解毒药', '麻痹药': '解麻药', '解麻痹药': '解麻药', '烧伤药': '灼伤药', '全复药': '全复药', '圣特安努号船票': '船票', '地图': '城镇地图', '学习机': '学习装置' };
   const itemById = {}; Object.keys(DATA.IT).forEach(k => { itemById[DATA.IT[k][0]] = k; });
   function item(name) {
     const s = String(name || '').trim(); const k = DATA.IT[s] ? s : IT_ALIAS[s] && DATA.IT[IT_ALIAS[s]] ? IT_ALIAS[s] : itemById[s.toLowerCase().replace(/[\s_]+/g, '-')] || null;
@@ -112,6 +112,63 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
     const all = s.match(/<pkm_state>([\s\S]*?)<\/pkm_state>/gi); if (!all) return {};
     const o = {}; all[all.length - 1].replace(/<\/?pkm_state>/gi, '').split(/\r?\n/).forEach(ln => { const m = ln.match(/^\s*([^：:\s]{1,6})\s*[：:]\s*(.*)$/); if (m) o[m[1]] = m[2].trim(); });
     return o;
+  }
+  // 只在状态栏中识别“回复声明了背包变更、但本楼变量快照仍是旧值”的情况。
+  // 预览不会写回 MVU，也不会把未持久化物品冒充为实际库存。
+  function bagMap(bag) {
+    const out = {};
+    if (Array.isArray(bag)) bag.forEach(x => { if (typeof x === 'string') out[x] = (out[x] || 0) + 1; else if (x && x.name) out[String(x.name)] = num(x.count, 1); });
+    else if (bag && typeof bag === 'object') Object.keys(bag).forEach(k => {
+      const v = bag[k];
+      if (v && typeof v === 'object' && !Array.isArray(v)) Object.keys(v).forEach(k2 => { out[k2] = num(v[k2], 0); });
+      else out[k] = num(v, 0);
+    });
+    return out;
+  }
+  function bagPathKey(path) {
+    const p = String(path || '').trim();
+    let a = p.startsWith('/') ? p.slice(1).split('/').map(x => x.replace(/~1/g, '/').replace(/~0/g, '~')) : p.replace(/\[(\d+)\]/g, '.$1').split('.');
+    a = a.filter(Boolean); if (a[0] === 'stat_data') a.shift();
+    return a.length === 4 && a[0] === 'pkm' && a[1] === 'player' && a[2] === 'bag' ? a[3] : null;
+  }
+  function pendingBagFromMessage(mes, basePk, currentPk) {
+    if (!mes || !basePk || !currentPk) return { items: [], money: null };
+    const u = String(mes).match(/<UpdateVariable>([\s\S]*?)(?:<\/UpdateVariable>|$)/i);
+    if (!u) return { items: [], money: null };
+    const j = u[1].match(/<JSONPatch>([\s\S]*?)(?:<\/JSONPatch>|$)/i);
+    if (!j) return { items: [], money: null };
+    let ops; try { ops = JSON.parse(j[1].trim()); } catch (_) { return { items: [], money: null }; }
+    if (!Array.isArray(ops)) return { items: [], money: null };
+    const base = basePk.player || {}, current = currentPk.player || {};
+    const beforeBag = bagMap(base.bag), actualBag = bagMap(current.bag), expected = { ...beforeBag }, touched = new Set();
+    let expectedMoney = num(base.money, 0), moneyTouched = false;
+    for (const o of ops) {
+      if (!o || typeof o !== 'object') continue;
+      const key = bagPathKey(o.path), op = String(o.op || '').toLowerCase();
+      if (key !== null) {
+        touched.add(key);
+        const cur = num(expected[key], 0), val = o.value;
+        if (op === 'delta' && Number.isFinite(+val)) expected[key] = cur + Number(val);
+        else if (op === 'add' || op === 'replace') expected[key] = num(val, 0);
+        else if (op === 'remove') delete expected[key];
+        continue;
+      }
+      const path = String(o.path || '');
+      if (path === '/pkm/player/money' || path === 'pkm.player.money') {
+        moneyTouched = true;
+        if (op === 'delta' && Number.isFinite(+o.value)) expectedMoney += Number(o.value);
+        else if (op === 'add' || op === 'replace') expectedMoney = num(o.value, expectedMoney);
+      }
+    }
+    const items = [];
+    touched.forEach(name => {
+      const b = num(beforeBag[name], 0), a = num(actualBag[name], 0), e = num(expected[name], 0);
+      // Only preview when this field is still exactly at its pre-message value.
+      if (a === b && e !== b) items.push({ name, before: a, expected: e, delta: e - a });
+    });
+    const bm = num(base.money, 0), am = num(current.money, 0);
+    const money = moneyTouched && am === bm && expectedMoney !== bm ? { before: am, expected: expectedMoney, delta: expectedMoney - am } : null;
+    return { items, money };
   }
   function ivsOf(raw) {
     const iv = raw.stats_meta && raw.stats_meta.ivs, q = QUALITY_IV[raw.quality];
@@ -200,8 +257,11 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
     let prev = null; if (vi != null) { const pi = varMid(vi); const pd = pi == null ? null : readAt(pi); prev = pd && pd.stat_data.pkm; }
     let pk = d && d.stat_data.pkm;
     if (!pk) { try { pk = host.PKMKanto?.read?.(); } catch (_) {} }
-    let sig = ''; try { sig = JSON.stringify(pk || null) + JSON.stringify(st) + (prev ? JSON.stringify(prev.dex || null) : ''); } catch (e) {}
-    return { vi, d, pk, st, sig, S: view(pk, st, prev), none: !pk };
+    const msg = vi != null ? chat[vi] : null;
+    const pending = msg && !msg.is_user ? pendingBagFromMessage(msg.mes, prev, pk) : { items: [], money: null };
+    const S = view(pk, st, prev); S.pendingBag = pending.items; S.pendingMoney = pending.money;
+    let sig = ''; try { sig = JSON.stringify(pk || null) + JSON.stringify(st) + JSON.stringify(pending) + (prev ? JSON.stringify(prev.dex || null) : ''); } catch (e) {}
+    return { vi, d, pk, st, sig, S, none: !pk };
   }
 
   // =====================================================================
@@ -346,7 +406,7 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
       P.innerHTML = `<div class="tcard"><div class="tc-ava">${esc(p.name[0] || '?')}</div><div>
     <div class="tc-id">TRAINER CARD · ID No.${esc(p.id)}</div><div class="tc-name">${esc(p.name)} ${p.gender ? `<span style="font-size:15px;color:${p.gender === 'f' ? '#e0457b' : '#3b7be0'}">${p.gender === 'f' ? '♀' : '♂'}</span>` : ''}</div>
     <span class="tc-title">${esc(p.title)}</span>
-    <div class="tc-rows"><div><span>持有金钱</span><b class="money">₽ ${p.money.toLocaleString()}</b></div><div><span>出身</span><b>${esc(p.hometown)}</b></div>
+    <div class="tc-rows"><div><span>持有金钱</span><b class="money">₽ ${p.money.toLocaleString()}</b>${S.pendingMoney ? `<small style="display:block;margin-top:3px;color:#9a6b00">回复变更未同步：${S.pendingMoney.delta > 0 ? '+' : '−'}₽ ${Math.abs(S.pendingMoney.delta).toLocaleString()}；预计 ₽ ${S.pendingMoney.expected.toLocaleString()}</small>` : ''}</div><div><span>出身</span><b>${esc(p.hometown)}</b></div>
      <div><span>宝可梦图鉴</span><b>${nSeen}</b> 遇见 / <b>${nCaught}</b> 捕获</div><div><span>对战战绩</span><b>${S.battle.wins}</b> 胜 / ${S.battle.count} 战</div></div>
     <div class="rep"><div class="rep-top"><span>声望 · ${esc(r[1])}</span><span>${p.rep}${nx ? ' / ' + nx[0] : ''}</span></div><div class="rep-bar"><b style="width:${pct}%"></b></div>
      <div style="font-size:11px;color:#7b869c;margin-top:3px">${nx ? `再获得 ${nx[0] - p.rep} 声望晋升为「${nx[1]}」` : '已是最高声望'}</div></div>
@@ -355,8 +415,13 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
     }
     function bagPane() {
       const P = $('[data-p=bag]'), B = S.player.bag;
-      P.innerHTML = `<div class="bag"><div class="pockets">${POCKETS.map((k, i) => `<button data-k="${i}" class="${i === UI.pocket ? 'on' : ''}">${k}<small>${B[i].length}</small></button>`).join('')}</div>
-   <div class="items">${B[UI.pocket].map(x => `<div class="item"><div class="ico">${itemImg(x.name)}</div><div><b>${esc(x.name)}</b><p>${esc(x.d)}</p></div><em>×${x.c}</em></div>`).join('') || '<div class="empty">口袋是空的</div>'}</div></div>`;
+      const pending = (S.pendingBag || []).filter(x => item(x.name).pk === UI.pocket);
+      const pendingHead = pending.length ? `<div style="margin:8px 10px 4px;padding:9px 11px;border:1px solid #e8b64a;border-radius:10px;background:#fff7df;color:#72520a"><b style="display:block;font-size:12px">⚠ 检测到未同步的背包变更</b><small style="display:block;margin-top:3px;line-height:1.45">以下来自最新回复的 JSONPatch，尚未写入持久变量；仅供核对，不代表已实际拥有。</small></div>` : '';
+      const pendingRows = pending.map(x => { const d = item(x.name).d || '回复中提及的背包变更'; const sign = x.delta > 0 ? '+' : '−'; const amount = Math.abs(x.delta); return `<div class="item" style="opacity:.78;border:1px dashed #d5a52e;background:#fffaf0"><div class="ico">${itemImg(x.name)}</div><div><b>${esc(x.name)} <small style="color:#9a6b00">待同步</small></b><p>${esc(d)} · 当前 ${x.before} → 回复预计 ${x.expected}</p></div><em style="color:#9a6b00">${sign}${amount}</em></div>`; }).join('');
+      const money = S.pendingMoney;
+      const pendingMoney = money ? `<div style="margin:7px 0 0;color:#9a6b00;font-size:11px">回复中的金钱变更也未写入：${money.delta > 0 ? '+' : '−'}₽ ${Math.abs(money.delta).toLocaleString()}（预计余额 ₽ ${money.expected.toLocaleString()}）</div>` : '';
+      P.innerHTML = `<div class="bag"><div class="pockets">${POCKETS.map((k, i) => { const n = (S.pendingBag || []).filter(x => item(x.name).pk === i).length; return `<button data-k="${i}" class="${i === UI.pocket ? 'on' : ''}">${k}<small>${B[i].length}${n ? ` · +${n}待同步` : ''}</small></button>`; }).join('')}</div>
+   <div class="items">${pendingHead}${B[UI.pocket].map(x => `<div class="item"><div class="ico">${itemImg(x.name)}</div><div><b>${esc(x.name)}</b><p>${esc(x.d)}</p></div><em>×${x.c}</em></div>`).join('')}${pendingRows}${!B[UI.pocket].length && !pending.length ? '<div class="empty">口袋是空的</div>' : ''}${pendingMoney}</div></div>`;
       P.querySelectorAll('.pockets button').forEach(b => b.onclick = () => { UI.pocket = +b.dataset.k; bagPane(); });
     }
     function affPane() {
