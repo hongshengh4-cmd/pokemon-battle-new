@@ -3536,9 +3536,9 @@ function scheduleFollowerRoam(el, initial=false){
  el.__pkmRoamTimer=host.setTimeout(()=>{
   el.__pkmRoamTimer=0;if(!el.isConnected||destroyed)return;
   if(host.document?.hidden||followerGesture?.el===el||PD.getElementById('pkm-kanto-modal')){scheduleFollowerRoam(el,false);return;}
-  const r=el.getBoundingClientRect(),v=vp(),maxX=Math.max(6,v.w-r.width-6),maxY=Math.max(42,v.h-r.height-8);
-  const from={x:Math.max(6,Math.min(maxX,r.left)),y:Math.max(42,Math.min(maxY,r.top))};
-  let to={x:Math.max(6,Math.min(maxX,from.x+(Math.random()-.5)*220)),y:Math.max(42,Math.min(maxY,from.y+(Math.random()-.5)*150))};
+  const r=el.getBoundingClientRect(),v=vp(),maxX=Math.max(6,v.w-r.width-6),maxY=Math.max(6,v.h-r.height-6);
+  const from={x:Math.max(6,Math.min(maxX,r.left)),y:Math.max(6,Math.min(maxY,r.top))};
+  let to={x:Math.max(6,Math.min(maxX,from.x+(Math.random()-.5)*220)),y:Math.max(6,Math.min(maxY,from.y+(Math.random()-.5)*150))};
   if(Math.hypot(to.x-from.x,to.y-from.y)<35)to={x:Math.max(6,Math.min(maxX,from.x+(Math.random()<.5?-1:1)*65)),y:from.y};
   const duration=1200+Math.random()*1500,start=host.performance?.now?host.performance.now():Date.now();el.classList.add('walk');el.style.right='auto';el.style.bottom='auto';
   const step=now=>{
@@ -3559,19 +3559,38 @@ function syncMultiFollowers(pkm){
   const size=Math.max(34,Math.min(112,height*48));
   if(!el){el=PD.createElement('div');el.className='pkb pkm-follow-unit';el.dataset.uid=id;const im=PD.createElement('img');im.className='follower';im.draggable=false;im.src=spriteUrl(mon.species,{anim:true,shiny:mon.shiny});el.append(im);PD.body.append(el);installOriginalFollowerMood(el);installFollowerGesture(el);scheduleFollowerRoam(el,true);
   el.tabIndex=0;el.setAttribute('role','button');el.setAttribute('aria-label',monName(mon)+'，点击互动并听叫声，长按查看详情');
-  el.addEventListener('keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;e.preventDefault();const m=readPkm().party.slots.find(m=>m.uid===el.dataset.uid);if(hasMon(m)&&panelHpInfo(m).hp!==0){lastEcoInteraction=Date.now();if(el.__originalMood)el.__originalMood.interact();else playCry(m,pickCryLine(m));}});}
+  el.addEventListener('keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;e.preventDefault();const m=readPkm().party.slots.find(m=>m.uid===el.dataset.uid);if(hasMon(m)&&panelHpInfo(m).hp!==0){lastEcoInteraction=Date.now();const line=pickCryLine(m);playCry(m,line);cryBubble(m,line);el.__originalMood?.pet();}});}
   const followerImg=el.querySelector('img'),desiredSprite=spriteUrl(mon.species,{anim:true,shiny:mon.shiny});if(followerImg.dataset.pkmDesired!==desiredSprite){followerImg.dataset.pkmDesired=desiredSprite;followerImg.__pkmSpriteState=null;followerImg.src=desiredSprite;}
   el.querySelector('img').style.cssText='height:'+size+'px;width:auto;max-width:150px;max-height:120px';
   el.classList.toggle('pos-l',el.getBoundingClientRect().left<150);el.classList.toggle('pos-t',el.getBoundingClientRect().top<100);const hp=panelHpInfo(mon);el.querySelector('img').title=monName(mon)+' · HP '+hp.label+' · '+height+'m；拖动摆放，长按打开原精灵球面板';
   if(!followerPositions.has(id))followerPositions.set(id,{x:w-90-(index%3)*145,y:h-150-Math.floor(index/3)*135});
-  const pos=followerPositions.get(id);pos.x=Math.max(6,Math.min(w-el.offsetWidth-6,pos.x));pos.y=Math.max(42,Math.min(h-el.offsetHeight-8,pos.y));el.style.left=pos.x+'px';el.style.top=pos.y+'px';
+  const pos=followerPositions.get(id);pos.x=Math.max(6,Math.min(w-el.offsetWidth-6,pos.x));pos.y=Math.max(6,Math.min(h-el.offsetHeight-6,pos.y));if(followerGesture?.el!==el){el.style.left=pos.x+'px';el.style.top=pos.y+'px';}else{const live={x:parseFloat(el.style.left),y:parseFloat(el.style.top)};if(Number.isFinite(live.x)&&Number.isFinite(live.y))followerPositions.set(id,live);}
  });
 }
-function installFollowerGesture(el){el.addEventListener('pointermove',e=>{if(!followerGesture)el.__originalMood?.hover(e);});el.addEventListener('pointerdown',e=>{
- if(e.button>0)return;lastEcoInteraction=Date.now();cancelFollowerRoam(el);e.preventDefault();e.stopPropagation();const r=el.getBoundingClientRect();followerGesture={id:e.pointerId,el,x:e.clientX,y:e.clientY,left:r.left,top:r.top,moved:false,held:false};try{el.setPointerCapture(e.pointerId)}catch(_){}
- followerGesture.timer=setTimeout(()=>{if(!el.isConnected||!followerGesture||followerGesture.moved)return;followerGesture.held=true;const pkm=readPkm(),i=pkm.party.slots.findIndex(m=>m.uid===el.dataset.uid);panelSelection={scope:'party',index:i};openPanel();},550);
- });el.addEventListener('pointermove',e=>{const g=followerGesture;if(!g||g.el!==el||g.id!==e.pointerId)return;const dx=e.clientX-g.x,dy=e.clientY-g.y;const dd=e.clientX-(g.lastX??g.x);g.lastX=e.clientX;if(Math.abs(dd)>2&&Math.abs(dx)<56&&Math.abs(dy)<40){const dir=dd>0?1:-1;if(dir!==g.strokeDir){g.strokeDir=dir;g.strokes=(g.strokes||0)+1;}if(g.strokes>=5){g.petting=true;g.moved=true;clearTimeout(g.timer);followerPositions.set(el.dataset.uid,{x:g.left,y:g.top});el.style.left=g.left+'px';el.style.top=g.top+'px';el.__originalMood?.pet();}}if(g.petting)return;if(Math.hypot(dx,dy)>12){g.moved=true;clearTimeout(g.timer)}if(!g.moved)return;e.preventDefault();const v=vp();const pos={x:Math.max(6,Math.min(v.w-el.offsetWidth-6,g.left+dx)),y:Math.max(42,Math.min(v.h-el.offsetHeight-8,g.top+dy))};followerPositions.set(el.dataset.uid,pos);el.style.left=pos.x+'px';el.style.top=pos.y+'px';});
- el.addEventListener('pointerup',e=>{const g=followerGesture;if(!g||g.el!==el)return;clearTimeout(g.timer);if(g.moved)persistFollowers();if(!g.moved&&!g.held){const mon=readPkm().party.slots.find(m=>m.uid===el.dataset.uid);if(hasMon(mon)&&panelHpInfo(mon).hp!==0){lastEcoInteraction=Date.now();if(el.__originalMood)el.__originalMood.interact();else{const line=pickCryLine(mon);playCry(mon,line);cryBubble(mon,line);}}}followerGesture=null;scheduleFollowerRoam(el,false);});el.addEventListener('pointercancel',()=>{clearTimeout(followerGesture?.timer);followerGesture=null;scheduleFollowerRoam(el,false);});
+let followerGestureDocInstalled=false;
+function installFollowerGesture(el){
+ el.addEventListener('pointermove',e=>{if(!followerGesture)el.__originalMood?.hover(e);});
+ el.addEventListener('pointerdown',e=>{
+  if(!e.isPrimary||(e.pointerType==='mouse'&&e.button!==0)||followerGesture)return;
+  lastEcoInteraction=Date.now();cancelFollowerRoam(el);e.preventDefault();e.stopPropagation();
+  const r=el.getBoundingClientRect(),target=e.target.closest?.('.follower')||el;
+  followerGesture={id:e.pointerId,el,target,x:e.clientX,y:e.clientY,left:r.left,top:r.top,moved:false,held:false,pointerType:e.pointerType};
+  try{target.setPointerCapture(e.pointerId)}catch(_){}
+  followerGesture.timer=P.setTimeout(()=>{const g=followerGesture;if(!el.isConnected||g?.el!==el||g.moved)return;g.held=true;const pkm=readPkm(),i=pkm.party.slots.findIndex(m=>m.uid===el.dataset.uid);panelSelection={scope:'party',index:i};openPanel();},550);
+ });
+ if(followerGestureDocInstalled)return;followerGestureDocInstalled=true;
+ listen(PD,'pointermove',e=>{
+  const g=followerGesture;if(!g||g.id!==e.pointerId||!g.el?.isConnected)return;const el=g.el,dx=e.clientX-g.x,dy=e.clientY-g.y,dd=e.clientX-(g.lastX??g.x);g.lastX=e.clientX;
+  if(Math.abs(dd)>2&&Math.abs(dx)<56&&Math.abs(dy)<40){const dir=dd>0?1:-1;if(dir!==g.strokeDir){g.strokeDir=dir;g.strokes=(g.strokes||0)+1;}if(g.strokes>=5){g.petting=true;g.moved=true;P.clearTimeout(g.timer);followerPositions.set(el.dataset.uid,{x:g.left,y:g.top});el.style.left=g.left+'px';el.style.top=g.top+'px';el.__originalMood?.pet();}}
+  if(g.petting)return;const threshold=g.pointerType==='touch'?7:5;if(!g.moved&&Math.hypot(dx,dy)<threshold)return;g.moved=true;P.clearTimeout(g.timer);e.preventDefault();
+  const v=vp(),pos={x:Math.max(6,Math.min(v.w-el.offsetWidth-6,g.left+dx)),y:Math.max(6,Math.min(v.h-el.offsetHeight-6,g.top+dy))};followerPositions.set(el.dataset.uid,pos);el.style.left=pos.x+'px';el.style.top=pos.y+'px';
+ },{passive:false});
+ listen(PD,'pointerup',e=>{
+  const g=followerGesture;if(!g||g.id!==e.pointerId)return;P.clearTimeout(g.timer);const el=g.el;
+  if(g.moved)persistFollowers();else if(!g.held){const mon=readPkm().party.slots.find(m=>m.uid===el.dataset.uid);if(hasMon(mon)&&panelHpInfo(mon).hp!==0){lastEcoInteraction=Date.now();const line=pickCryLine(mon);playCry(mon,line);cryBubble(mon,line);el.__originalMood?.pet();}}
+  followerGesture=null;scheduleFollowerRoam(el,false);
+ });
+ listen(PD,'pointercancel',e=>{const g=followerGesture;if(!g||g.id!==e.pointerId)return;P.clearTimeout(g.timer);if(g.moved)persistFollowers();const el=g.el;followerGesture=null;scheduleFollowerRoam(el,false);});
 }
 function careInfo(name,mon){const h=panelHpInfo(mon);const amount=name==='伤药'?20:name==='橙橙果'?10:0;const max=h.max||monStats(mon)?.hp||1;const revive=!!h.faint&&name==='伤药';const heal=revive?Math.min(amount,max):(h.faint?0:Math.min(amount,Math.max(0,max-(h.hp??max))));return{hp:h.faint?0:h.hp,max,heal,revive,valid:heal>0};}
 function showCare(name,id){if(PD.getElementById('pkm-kanto-modal')){toast('对战中请在对战窗口使用道具，避免与战斗结算冲突。');return;}const pkm=readPkm(),mon=pkm.party.slots.find(m=>m.uid===id);if(!mon||!isFollowing(pkm,id)||!(Number(pkm.player.bag[name])>0))return;const effect=careInfo(name,mon);pendingCare={name,id};PD.getElementById('pkm-care-confirm')?.remove();const d=PD.createElement('div');d.id='pkm-care-confirm';d.className='pkb';d.innerHTML=`<div class="care-card"><h3>确认${name==='橙橙果'?'喂食':'使用物品'}</h3><div class="care-line">${itemIcon(name)}<b>${esc(name)}</b> → ${spriteImg(mon.species)}<b>${esc(monName(mon))}</b></div><p>HP ${effect.hp}/${effect.max}${effect.valid?' → '+(effect.revive?effect.heal:effect.hp+effect.heal)+'/'+effect.max+'（+'+effect.heal+'）':''}</p><p>${effect.revive?'濒死状态可用伤药复苏并恢复 20 HP。':effect.valid?'确认后背包扣除 1 个；取消不消耗。':'当前使用无效：满血或该物品不能治疗濒死状态，不消耗物品。'}</p><div class="acts"><button class="ghost" data-care="cancel">取消</button><button class="blue" data-care="confirm" ${effect.valid?'':'disabled'}>确认使用</button></div><small>效果来自原状态栏道具说明；未新增饱腹、食物或额外羁绊数值。</small></div>`;PD.body.append(d);let ignoreTrustedUntil=0;d.addEventListener('pointerup',e=>{if(e.pointerType!=='touch')return;const b=e.target.closest('[data-care]');if(b&&!b.disabled){ignoreTrustedUntil=Date.now()+700;b.click();}});d.addEventListener('click',async e=>{if(e.isTrusted&&Date.now()<ignoreTrustedUntil)return;const act=e.target.closest('[data-care]')?.dataset.care;if(act==='cancel'){pendingCare=null;d.remove();}if(act==='confirm')await applyCare();});}
@@ -3700,7 +3719,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261031-badge-ecology-13", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261031-follow-drag-cry-14", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
