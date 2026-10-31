@@ -515,6 +515,7 @@ function normalize(pkm) {
   if (!isObj(pkm.integration.battles)) pkm.integration.battles = {};
   pkm.wild = isObj(pkm.wild) ? pkm.wild : {};
   if (!isObj(pkm.wild.used)) pkm.wild.used = {};
+  if (!Array.isArray(pkm.wild.pendingResults)) pkm.wild.pendingResults = [];
   repairPersistentRoster(pkm);
   for (const mon of [...pkm.party.slots, ...pkm.party.box]) if (mon && (mon.species || mon.name)) mon.ability = singleAbility(mon);
   return pkm;
@@ -1921,31 +1922,36 @@ function nearbyList(pkm, st) {
   else if(node?.id!=='seafoam'){const aquaticOnly=new Set(['鲤鱼王','角金鱼','金鱼王','玛瑙水母','毒刺水母','墨海马','海刺龙','大舌贝','铁甲贝','海星星','宝石海星']);table=table.filter(t=>!aquaticOnly.has(t[0]));}
   const d = parseDate(st.时间 || pkm.world.time);
   const seedKey = `${loc}|${d ? d.day : 0}|${d ? Math.floor(d.h / 4) : 0}`;
-  const r = rng(hash(seedKey));
   const total = table.reduce((a, t) => a + t[3], 0);
   const list = [];
-  for (let i = 0; i < 3; i++) {
+  // v1.3.31-grind-batch-1：维持 6 个可选遭遇；每场结束后同地点/时段自动补位。
+  for (let i = 0; i < 6000 && list.length < 6; i++) {
+    const r = rng(hash(seedKey + '#' + i));
     let x = r() * total, pick = table[0];
     for (const t of table) { x -= t[3]; if (x <= 0) { pick = t; break; } }
     const lv = Math.max(2, Math.round(pick[1] + r() * (pick[2] - pick[1])));
     const gender = pick[0] === '尼多兰' || pick[0] === '尼多娜' || pick[0] === '吉利蛋' ? 'F' : pick[0] === '尼多朗' || pick[0] === '尼多力诺' || pick[0] === '肯泰罗' ? 'M' : (r() < .5 ? 'M' : 'F');
     const key = 'w' + hash(seedKey + '#' + i).toString(36);
-    list.push({ key, species: pick[0], level: lv, gender, shiny: r() < 1 / 400 });
+    if (pkm.wild.used[key]) continue;
+    const species = loc.includes('皮卡丘的森林') && i < 2 ? '皮卡丘' : pick[0];
+    list.push({ key, species, level: lv, gender, shiny: r() < 1 / 400 });
   }
-  if(loc.includes('皮卡丘的森林')){list[0]={...list[0],species:'皮卡丘'};list[1]={...list[1],species:'皮卡丘'};}
-  return { list: list.filter(w => !pkm.wild.used[w.key]), reason: '', loc, habitat };
+  return { list, reason: '', loc, habitat };
 }
 function dexNear(pkm, st) {
   const { list, reason, habitat } = nearbyList(pkm, st);
   const canFight = pkm.party.slots.some(s => hasMon(s) && s.status !== '濒死' && s.hp !== 0);
   const balls = Object.entries(K.ZH_BALL).map(([zh]) => Number(pkm.player.bag[zh]) || 0).reduce((a, b) => a + b, 0);
   if (reason) return `<div class="empty">${esc(reason)}</div>`;
-  return `${list.length ? list.map(w => `<div class="near-row">${spriteImg(w.species, { anim: true, shiny: w.shiny })}<div class="grow"><b>${esc(w.species)}</b>${w.shiny ? '<span class="tag gold">✨</span>' : ''} <span class="muted">Lv${w.level} ${genderMark(w.gender)}</span><br><span class="muted" style="font-size:11.5px">${esc(habitat&&habitat!=='land'?'在'+(HABITAT_LABELS[habitat]||'水域')+'中活动……':'在草丛里窸窸窣窣……')}</span></div><div class="acts"><button class="red" data-wild="${w.key}" data-mode="fight" ${canFight ? '' : 'disabled'}>对战</button><button class="blue" data-wild="${w.key}" data-mode="catch" ${canFight ? '' : 'disabled'}>捕捉</button></div></div>`).join('') : '<div class="empty">附近的宝可梦都跑开了。换个地方或过一会儿再来。</div>'}
-    <div class="pk-note">${canFight ? `背包里的精灵球：${balls} 个。` : '队伍里没有能战斗的宝可梦，先去宝可梦中心吧。'}“捕捉”会直接打开对战里的精灵球菜单，投球后才判定；结果会填进输入框，发送后剧情继续。附近名单每 4 小时（游戏时间）或换地点刷新。</div>`;
+  const pending = Array.isArray(pkm.wild.pendingResults) ? pkm.wild.pendingResults.length : 0;
+  return `${list.length ? list.map(w => `<div class="near-row">${spriteImg(w.species, { anim: true, shiny: w.shiny })}<div class="grow"><b>${esc(w.species)}</b>${w.shiny ? '<span class="tag gold">✨</span>' : ''} <span class="muted">Lv${w.level} ${genderMark(w.gender)}</span><br><span class="muted" style="font-size:11.5px">${esc(habitat&&habitat!=='land'?'在'+(HABITAT_LABELS[habitat]||'水域')+'中活动……':'在草丛里窸窸窣窣……')}</span></div><div class="acts"><button class="red" data-wild="${w.key}" data-mode="fight" ${canFight ? '' : 'disabled'}>对战</button><button class="blue" data-wild="${w.key}" data-mode="catch" ${canFight ? '' : 'disabled'}>捕捉</button></div></div>`).join('') : '<div class="empty">暂时没有可挑战的遭遇，刷新图鉴或稍后再看。</div>'}
+    <div class="pk-note">${canFight ? `背包里的精灵球：${balls} 个。` : '队伍里没有能战斗的宝可梦，先去宝可梦中心吧。'}当前显示 6 只附近宝可梦；点击“对战”直接开战，结束后会自动补充新遭遇，不必等待 AI 推进剧情。每场的变量立即结算，刷完再统一提交战斗摘要。</div>
+    ${pending ? `<div class="near-row"><div class="grow"><b>连续训练记录</b><br><span class="muted">已完成 ${pending} 场；结果和升级已暂存。</span></div><div class="acts"><button class="blue" data-wild-batch-finish="1">结束刷级并回剧情</button></div></div>` : ''}`;
 }
 function onDexClick(m, e) {
   const t = e.target.closest('button'); if (!t) return;
   if(t.dataset.centerHeal){healAtCenter().catch(e=>toast(e.message,'warning'));return;}
+  if(t.dataset.wildBatchFinish){finishWildBatch().catch(e=>toast(e.message||String(e),'warning'));return;}
   if (t.dataset.tab) { m.tab = t.dataset.tab; renderDex(m); return; }
   if (t.dataset.loveAll) { m.loveAll = !m.loveAll; renderDex(m); return; }
   if (t.dataset.wild) {
@@ -2286,6 +2292,13 @@ function panelAudioSettings() {
     <div class="pk-note">🎬 动漫配音有录音就播你的录音；尚无录音时按上方设置回退。🎮 游戏配音为原作游戏叫声。配音设置保存在当前浏览器。</div>
   </div>`;
 }
+function expPanelMarkup(mon){
+  const lv=Math.max(1,Math.min(100,Math.floor(Number(mon.lv)||5)));
+  if(lv>=100)return '<div class="exp"><b style="width:100%"></b></div><small class="muted">Lv.100 · 已达最高等级</small>';
+  const total=mon.exp!=null&&Number.isFinite(Number(mon.exp))?Number(mon.exp):lv**3;
+  const start=lv**3,next=(lv+1)**3,earned=Math.max(0,total-start),need=next-start,pct=Math.max(0,Math.min(100,earned/need*100));
+  return `<div class="exp"><b style="width:${pct.toFixed(1)}%"></b></div><small class="muted">经验 ${Math.floor(earned)} / ${need} · 升级还需 ${Math.max(0,Math.ceil(next-total))}</small>`;
+}
 function panelDetailMarkup(pkm) {
   const selection = panelSelection;
   const empty = `<div class="dt-empty">🔴<br>选择一只宝可梦<br>查看它的详细资料</div>`;
@@ -2319,6 +2332,7 @@ function panelDetailMarkup(pkm) {
     <div class="dt-flags"><span>${esc(hpLabel)} HP</span><span>${esc(gender)}</span>${s.shiny ? '<span class="gold">✨ 异色</span>' : ''}${s.isLead ? '<span class="gold">首发</span>' : ''}</div>
     <div style="padding:0 12px 8px">${panelHpMarkup(s)}</div></div>
     <div class="dt-sec"><h5>资料</h5><div class="kv"><div><span>宝可梦</span>${esc(species)}</div><div><span>等级</span>Lv.${esc(s.lv ?? '?')}</div><div><span>HP</span>${esc(hpLabel)}</div><div><span>状态</span>${esc(status)}</div><div><span>性别</span>${esc(gender)}</div><div><span>位置</span>${where === 'party' ? `队伍第${selection.index + 1}格` : `仓库第${selection.index + 1}格`}</div><div><span>携带物品</span>${itemHtml}</div><div><span>精灵球</span>${esc(s.ball || '未记录')}</div><div class="wide"><span>相遇记录</span>${esc(location)}</div></div></div>
+    <div class="dt-sec"><h5>经验</h5>${expPanelMarkup(s)}</div>
     <div class="dt-sec"><h5>招式</h5><div class="mv">${moveMarkup}</div></div>
     <div class="dt-sec"><h5>能力与个体资料</h5><div class="kv"><div><span>特性</span>${esc(ability)}</div><div><span>性格</span>${esc(nature)}</div><div class="wide"><span>能力值说明</span>按等级、种族值、个体值和性格计算；新伙伴或治疗后的空 HP 按满血显示</div></div>${statBlock(s)}</div>
     <div class="dt-sec"><h5>配音</h5>${voice}</div>
@@ -2882,7 +2896,7 @@ function onEngineMessage(d) {
   else if (d.type === 'PKM_BATTLE_RESULT' && d.payload && (!d.hostTag || d.hostTag === m.tag) && (!d.payload.hostTag || d.payload.hostTag === m.tag)) {
     if (m.done) return; m.done = true;
     applyResult(m, d.payload).then(r => {
-      setBar(`${r.outcomeZh}！结果已写入变量并填进输入框——手机返回／电脑 Esc 退出后发送即可继续。`);
+      setBar(r.batched ? `${r.outcomeZh}！战斗结果、经验和升级已即时保存；附近已补充新对手。当前暂存 ${r.pendingCount} 场，想回剧情时在附近列表点“结束刷级并回剧情”。` : `${r.outcomeZh}！结果已写入变量并填进输入框——手机返回／电脑 Esc 退出后发送即可继续。`);
       const b = m.el.querySelector('[data-op=close]'); if (b) b.textContent = '返回剧情 ›';
       if (m.sess) { m.sess.status = 'ended'; m.sess.summary = r.summary; entryStatus(m.sess); }
     }).catch(err => { LOG('写回失败', err); setBar('结果写回失败：' + (err?.message || err)); toast('对战结果写回变量失败：' + (err?.message || err), 'error'); });
@@ -2914,6 +2928,36 @@ function verdictText(outcome, fmt, pTeam, eTeam) {
   if (outcome === 'captured') return '收服成功，对战结束';
   return '对战中止，不计胜负';
 }
+function awardBattleExperience(pkm, payload, outcome, battleType) {
+  const gained=[]; if (outcome !== 'victory') return gained;
+  const enemyLv=Math.max(1,...(payload.enemyTeam||[]).map(e=>Number(e.level)||1));
+  const participants=(payload.playerTeam||[]).filter(p=>p.participated!==false&&Number.isInteger(Number(p.hostSlot)));
+  const gain=Math.max(1,Math.floor(enemyLv*enemyLv*1.2*(battleType==='wild'?1:1.25)));
+  for(const p of participants){
+    const mon=pkm.party.slots[Number(p.hostSlot)];if(!hasMon(mon))continue;
+    const oldLv=Math.max(1,Math.min(100,Math.floor(Number(mon.lv)||5)));
+    const oldStats=monStats(mon),oldMax=Number(mon.maxHp)>0?Number(mon.maxHp):(oldStats?.hp||1);
+    const total=(mon.exp!=null&&Number.isFinite(Number(mon.exp))?Number(mon.exp):oldLv**3)+gain;
+    let newLv=oldLv;while(newLv<100&&total>=(newLv+1)**3)newLv++;
+    mon.exp=total;mon.lv=newLv;
+    if(newLv>oldLv){
+      const newMax=monStats(mon)?.hp||oldMax;
+      if(mon.hp==null){mon.maxHp=newMax;}else if(mon.hp===0||mon.status==='濒死'){mon.maxHp=newMax;mon.hp=0;}else{mon.hp=Math.min(newMax,Number(mon.hp)+Math.max(0,newMax-oldMax));mon.maxHp=newMax;}
+    }
+    gained.push({name:monName(mon),species:mon.species||mon.name,exp:gain,from:oldLv,to:newLv});
+  }
+  return gained;
+}
+async function finishWildBatch(){
+  const before=readPkm(),items=Array.isArray(before.wild.pendingResults)?before.wild.pendingResults.slice():[];
+  if(!items.length){toast('目前没有待提交的连续战斗记录。');return;}
+  const ta=PD.getElementById('send_textarea');if(!ta){toast('找不到酒馆输入框；战斗变量已保存，暂时无法提交摘要。','warning');return;}
+  const data={type:'wild-training-batch',count:items.length,battles:items};
+  const lines=items.map((x,i)=>`${i+1}. ${x.outcome==='victory'?'胜利':x.outcome==='captured'?'收服':x.outcome==='defeat'?'败北':'中止'}：野生${x.species} Lv${x.level}，${x.turns||0}回合${(x.exp||[]).length?'；经验/升级：'+x.exp.map(g=>`${g.name} +${g.exp}经验${g.to>g.from?'，Lv'+g.from+'→Lv'+g.to:''}`).join('、'):''}`).join('\n');
+  const text=`<pkm_result>${JSON.stringify(data)}</pkm_result>\n【战斗结果】连续野外训练汇总｜共 ${items.length} 场\n${lines}\n（各场战斗的 HP、状态、PP、经验、等级、羁绊和战绩均已即时写入变量。请依据这份汇总简要描写训练过程并回到当前剧情，不要重新结算或改写胜负，也不要重复写入这些变量。）`;
+  await writePkm(pkm=>{pkm.wild.pendingResults=[];});
+  fillInput(text);toast(`已将 ${items.length} 场连续训练汇总到输入框；发送这一条即可回剧情。`);
+}
 async function applyResult(m, payload) {
   const outcome = payload.outcome || (payload.winner === 'player' ? 'victory' : payload.winner === 'enemy' ? 'defeat' : 'draw');
   const cfg = m.cfg, cfgTeam = Array.isArray(cfg.team) ? cfg.team : [];
@@ -2922,6 +2966,7 @@ async function applyResult(m, payload) {
   const fmtText = fmt.wild ? `野外 · ${fmt.tag}` : fmt.full ? `两边全队（我方${pN}只 vs 对方${eN}只）` : fmt.name;
   let placed = null, capturedName = null;
   let summaryParts = [];
+  let xpGains = [];
   const bondNotes = [];
   const result = await writePkm(pkm => {
     summaryParts = []; bondNotes.length = 0; placed = null; capturedName = null; // writePkm 可能重算
@@ -2944,6 +2989,8 @@ async function applyResult(m, payload) {
         bondNotes.push(`${monName(s)}信任+1${won ? '、热情+1' : ''}`);
       }
     }
+    // 1.5) 胜利经验：实际出场者按对手等级获得经验，达到等级阈值后自动升级并同步最大 HP。
+    xpGains=awardBattleExperience(pkm,payload,outcome,m.type);
     // 2) 精灵球消耗（按差值扣，避免覆盖期间的其他变化）
     for (const [id, zh] of Object.entries(K.BALL_ZH)) {
       const used = (m.balls[id] || 0) - (Number(payload.ballStock?.[id]) || 0);
@@ -2968,10 +3015,15 @@ async function applyResult(m, payload) {
     const summary = summaryParts.join('；');
     pkm.battle.lastResult = summary;
     if (cfg.id && !pkm.battle.done.includes(cfg.id)) { pkm.battle.done.push(cfg.id); if (pkm.battle.done.length > 200) pkm.battle.done.splice(0, pkm.battle.done.length - 200); }
+    if(m.type==='wild'){
+      if(!Array.isArray(pkm.wild.pendingResults))pkm.wild.pendingResults=[];
+      pkm.wild.pendingResults.push({species:zhSpecies(cfgTeam[0]?.species||cfgTeam[0]?.name||'未知'),level:Number(cfgTeam[0]?.level)||1,outcome,turns:payload.turns||0,exp:xpGains,summary,at:Date.now()});
+      if(pkm.wild.pendingResults.length>100)pkm.wild.pendingResults.splice(0,pkm.wild.pendingResults.length-100);
+    }
     const bs = pkm.integration.battles; bs[battleHash(m.key)] = { outcome, summary, at: Date.now() };
     const ks = Object.keys(bs); if (ks.length > 80) ks.sort((a, b) => (bs[a].at || 0) - (bs[b].at || 0)).slice(0, ks.length - 80).forEach(k => delete bs[k]);
     if (m.spec.wildKey) pkm.wild.used[m.spec.wildKey] = outcome;
-    const uk = Object.keys(pkm.wild.used); if (uk.length > 120) uk.slice(0, uk.length - 120).forEach(k => delete pkm.wild.used[k]);
+    const uk = Object.keys(pkm.wild.used); if (uk.length > 5000) uk.slice(0, uk.length - 5000).forEach(k => delete pkm.wild.used[k]);
     return { summary };
   });
   // 6) 结果文本 → 输入框
@@ -2999,11 +3051,16 @@ async function applyResult(m, payload) {
     res.capture ? `收服：用${res.capture.ball}收服了 ${res.capture.species} Lv${res.capture.level}，已放进${placed}。` : '',
     used.length ? `消耗：${used.join('、')}` : '',
     bondNotes.length ? `羁绊（脚本已加）：${bondNotes.join('，')}` : '',
+    xpGains.length ? `经验（脚本已加）：${xpGains.map(x=>`${x.name} +${x.exp}，Lv${x.from}${x.to>x.from?'→Lv'+x.to:''}`).join('；')}` : '',
     line ? `对手的台词（供续写）：「${line}」` : '',
     '（变量已写入：体力/状态、剩余PP、精灵球、收服入队、图鉴、战斗羁绊。请按此结果续写战斗经过，不改写胜负，也不要重复写入这些变量。）'].filter(Boolean).join('\n');
-  const text = `<pkm_result>${JSON.stringify(res)}</pkm_result>\n${human}`;
+  const text = `<pkm_result>${JSON.stringify({...res, experience:xpGains})}</pkm_result>\n${human}`;
+  if(m.type==='wild'){
+    const pendingCount=readPkm().wild.pendingResults?.length||0;
+    return {summary:result.summary,outcomeZh:OUTCOME_ZH[outcome]||'结束',text,batched:true,pendingCount,experience:xpGains};
+  }
   fillInput(text);
-  return { summary: result.summary, outcomeZh: OUTCOME_ZH[outcome] || '结束', text };
+  return { summary: result.summary, outcomeZh: OUTCOME_ZH[outcome] || '结束', text, experience:xpGains };
 }
 function fillInput(text) {
   const ta = PD.getElementById('send_textarea'); if (!ta) return;
@@ -3456,7 +3513,8 @@ async function start() {
     const f = findStat(), raw = f?.vars?.stat_data?.pkm;
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
-  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261026-six-fixes-1", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, refresh: refreshAll };
+  LOG('连续刷级优化版已加载：6只附近遭遇、即时结算、批次汇总、胜利经验');
+  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261031-grind-batch-1", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
