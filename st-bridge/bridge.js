@@ -1626,6 +1626,111 @@ html.pkm-kanto-native-fullscreen #pkm-kanto-modal>.bar,html.pkm-kanto-pseudo-ful
 #pkm-kanto-ball.docked-left .count,#pkm-kanto-ball.docked-right .count{opacity:.72}
 @media(max-width:680px){#pkm-kanto-ball{width:68px;height:68px}#pkm-kanto-ball .orb .ball-art{width:134px;height:134px;top:calc(50% - 15px)}}
 
+/* 2026-11-01 approved warm red/ivory team panel; presentation-only overrides. */
+#pkm-kanto-panel{color:#382f31!important;background:linear-gradient(145deg,#fffdf8,#f6f0e8)!important;border:1px solid #d8b16a!important;border-radius:18px!important;box-shadow:0 24px 64px rgba(0,0,0,.38),0 0 0 1px rgba(212,183,122,.26)!important;overflow:hidden!important;font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif!important}
+#pkm-kanto-panel .pb-head{flex:none;min-height:64px;padding:10px 13px;background:linear-gradient(105deg,#7e1927 0%,#b52739 48%,#e24b57 100%)!important;border-bottom:3px solid #d8b16a;box-shadow:0 4px 14px rgba(111,28,41,.23);color:#fff}
+#pkm-kanto-panel .pb-head h3{color:#fff;font-size:15px;letter-spacing:.05em;text-shadow:0 1px 3px rgba(45,10,15,.28)}
+#pkm-kanto-panel .pb-head h3 i{width:22px;height:22px;border:2px solid #30272a;background:linear-gradient(to bottom,#ed4858 0 44%,#30272a 44% 55%,#faf5ee 55%);box-shadow:0 1px 5px rgba(0,0,0,.28)}
+#pkm-kanto-panel .pb-drag-grip{background:rgba(255,255,255,.13)!important;border:1px solid rgba(255,255,255,.36);color:#fff0e6}
+#pkm-kanto-panel .pb-tools{gap:7px}
+#pkm-kanto-panel .pb-tabs{background:rgba(58,14,24,.26)!important;border:1px solid rgba(255,255,255,.17);border-radius:10px;padding:3px}
+#pkm-kanto-panel .pb-tabs button{color:#ffe5df!important;border-radius:8px;padding:6px 12px;font-size:12px;transition:background .15s,color .15s,transform .15s}
+#pkm-kanto-panel .pb-tabs button.on{background:linear-gradient(145deg,#fffaf1,#ead8bd)!important;color:#7e1927!important;box-shadow:0 2px 0 #d8b16a,0 2px 7px rgba(0,0,0,.13);transform:translateY(-1px)}
+#pkm-kanto-panel .pb-icons{gap:5px}
+#pkm-kanto-panel .pb-x{width:32px;height:32px;flex-basis:32px;background:rgba(255,255,255,.14)!important;border:1px solid rgba(255,255,255,.34);color:#fff;font-size:15px;transition:background .15s,transform .15s}
+#pkm-kanto-panel .pb-x:hover{background:rgba(255,255,255,.28)!important;transform:translateY(-1px)}
+#pkm-kanto-panel .pb-body{gap:9px;padding:9px 10px 8px;background:#f7f2ea;min-height:0}
+#pkm-kanto-panel .pb-left{background:#f7f2ea;min-width:0}
+#pkm-kanto-panel .pb-right{background:#fffdfa!important;border:1px solid #eadfd4;border-radius:13px;scrollbar-color:#d7c2ad #f7f2ea}
+#pkm-kanto-panel .party{gap:8px;padding:3px;scrollbar-color:#d7c2ad #f7f2ea}
+#pkm-kanto-panel .slot{min-height:92px;padding:8px 9px;border:1px solid #e5d9ce!important;border-radius:13px!important;background:linear-gradient(145deg,#fff,#fcfaf6)!important;color:#382f31!important;box-shadow:0 3px 9px rgba(123,85,67,.07)!important;grid-template-columns:56px minmax(0,1fr);gap:7px;transition:border-color .18s,box-shadow .18s,transform .18s}
+#pkm-kanto-panel .slot:hover{border-color:#d97880!important;transform:translateY(-1px);box-shadow:0 7px 16px rgba(123,85,67,.13)!important}
+#pkm-kanto-panel .slot.lead{background:linear-gradient(145deg,#fff8e7,#f8edcf)!important;border-color:#e7cb8c!important;color:#493719!important}
+#pkm-kanto-panel .slot.sel{border:2px solid #ce3648!important;background:#fff9f7!important;box-shadow:0 0 0 2px rgba(211,59,75,.12),0 3px 9px rgba(123,85,67,.08)!important}
+#pkm-kanto-panel .slot.lead.sel{background:linear-gradient(145deg,#fff8e7,#f8edcf)!important}
+#pkm-kanto-panel .slot.faint{background:linear-gradient(145deg,#f8e9e5,#efceca)!important;color:#542d2d!important;border-color:#dcaaa6!important}
+#pkm-kanto-panel .slot.empty{min-height:76px;background:rgba(255,255,255,.45)!important;border:1px dashed #d9c7b8!important;color:#a6978e!important;box-shadow:none!important}
+#pkm-kanto-panel .slot img{width:54px;height:54px;object-fit:contain;image-rendering:auto;margin:-3px 0}
+#pkm-kanto-panel .slot .n{font-size:12px;color:#342f31}
+#pkm-kanto-panel .slot .n .g.f{color:#d84a77}#pkm-kanto-panel .slot .n .g.m{color:#4c78b8}
+#pkm-kanto-panel .slot .lvl{font-size:10px;color:#777071;font-weight:700}
+#pkm-kanto-panel .slot .hp{color:#5d5350;font-size:9px}
+#pkm-kanto-panel .slot .hp i{height:6px;background:#e5e1dc;border:0;padding:0}
+#pkm-kanto-panel .slot .hp i b{background:#71bd85}
+#pkm-kanto-panel .slot .hp i b.mid{background:#e4ae4c}#pkm-kanto-panel .slot .hp i b.low{background:#dc5c61}
+#pkm-kanto-panel .slot .hpn{font-size:9px;color:#817a77}
+#pkm-kanto-panel .slot .stt{left:7px;bottom:5px;border-radius:5px;background:#b85657;color:#fff;font-size:8px}
+#pkm-kanto-panel .slot .lead-tag{right:8px;top:-7px;background:#fbe2a8;color:#805916;border:1px solid #e5c975;border-radius:6px;font-size:8px;padding:1px 5px}
+#pkm-kanto-panel .slot .fo,#pkm-kanto-panel .bx .fo{background:#d9efe7;color:#34785f;border:1px solid #b8ddcf;border-radius:6px;font-size:8px}
+#pkm-kanto-panel .pk-note{flex:none;margin:5px 4px 2px;color:#887d78;font-size:9.5px;line-height:1.55}
+#pkm-kanto-panel .box-top{color:#675d5a;margin:0 1px 7px}
+#pkm-kanto-panel .box-top button{width:32px;height:30px;background:#fffaf5!important;border:1px solid #e2d5cb;color:#8c3640;border-radius:8px}
+#pkm-kanto-panel .box-top button:hover{background:#f8e6e4!important}
+#pkm-kanto-panel .box-top .bn{background:linear-gradient(135deg,#fff4ef,#f3e7d9)!important;color:#7e2636;border:1px solid #ead5c8;box-shadow:none;border-radius:9px;font-size:12px;padding:5px}
+#pkm-kanto-panel .box-top small{font-size:10px;color:#8a7b77}
+#pkm-kanto-panel .boxgrid{background:linear-gradient(145deg,#f1e5d7,#e8d8c5)!important;border:1px solid #ddc8b3;border-radius:13px;padding:7px;gap:5px;box-shadow:inset 0 1px 5px rgba(113,75,55,.12)!important;scrollbar-color:#cbb39d #eee2d5}
+#pkm-kanto-panel .bx{border:1px solid #e7ddd3;border-radius:9px;background:#fffdfa;transition:background .15s,border-color .15s,transform .15s}
+#pkm-kanto-panel .bx:hover{background:#fff!important;border-color:#d97880;transform:translateY(-1px)}
+#pkm-kanto-panel .bx.sel{background:#fff4f2!important;border:2px solid #cf3548;box-shadow:0 0 0 2px rgba(207,53,72,.12)}
+#pkm-kanto-panel .bx.e{background:rgba(255,255,255,.35)!important;border:1px dashed #d8c7b7;cursor:default}
+#pkm-kanto-panel .bx img{width:58px;height:58px;object-fit:contain;image-rendering:auto}
+#pkm-kanto-panel .bx small{color:#817672;font-size:9px}
+#pkm-kanto-panel .dt-empty{color:#9a8980;font-size:12px}
+#pkm-kanto-panel .dt-top{background:linear-gradient(115deg,#fff4ef,#f3e7d9)!important;border-bottom:1px solid #ead5c8;padding:10px 12px 7px}
+#pkm-kanto-panel .dt-top .dt-sprite{width:100px;height:100px;object-fit:contain;image-rendering:auto;margin:-5px 0 -8px}
+#pkm-kanto-panel .dt-ball{color:#9b7770;font-size:10px}
+#pkm-kanto-panel .dt-name{color:#382f31;font-size:17px}
+#pkm-kanto-panel .dt-name small{color:#8a7b77;font-size:10px}
+#pkm-kanto-panel .dt-top .dt-flags span{background:#f3e5de;color:#886057;font-size:9px}
+#pkm-kanto-panel .dt-top .dt-flags .gold{background:#fbe2a8;color:#805916}
+#pkm-kanto-panel .dt-sec{padding:7px 11px}
+#pkm-kanto-panel .dt-sec h5{color:#a42c3d;font-size:10px;letter-spacing:.04em}
+#pkm-kanto-panel .dt-sec h5::after{background:#eadfd4}
+#pkm-kanto-panel .kv{gap:5px;font-size:10px}
+#pkm-kanto-panel .kv div{background:#fff;border:1px solid #eee7e1;border-radius:8px;color:#403a3b;padding:6px 7px}
+#pkm-kanto-panel .kv span{color:#958884;font-size:8px}
+#pkm-kanto-panel .mv{gap:5px}
+#pkm-kanto-panel .mv div{background:linear-gradient(135deg,#8e3444,#c7525e)!important;border-radius:8px;color:#fff;font-size:10px;text-shadow:none}
+#pkm-kanto-panel .mv small{font-size:8px;color:#ffe1df}
+#pkm-kanto-panel .st6{font-size:10px;color:#514648}
+#pkm-kanto-panel .st6 i{background:#eee6df}
+#pkm-kanto-panel .exp{background:#eee8e2}
+#pkm-kanto-panel .exp b{background:linear-gradient(90deg,#d93449,#ef7880)}
+#pkm-kanto-panel .acts{background:#fffdfa;border-top:1px solid #eadfd4;padding:9px 11px 11px}
+#pkm-kanto-panel .acts button{background:linear-gradient(135deg,#b52739,#e24b57)!important;color:#fff;border-radius:9px;box-shadow:0 2px 0 #8d2130;transition:filter .15s,transform .15s}
+#pkm-kanto-panel .acts button:hover{filter:brightness(1.05);transform:translateY(-1px)}
+#pkm-kanto-panel .acts button.ghost{background:#fffaf5!important;border:1px solid #e2d5cb;color:#8c3640}
+#pkm-kanto-panel .acts button:disabled{opacity:.45;cursor:not-allowed}
+#pkm-kanto-panel .vc .vl{color:#8a7b77}
+#pkm-kanto-panel .seg{background:#f2ece5}
+#pkm-kanto-panel .seg button{color:#756864}
+#pkm-kanto-panel .seg button.on{background:#b52739;color:#fff;box-shadow:0 1px 0 #7e1927}
+#pkm-kanto-panel .seg button.eff{background:#fffaf5;color:#a42c3d;box-shadow:inset 0 0 0 1.5px #e5b7b0}
+#pkm-kanto-panel .vc .hear{background:#fff1c2;color:#8a5a00}
+#pkm-kanto-panel .pk-snd{background:#f7f2ea;color:#55494a;border:1px solid #eee3d9}
+#pkm-kanto-panel .pk-snd .l{color:#8a7b77}
+#pkm-kanto-panel .pk-snd input[type=range]{accent-color:#b52739}
+#pkm-kanto-panel .pk-snd details.adv summary{color:#a42c3d}
+#pkm-kanto-panel .pk-snd details.adv input[type=text]{border-color:#e2d5cb;background:#fffdfa;color:#382f31}
+#pkm-kanto-panel .pk-note,.pk-note{color:#887d78}
+#pkm-kanto-panel .pb-foot{color:#887d78;background:#f6f0e9;border-top:1px solid #e9e0d8;padding:7px 12px 8px;font-size:9px;min-height:30px}
+#pkm-kanto-panel .toast{background:rgba(73,34,38,.94);border:1px solid #d8b16a;color:#fffaf1}
+#pkm-kanto-panel .stx summary{color:#a42c3d}
+#pkm-kanto-panel .stx .sg span{background:#f7f2ea;color:#382f31}
+#pkm-kanto-panel .stx .sg .up{background:#fff0ee;color:#c62828}#pkm-kanto-panel .stx .sg .down{background:#eef4ff;color:#1e5bc6}
+#pkm-kanto-panel .stx .bd2 i{background:#eadfd4}
+#pkm-kanto-panel .stx .bd2 u{background:linear-gradient(90deg,#e6a55d,#d94b56)}
+#pkm-kanto-panel .pb-warn{background:#fff4d6;color:#7a5b00;border:1px solid #efdca5}
+@media(max-width:680px){
+ #pkm-kanto-panel .pb-head{min-height:56px;border-radius:16px 16px 0 0}
+ #pkm-kanto-panel .pb-body{padding:7px 8px;background:#f7f2ea}
+ #pkm-kanto-panel .party{gap:6px}
+ #pkm-kanto-panel .slot{min-height:82px;grid-template-columns:46px minmax(0,1fr);padding:6px}
+ #pkm-kanto-panel .slot img{width:44px;height:44px}
+ #pkm-kanto-panel .pb-right.show{border:1px solid #d8b16a}
+ #pkm-kanto-panel .pb-foot{gap:3px 8px;flex-wrap:wrap}
+}
+
 `;
 function ensureHostStyle() {
   if (PD.getElementById('pkm-kanto-style')) return;
