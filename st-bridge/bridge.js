@@ -833,6 +833,7 @@ function buildInjection() {
   const lastUser = [...c].reverse().find(m => m.is_user);
   if (lastUser && /<pkm_result>/i.test(lastUser.mes || '')) parts.push('【对战结果】玩家的上一条消息带有 <pkm_result>：按结果续写战斗经过，不改写胜负。HP/状态、精灵球消耗、收服入队、图鉴登记已由脚本写入变量，不要重复写。');
   parts.push('【变量摘要（脚本生成，以此为准）】\n' + summaryText(pkm));
+  parts.push('【正文与状态栏的记账规则】状态栏只读取 MVU 存档，不会把普通叙事自动猜成数值。正文明确发生了地点、时间、金钱、背包、队伍、HP 或异常状态变化时，必须在同一条回复末尾输出与正文一致的 <UpdateVariable><JSONPatch>…</JSONPatch></UpdateVariable>；只写实际发生且已确认的变化，使用道具必须同时扣除背包数量并写入对应 HP/status 效果。没有结构化更新就不宣称存档已改变；不要为省略 Patch 而让叙事与状态栏不一致。');
   parts.push(bondRules(pkm, st));
   return subUser(parts.join('\n\n'));
 }
@@ -1084,10 +1085,61 @@ async function healAtCenter(){
 }
 function repairCenterHealing(){const id=lastAiId();if(id<0)return;const probe=readPkm();if(applyCenterHealing(probe,id))writePkm(p=>{applyCenterHealing(p,id);}).catch(e=>LOG('中心治疗同步失败',e));}
 
+// 若 MVU 只保存了本楼旧快照、或只应用了 JSONPatch 的一部分，按“上一楼存档 + 本楼显式 Patch”逐叶补齐。
+// 仅补当前值仍等于旧值的字段；保留脚本同期写入的 UID/元数据，也绝不从普通正文推断变量。
+function patchEqual(a,b){
+  if(a===b)return true;
+  if(a==null||b==null)return a==null&&b==null;
+  if(Array.isArray(a)||Array.isArray(b))return Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&a.every((v,i)=>patchEqual(v,b[i]));
+  if(isObj(a)||isObj(b)){if(!isObj(a)||!isObj(b))return false;const ak=Object.keys(a).sort(),bk=Object.keys(b).sort();return ak.length===bk.length&&ak.every((k,i)=>k===bk[i]&&patchEqual(a[k],b[k]));}
+  return false;
+}
+function mergeMissingPatch(current,base,expected){
+  if(patchEqual(base,expected))return{value:current,changed:false};
+  if(Array.isArray(base)||Array.isArray(expected)){
+    if(!Array.isArray(expected))return patchEqual(current,base)?{value:clone(expected),changed:true}:{value:current,changed:false};
+    if(!Array.isArray(base))base=[];
+    if(patchEqual(current,base))return{value:clone(expected),changed:true};
+    if(!Array.isArray(current))return{value:current,changed:false};
+    if(expected.length>base.length&&current.length===base.length&&base.every((v,i)=>patchEqual(current[i],v)))return{value:clone(expected),changed:true};
+    if(current.length!==expected.length||expected.length<base.length)return{value:current,changed:false};
+    const out=current.slice();let changed=false;
+    for(let i=0;i<expected.length;i++){const r=mergeMissingPatch(current[i],i<base.length?base[i]:undefined,expected[i]);if(r.changed){out[i]=r.value;changed=true;}}
+    return{value:changed?out:current,changed};
+  }
+  if(isObj(expected)){
+    const b=isObj(base)?base:{}, c=isObj(current)?current:null;
+    if(!c)return patchEqual(current,base)?{value:clone(expected),changed:true}:{value:current,changed:false};
+    const out={...c};let changed=false;
+    for(const k of new Set([...Object.keys(b),...Object.keys(expected)])){
+      if(!(k in expected)){
+        if(k in out&&patchEqual(out[k],b[k])){delete out[k];changed=true;}
+      }else if(!(k in b)){
+        if(!(k in out)){out[k]=clone(expected[k]);changed=true;}
+        else if(isObj(out[k])||Array.isArray(out[k])){const r=mergeMissingPatch(out[k],undefined,expected[k]);if(r.changed){out[k]=r.value;changed=true;}}
+      }else{
+        const r=mergeMissingPatch(out[k],b[k],expected[k]);if(r.changed){out[k]=r.value;changed=true;}
+      }
+    }
+    return{value:changed?out:current,changed};
+  }
+  return patchEqual(current,base)?{value:clone(expected),changed:true}:{value:current,changed:false};
+}
+function reconcileMissingPatch(pkm,mesid){
+  const msg=chat()[mesid];if(!msg||msg.is_user)return false;
+  const ops=parsePatchOps(msg.mes);if(!ops.length)return false;
+  const base=prevPkm(mesid);if(!base)return false;
+  const expected=clone(base);applyOpsGeneric(expected,ops);
+  const merged=mergeMissingPatch(pkm,base,expected);if(!merged.changed)return false;
+  for(const k of Object.keys(pkm))if(!(k in merged.value))delete pkm[k];
+  Object.assign(pkm,merged.value);return true;
+}
 function applySync(pkm, mesid, opts = {}) {
-  if (opts.full) { const ops = parsePatchOps(chat()[mesid]?.mes); if (ops.length) applyOpsGeneric(pkm, ops); }
+  let changed=false;
+  if(opts.full){const ops=parsePatchOps(chat()[mesid]?.mes);if(ops.length){applyOpsGeneric(pkm,ops);changed=true;}}
+  else changed=reconcileMissingPatch(pkm,mesid)||changed;
   const st = parseState(chat()[mesid]?.mes);
-  let changed = applyCenterHealing(pkm, mesid) || !!opts.full;
+  changed = applyCenterHealing(pkm, mesid) || changed;
   const present = [];
   if (!st) { changed=applyPassiveRegen(pkm,pkm.world.time)||changed; return reconcileBonds(pkm, mesid, present) || changed; }
   const set = (obj, k, v) => { if (v != null && v !== '' && obj[k] !== v) { obj[k] = v; changed = true; } };
@@ -1170,11 +1222,11 @@ const HOST_CSS = BASE_CSS + `
 /* Bridge fullscreen is an in-page fixed overlay, not browser-chrome hiding. Keep the battle controls reachable. */
 #pkm-kanto-modal>iframe{height:100%!important;flex:1 1 100%!important}
 #pkm-kanto-modal>.stage{flex:1;min-height:0;overflow:auto;touch-action:pan-y}
-#pkm-kanto-ball{z-index:2147482000!important;max-width:calc(100vw - 12px);visibility:visible}
+#pkm-kanto-ball{z-index:2147482200!important;max-width:calc(100vw - 12px);visibility:visible}
 #pkm-kanto-panel{z-index:2147482100!important;touch-action:pan-y;overscroll-behavior:contain}
 #pkm-kanto-panel .body{min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y}
 
-.pkm-follow-unit{position:fixed;z-index:3000;display:flex;align-items:flex-end;pointer-events:none}.pkm-follow-unit .follower{pointer-events:auto;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 3px 2px rgba(0,0,0,.25));cursor:grab;animation:pkb-bob 2.4s ease-in-out infinite;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-user-drag:none}.pkm-follow-unit.pkm-follower-dragging .follower{cursor:grabbing;animation:none!important;transform:translateY(-4px) scale(1.04)}.pkm-follow-unit .follower.hop{animation:pkb-hop .5s ease}.pkm-follow-unit.pkm-drop-ready img{filter:drop-shadow(0 0 7px #96f79c) drop-shadow(0 0 3px white)}#pkm-item-drag{position:fixed;z-index:2147483600;pointer-events:none;transform:translate(-50%,-50%);background:#fff;border:2px solid #8cba91;border-radius:10px;padding:8px}#pkm-item-drag img{width:34px;height:34px;image-rendering:pixelated}#pkm-care-confirm{position:fixed;inset:0;z-index:2147483601;display:flex;align-items:center;justify-content:center;background:#0007}#pkm-care-confirm .care-card{background:#f3f6fc;color:#243756;border:2px solid #9aaac3;border-radius:12px;width:420px;max-width:94%;padding:18px;font:13px/1.8 system-ui;box-shadow:0 16px 60px #0006}#pkm-care-confirm h3{margin:0 0 15px;color:#253b6a}#pkm-care-confirm .care-line{display:flex;align-items:center;gap:8px}#pkm-care-confirm .pk-spr{width:60px;height:60px;object-fit:contain;image-rendering:pixelated}#pkm-care-confirm small{display:block;font-size:10px;opacity:.65;margin-top:12px}#pkm-care-confirm .acts{display:flex;justify-content:flex-end;gap:10px}#pkm-care-confirm button{padding:8px 18px;border-radius:8px;border:1px solid #b6c5dc;font:inherit;cursor:pointer}#pkm-care-confirm .blue{background:#2f6fe0;color:#fff}#pkm-care-confirm button:disabled{opacity:.4;cursor:not-allowed}
+.pkm-follow-unit{position:fixed;z-index:3000;display:flex;align-items:flex-end;justify-content:center;pointer-events:none;overflow:visible}.pkm-follow-unit .follower{pointer-events:auto;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 3px 2px rgba(0,0,0,.25));cursor:pointer;animation:pkb-bob 2.4s ease-in-out infinite;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-user-drag:none}.pkm-follow-unit .follower.hop{animation:pkb-hop .5s ease}.pkm-follow-unit.pkm-drop-ready img{filter:drop-shadow(0 0 7px #96f79c) drop-shadow(0 0 3px white)}#pkm-item-drag{position:fixed;z-index:2147483600;pointer-events:none;transform:translate(-50%,-50%);background:#fff;border:2px solid #8cba91;border-radius:10px;padding:8px}#pkm-item-drag img{width:34px;height:34px;image-rendering:pixelated}#pkm-care-confirm{position:fixed;inset:0;z-index:2147483601;display:flex;align-items:center;justify-content:center;background:#0007}#pkm-care-confirm .care-card{background:#f3f6fc;color:#243756;border:2px solid #9aaac3;border-radius:12px;width:420px;max-width:94%;padding:18px;font:13px/1.8 system-ui;box-shadow:0 16px 60px #0006}#pkm-care-confirm h3{margin:0 0 15px;color:#253b6a}#pkm-care-confirm .care-line{display:flex;align-items:center;gap:8px}#pkm-care-confirm .pk-spr{width:60px;height:60px;object-fit:contain;image-rendering:pixelated}#pkm-care-confirm small{display:block;font-size:10px;opacity:.65;margin-top:12px}#pkm-care-confirm .acts{display:flex;justify-content:flex-end;gap:10px}#pkm-care-confirm button{padding:8px 18px;border-radius:8px;border:1px solid #b6c5dc;font:inherit;cursor:pointer}#pkm-care-confirm .blue{background:#2f6fe0;color:#fff}#pkm-care-confirm button:disabled{opacity:.4;cursor:not-allowed}
 .pko textarea.pko-in{resize:vertical;min-height:130px;line-height:1.65}.pko-custom{margin-top:24px;border-top:2px solid #e1e6f2;padding-top:20px}.pko-custom h3{font-size:20px;color:#1c2c61;margin:0 0 9px}.pko-custom .pko-note{margin:10px 0 16px}.pko-custom-toggle{display:flex;align-items:center;gap:9px;font-weight:800;color:#203160;font-size:15px;cursor:pointer}.pko-custom-toggle input{width:18px;height:18px;accent-color:#eb1636}.pko-custom-header{display:flex;align-items:center;justify-content:space-between;margin:20px 0 10px;gap:12px}.pko-custom-header b{color:#23346c}.pko-custom-add{font:700 13px inherit;padding:8px 12px;border:2px solid #cfd7e9;border-radius:9px;color:#263c76;background:white;cursor:pointer}.pko-custom-row{background:#fff;border:2px solid #d8deec;border-radius:13px;padding:15px;margin-bottom:12px}.pko-custom-row-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-size:13px;font-weight:800;color:#23346c}.pko-custom-remove{background:none;border:0;color:#c33146;font-size:12px;cursor:pointer}.pko-custom-fields{display:grid;grid-template-columns:1.4fr .65fr 1fr;gap:12px}.pko-custom-fields label{display:block;font-size:12px;font-weight:700;color:#5e6d91;margin-bottom:5px}.pko-custom-fields .pko-in{font-size:14px;padding:10px;min-height:40px}.pko-custom-empty{border:2px dashed #d7deed;padding:16px;border-radius:10px;color:#8994ad;font-size:13px}.pko-custom-mon-placeholder{font-size:50px;color:#b2bdd3}.pko-custom-summary{margin-top:14px;padding:16px;background:#eef2fa;border-radius:12px;color:#23346c;font-size:14px}.pko-custom-summary ul{padding-left:20px;margin:8px 0}.pko-custom-err{color:#d6213e;font-size:13px;min-height:23px}@media(max-width:680px){.pko-custom-fields{grid-template-columns:1fr 1fr}.pko-custom-fields>div:first-child{grid-column:1/-1}.pko-custom h3{font-size:18px}}
 
 /* v1.3.31: host-independent sizing and a permanent touch fallback. */
@@ -7062,14 +7114,15 @@ function ballPosFromRect(r) {
 }
 // 套用保存的位置并保证球在屏幕内；视口变动导致位置被校正时，同步保存校正值，避免下次重绘又跳回旧坐标。
 function containFloatingUi(){
- const v=P.visualViewport,x=v?.offsetLeft||0,y=v?.offsetTop||0,w=v?.width||P.innerWidth,h=v?.height||P.innerHeight;
- for(const el of PD.querySelectorAll('#pkm-kanto-ball,.pkm-follow-unit')){
-  const r=el.getBoundingClientRect();if(!r.width||!r.height)continue;
-  const left=Math.max(x+6,Math.min(x+w-r.width-6,r.left)),top=Math.max(y+6,Math.min(y+h-r.height-6,r.top));
-  if(Math.abs(left-r.left)>1||Math.abs(top-r.top)>1){el.style.left=left+'px';el.style.top=top+'px';el.style.right='auto';el.style.bottom='auto';if(el.dataset.uid)followerPositions.set(el.dataset.uid,{x:left,y:top});
-   if(el.id==='pkm-kanto-ball'&&!el.classList.contains('docked-left')&&!el.classList.contains('docked-right')){const corrected=ballPosFromRect(el.getBoundingClientRect());saveBallPos(corrected);setBallAnchor(el,corrected);}
+ const v=vp();
+ const ball=PD.getElementById('pkm-kanto-ball');
+ if(ball&&!ball.classList.contains('docked-left')&&!ball.classList.contains('docked-right')){
+  const r=ball.getBoundingClientRect(),m=6;
+  if(r.width&&r.height&&(r.left<v.x+m||r.top<v.y+m||r.right>v.x+v.w-m||r.bottom>v.y+v.h-m)){
+   const corrected=ballPosFromRect(r);saveBallPos(corrected);setBallAnchor(ball,corrected);
   }
  }
+ // Viewport changes trigger a fresh right-lower layout; roaming itself stays within that safe region.
 }
 function placeBall(el) {
   if (!el?.isConnected) return;
@@ -7108,50 +7161,27 @@ function installPanelDrag(panel){
 }
 // 面板贴着球展开：球在左半边就左对齐、右半边就右对齐；上下选空间大的一侧
 function placePanel() {
-  const panel = PD.getElementById('pkm-kanto-panel'); if (!panel || panelDrag?.el===panel) return;
-  const { w, h, x, y } = vp();
-  const compact = w <= 680 || (w < 1000 && !!P.matchMedia?.('(pointer:coarse)').matches);
-  panel.classList.toggle('pkm-panel-compact', compact);
-  panel.style.setProperty('--pkm-box-cols', w < 360 ? '3' : w < 600 ? '4' : '6');
-  panel.style.setProperty('--pkm-party-cols', w > 600 ? '2' : '1');
-  const cs = P.getComputedStyle(panel), safe = name => Math.max(0, parseFloat(cs[name]) || 0);
-  const edge = compact ? 8 : 14;
-  const l = x + Math.max(edge, safe('scrollPaddingLeft'));
-  const t = y + Math.max(edge, safe('scrollPaddingTop'));
-  const rr = x + w - Math.max(edge, safe('scrollPaddingRight'));
-  const bb = y + h - Math.max(edge, safe('scrollPaddingBottom'));
-  const aw = Math.max(1, rr - l), ah = Math.max(1, bb - t);
-  // 窄屏也留出边缘空间，避免变成无法移动的全屏遮罩。
-  const pw = Math.min(compact ? aw * 0.96 : 960, aw);
-  let ph = Math.min(compact ? ah * 0.90 : 740, ah);
-  let left = l + (aw - pw) / 2, top = t + (ah - ph) / 2;
-  const ball = PD.getElementById('pkm-kanto-ball');
-  if (!compact && ball) {
-    const r = ball.getBoundingClientRect(), gap = 8;
-    left = Math.max(l, Math.min(rr - pw, r.left + r.width / 2 < x + w / 2 ? r.left : r.right - pw));
-    const above = Math.max(0, Math.min(bb, r.top - gap) - t);
-    const below = Math.max(0, bb - Math.max(t, r.bottom + gap));
-    const down = below > above, available = down ? below : above;
-    // If the ball is central, don't squeeze the panel to an unusable sliver.
-    if (available >= Math.min(ph, 280)) {
-      ph = Math.min(ph, available);
-      top = down ? r.bottom + gap : r.top - gap - ph;
-    }
-  }
-  let savedPanelPos=readPanelPos();
-  if(!savedPanelPos&&panel.dataset.userPosition==='1'){
-    const currentLeft=parseFloat(panel.style.left),currentTop=parseFloat(panel.style.top);
-    if(Number.isFinite(currentLeft)&&Number.isFinite(currentTop))savedPanelPos={x:currentLeft,y:currentTop};
-  }
-  if(savedPanelPos){left=savedPanelPos.x;top=savedPanelPos.y;}
-  left=Math.max(l,Math.min(rr-pw,left));
-  top = Math.max(t, Math.min(bb - ph, top));
-  // One source of truth. Override old host/mobile CSS and ignore body zoom/transforms.
-  for (const [key, value] of Object.entries({position:'fixed',left:left+'px',top:top+'px',right:'auto',bottom:'auto',
+  const panel=PD.getElementById('pkm-kanto-panel');if(!panel)return;
+  const v=vp();
+  const content=PD.querySelector('#chat')||PD.querySelector('#chat-container')||PD.querySelector('.chat');
+  const cr=content?.getBoundingClientRect?.();
+  const visible=cr?{left:Math.max(v.x,cr.left),top:Math.max(v.y,cr.top),right:Math.min(v.x+v.w,cr.right),bottom:Math.min(v.y+v.h,cr.bottom)}:null;
+  const body=visible&&visible.right-visible.left>160&&visible.bottom-visible.top>160?visible:{left:v.x,top:v.y,right:v.x+v.w,bottom:v.y+v.h};
+  const bw=Math.max(1,body.right-body.left),bh=Math.max(1,body.bottom-body.top);
+  const compact=bw<=680||(bw<1000&&!!P.matchMedia?.('(pointer:coarse)').matches);
+  panel.classList.toggle('pkm-panel-compact',compact);
+  panel.style.setProperty('--pkm-box-cols',bw<360?'3':bw<600?'4':'6');
+  panel.style.setProperty('--pkm-party-cols',bw>600?'2':'1');
+  const cs=P.getComputedStyle(panel),safe=name=>Math.max(0,parseFloat(cs[name])||0),edge=compact?8:14;
+  const leftEdge=body.left+Math.max(edge,safe('scrollPaddingLeft')),topEdge=body.top+Math.max(edge,safe('scrollPaddingTop'));
+  const rightEdge=body.right-Math.max(edge,safe('scrollPaddingRight')),bottomEdge=body.bottom-Math.max(edge,safe('scrollPaddingBottom'));
+  const aw=Math.max(1,rightEdge-leftEdge),ah=Math.max(1,bottomEdge-topEdge);
+  const pw=Math.min(compact?aw*.96:960,aw),ph=Math.min(compact?ah*.92:740,ah);
+  const left=leftEdge+(aw-pw)/2,top=topEdge+(ah-ph)/2;
+  // Center the fixed-size desktop panel over the visible chat body; on phones it scales to the chat area.
+  for(const [key,value] of Object.entries({position:'fixed',left:left+'px',top:top+'px',right:'auto',bottom:'auto',
     width:pw+'px',height:ph+'px',maxWidth:pw+'px',maxHeight:ph+'px',minWidth:'0',minHeight:'0',margin:'0',
-    boxSizing:'border-box',transform:'none',zoom:'1'})) {
-    panel.style.setProperty(key.replace(/[A-Z]/g, c => '-'+c.toLowerCase()), value, 'important');
-  }
+    boxSizing:'border-box',transform:'none',zoom:'1'}))panel.style.setProperty(key.replace(/[A-Z]/g,c=>'-'+c.toLowerCase()),value,'important');
 }
 function installBallDrag(el) {
   let suppressUntil = 0, nativeClickGate = null;
@@ -7219,7 +7249,7 @@ function installBallDrag(el) {
   let layoutFrame = 0, settleTimer = 0;
   const reflow = () => {
     if (layoutFrame || destroyed) return;
-    layoutFrame = P.requestAnimationFrame(() => { layoutFrame = 0; if (destroyed) return; placeBall(el); containFloatingUi(); placePanel(); });
+    layoutFrame = P.requestAnimationFrame(() => { layoutFrame = 0; if (destroyed) return; placeBall(el); containFloatingUi(); syncMultiFollowers(readPkm()); placePanel(); });
   };
   const rotate = () => { reflow(); P.clearTimeout(settleTimer); settleTimer = P.setTimeout(reflow, 350); };
   cleanups.push(() => { P.cancelAnimationFrame(layoutFrame); P.clearTimeout(settleTimer); });
@@ -7443,7 +7473,7 @@ function renderPanel() {
   let el=PD.getElementById('pkm-kanto-panel');
   if(!el){
     el=PD.createElement('div');el.id='pkm-kanto-panel';el.className='pkb show';el.setAttribute('role','dialog');el.setAttribute('aria-modal','true');el.setAttribute('aria-label','宝可梦队伍栏');PD.documentElement.appendChild(el);
-    el.addEventListener('click',onPanelClick);installPanelDrag(el);
+    el.addEventListener('click',onPanelClick);
     el.addEventListener('keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;const pick=e.target.closest?.('[data-select]');if(!pick)return;e.preventDefault();panelSelect(pick.dataset.select,Number(pick.dataset.i));});
     el.addEventListener('input',onPanelInput);el.addEventListener('change',onPanelChange);
   }
@@ -7457,7 +7487,7 @@ function renderPanel() {
   const resetIcon='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-6.6 8-13A8 8 0 1 0 4 9c0 6.4 8 13 8 13Z" fill="#ff557c"/><circle cx="12" cy="9" r="2.5" fill="#fff"/></svg>';
   const soundIcon=muted?'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3Z" fill="currentColor"/><path d="m16 9 5 6m0-6-5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>':'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3Z" fill="currentColor"/><path d="M16 8a6 6 0 0 1 0 8M18.5 5.5a9.5 9.5 0 0 1 0 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
   const closeIcon='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>';
-  el.innerHTML=`<header class="panel-head pb-head"><span class="drag-grip pb-drag-grip" title="拖动面板" aria-label="拖动队伍栏">⠿</span><span class="head-ball" aria-hidden="true"></span><div class="title"><b>宝可梦队伍</b><small>队伍、仓库与伙伴资料</small></div><div class="header-actions"><button type="button" class="head-action pb-x" data-op="center-heal" ${isCenterLocation(centerLocation(pkm))?'':'disabled'} title="仅在宝可梦中心治疗全队">治疗</button><button type="button" class="head-action pb-x reset-action" data-op="resetpos" title="把精灵球放回右下角">${resetIcon}</button><button type="button" class="head-action pb-x" data-op="mute" title="切换跟随叫声">${muted?'声音：关':'声音：开'}</button></div><button type="button" class="close-btn pb-x" data-op="close" aria-label="关闭队伍栏">×</button></header>
+  el.innerHTML=`<header class="panel-head pb-head"><span class="head-ball" aria-hidden="true"></span><div class="title"><b>宝可梦队伍</b><small>队伍、仓库与伙伴资料</small></div><div class="header-actions"><button type="button" class="head-action pb-x" data-op="center-heal" ${isCenterLocation(centerLocation(pkm))?'':'disabled'} title="仅在宝可梦中心治疗全队">治疗</button><button type="button" class="head-action pb-x reset-action" data-op="resetpos" title="把精灵球放回右下角">${resetIcon}</button><button type="button" class="head-action pb-x" data-op="mute" title="切换跟随叫声">${muted?'声音：关':'声音：开'}</button></div><button type="button" class="close-btn pb-x" data-op="close" aria-label="关闭队伍栏">×</button></header>
   <nav class="tabbar"><button type="button" class="tab ${panelTab==='party'?'active on':''}" data-tab="party">队伍 <span class="tab-count">${count}/6</span></button><button type="button" class="tab ${panelTab==='box'?'active on':''}" data-tab="box">电脑仓库 <span class="tab-count">${pkm.party.box.length}</span></button></nav>
   <div class="panel-body pb-body"><section class="list-pane pb-left"><div class="pane-top"><strong>${panelTab==='party'?'队伍伙伴':'电脑仓库'}</strong><span>${panelTab==='party'?'选择宝可梦查看详情':`第 ${panelBoxPage+1} 页 · 每页 30 格`}</span></div>${panelTab==='party'?panelPartyMarkup(pkm):panelStorageMarkup(pkm)}</section><section class="detail-pane pb-right ${panelSelection?'show':''}">${panelDetailMarkup(pkm)}</section></div>
   <footer class="panel-foot pb-foot"><span>点击伙伴查看详细资料</span><span>队伍 ${count}/6 · 仓库 ${pkm.party.box.length} 只</span></footer><div class="toast"></div>`;
@@ -8535,85 +8565,180 @@ function isFollowing(pkm,id){return !!id && followingIds(pkm).includes(id);}
 const FOLLOW_POS_KEY='pkmKantoFollowers-v1327';let storedFollowPos={};try{storedFollowPos=JSON.parse(lsGet(FOLLOW_POS_KEY)||'{}')||{};}catch(_){}const followerPositions=new Map(Object.entries(storedFollowPos));function persistFollowers(){lsSet(FOLLOW_POS_KEY,JSON.stringify(Object.fromEntries(followerPositions)));} let followerGesture=null, itemGesture=null, pendingCare=null, lastEcoInteraction=0;
 function cancelFollowerRoam(el){if(!el)return;el.__pkmRoamGeneration=(el.__pkmRoamGeneration||0)+1;if(el.__pkmRoamTimer)host.clearTimeout(el.__pkmRoamTimer);if(el.__pkmRoamFrame)host.cancelAnimationFrame(el.__pkmRoamFrame);el.__pkmRoamTimer=0;el.__pkmRoamFrame=0;el.classList.remove('walk');}
 function scheduleFollowerRoam(el, initial=false){
- if(!el?.isConnected||destroyed)return;cancelFollowerRoam(el);const generation=el.__pkmRoamGeneration;
+ if(!el?.isConnected||destroyed)return;
+ cancelFollowerRoam(el);const generation=el.__pkmRoamGeneration;
  el.__pkmRoamTimer=host.setTimeout(()=>{
-  el.__pkmRoamTimer=0;if(!el.isConnected||destroyed||generation!==el.__pkmRoamGeneration||followerGesture?.el===el)return;
-  if(host.document?.hidden||PD.getElementById('pkm-kanto-modal')){scheduleFollowerRoam(el,false);return;}
-  const r=el.getBoundingClientRect(),v=vp(),maxX=Math.max(6,v.w-r.width-6),maxY=Math.max(6,v.h-r.height-6);
-  const from={x:Math.max(6,Math.min(maxX,r.left)),y:Math.max(6,Math.min(maxY,r.top))};
-  let to={x:Math.max(6,Math.min(maxX,from.x+(Math.random()-.5)*220)),y:Math.max(6,Math.min(maxY,from.y+(Math.random()-.5)*150))};
-  if(Math.hypot(to.x-from.x,to.y-from.y)<35)to={x:Math.max(6,Math.min(maxX,from.x+(Math.random()<.5?-1:1)*65)),y:from.y};
-  const duration=1200+Math.random()*1500,start=host.performance?.now?host.performance.now():Date.now();el.classList.add('walk');el.style.right='auto';el.style.bottom='auto';
+  el.__pkmRoamTimer=0;
+  if(!el.isConnected||destroyed||generation!==el.__pkmRoamGeneration||followerGesture?.el===el)return;
+  if(host.document?.hidden||PD.getElementById('pkm-kanto-modal')||PD.getElementById('pkm-kanto-panel')?.classList.contains('show')){scheduleFollowerRoam(el,false);return;}
+  const v=vp(),r=el.getBoundingClientRect(),margin=14;
+  const bandW=Math.min(Math.max(1,v.w-2*margin),Math.max(r.width,Math.min(260,v.w*.42)));
+  const bandH=Math.min(Math.max(1,v.h-2*margin),Math.max(r.height,Math.min(200,v.h*.34)));
+  const minX=Math.max(v.x+margin,v.x+v.w-margin-bandW),maxX=Math.max(minX,v.x+v.w-margin-r.width);
+  const minY=Math.max(v.y+margin,v.y+v.h-margin-bandH),maxY=Math.max(minY,v.y+v.h-margin-r.height);
+  const from={x:Math.max(minX,Math.min(maxX,r.left)),y:Math.max(minY,Math.min(maxY,r.top))};
+  const others=[...PD.querySelectorAll('.pkm-follow-unit')].filter(other=>other!==el&&other.isConnected);
+  const canPlace=(x,y)=>!others.some(other=>{const q=other.getBoundingClientRect();return x<q.right+6&&x+r.width>q.left-6&&y<q.bottom+6&&y+r.height>q.top-6;});
+  let to=null;
+  for(let tries=0;tries<18&&!to;tries++){
+   const candidate={x:minX+Math.random()*Math.max(0,maxX-minX),y:minY+Math.random()*Math.max(0,maxY-minY)};
+   if(canPlace(candidate.x,candidate.y))to=candidate;
+  }
+  if(!to){scheduleFollowerRoam(el,false);return;}
+  if(Math.hypot(to.x-from.x,to.y-from.y)<24){to={x:Math.max(minX,Math.min(maxX,from.x+(Math.random()<.5?-1:1)*42)),y:Math.max(minY,Math.min(maxY,from.y+(Math.random()-.5)*44))};}
+  const duration=1500+Math.random()*1200,start=host.performance?.now?host.performance.now():Date.now();
+  el.classList.add('walk');el.style.right='auto';el.style.bottom='auto';
   const step=now=>{
    if(!el.isConnected||destroyed||generation!==el.__pkmRoamGeneration||followerGesture?.el===el){el.classList.remove('walk');el.__pkmRoamFrame=0;return;}
    const stamp=Number.isFinite(now)?now:(host.performance?.now?host.performance.now():Date.now()),t=Math.min(1,Math.max(0,(stamp-start)/duration)),e=t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
-   const pos={x:from.x+(to.x-from.x)*e,y:from.y+(to.y-from.y)*e};el.style.left=pos.x+'px';el.style.top=pos.y+'px';followerPositions.set(el.dataset.uid,pos);
+   const pos={x:from.x+(to.x-from.x)*e,y:from.y+(to.y-from.y)*e};
+   if(!canPlace(pos.x,pos.y)){
+    if(t<1){el.__pkmRoamFrame=host.requestAnimationFrame(step);return;}
+    el.__pkmRoamFrame=0;el.classList.remove('walk');scheduleFollowerRoam(el,false);return;
+   }
+   el.style.left=pos.x+'px';el.style.top=pos.y+'px';followerPositions.set(el.dataset.uid,pos);
    if(t<1)el.__pkmRoamFrame=host.requestAnimationFrame(step);else{el.__pkmRoamFrame=0;el.classList.remove('walk');scheduleFollowerRoam(el,false);}
   };
   el.__pkmRoamFrame=host.requestAnimationFrame(step);
- },initial?7000+Math.random()*9000:4500+Math.random()*9500);
+ },initial?6500+Math.random()*6500:4500+Math.random()*7500);
 }
 function syncMultiFollowers(pkm){
- const ids=followingIds(pkm), ball=PD.getElementById('pkm-kanto-ball');if(ball)ball.style.setProperty('display',ids.length?'none':'flex','important');
+ const ids=followingIds(pkm), ball=PD.getElementById('pkm-kanto-ball');
+ // The Poké Ball is a permanent control, never replaced by or hidden for a follower.
+ if(ball)ball.style.setProperty('display','flex','important');
  PD.querySelectorAll('.pkm-follow-unit').forEach(el=>{if(!ids.includes(el.dataset.uid)){cancelFollowerRoam(el);el.__originalMood?.dispose();el.remove()}});
- const {w,h}=vp();ids.forEach((id,index)=>{
-  const mon=pkm.party.slots.find(m=>m.uid===id);let el=PD.querySelector('.pkm-follow-unit[data-uid="'+id+'"]');
-  const height=FOLLOWER_HEIGHTS[mon.species] || ABILITY_DEX?.[speciesId(mon.species)]?.heightm || 1;
-  const size=Math.max(34,Math.min(112,height*48));
-  if(!el){el=PD.createElement('div');el.className='pkb pkm-follow-unit';el.dataset.uid=id;const im=PD.createElement('img');im.className='follower';im.draggable=false;im.src=spriteUrl(mon.species,{anim:true,shiny:mon.shiny});el.append(im);PD.body.append(el);installOriginalFollowerMood(el);installFollowerGesture(el);scheduleFollowerRoam(el,true);
-  el.tabIndex=0;el.setAttribute('role','button');el.setAttribute('aria-label',monName(mon)+'，点击互动并听叫声，长按查看详情');
-  el.addEventListener('keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;e.preventDefault();const m=readPkm().party.slots.find(m=>m.uid===el.dataset.uid);if(hasMon(m)&&panelHpInfo(m).hp!==0){lastEcoInteraction=Date.now();const line=pickCryLine(m);playCry(m,line);cryBubble(m,line);el.__originalMood?.pet();}});}
-  const followerImg=el.querySelector('img'),desiredSprite=spriteUrl(mon.species,{anim:true,shiny:mon.shiny});if(followerImg.dataset.pkmDesired!==desiredSprite){followerImg.dataset.pkmDesired=desiredSprite;followerImg.__pkmSpriteState=null;followerImg.src=desiredSprite;}
-  el.querySelector('img').style.cssText='height:'+size+'px;width:auto;max-width:150px;max-height:120px';
-  el.classList.toggle('pos-l',el.getBoundingClientRect().left<150);el.classList.toggle('pos-t',el.getBoundingClientRect().top<100);const hp=panelHpInfo(mon);el.querySelector('img').title=monName(mon)+' · HP '+hp.label+' · '+height+'m；拖动摆放，长按打开原精灵球面板';
-  if(!followerPositions.has(id))followerPositions.set(id,{x:w-90-(index%3)*145,y:h-150-Math.floor(index/3)*135});
-  const pos=followerPositions.get(id);pos.x=Math.max(6,Math.min(w-el.offsetWidth-6,pos.x));pos.y=Math.max(6,Math.min(h-el.offsetHeight-6,pos.y));if(followerGesture?.el!==el){el.style.left=pos.x+'px';el.style.top=pos.y+'px';}else{const live={x:parseFloat(el.style.left),y:parseFloat(el.style.top)};if(Number.isFinite(live.x)&&Number.isFinite(live.y))followerPositions.set(id,live);}
+ if(!ids.length)return;
+ const v=vp(), margin=14, gap=8;
+ const cols=v.w<300?1:(v.w<560?2:3), usedCols=Math.min(cols,ids.length), rows=Math.ceil(ids.length/cols);
+ const slot=Math.max(20,Math.min(124,(v.h-2*margin-gap*(rows-1))/rows,(v.w-2*margin-gap*(usedCols-1))/usedCols));
+ const clusterW=usedCols*slot+(usedCols-1)*gap, clusterH=rows*slot+(rows-1)*gap;
+ let right=v.x+v.w-margin, bottom=v.y+v.h-margin;
+ const cluster={left:right-clusterW,top:bottom-clusterH,right,bottom};
+ const ballRect=ball?.isConnected?ball.getBoundingClientRect():null;
+ const overlapsBall=ballRect&&cluster.left<ballRect.right+gap&&cluster.right>ballRect.left-gap&&cluster.top<ballRect.bottom+gap&&cluster.bottom>ballRect.top-gap;
+ if(overlapsBall){
+  const leftOfBall=ballRect.left-gap;
+  if(leftOfBall-clusterW>=v.x+margin)right=leftOfBall;
+  else if(ballRect.top-gap-clusterH>=v.y+margin)bottom=ballRect.top-gap;
+  else {right=v.x+margin+clusterW;}
+ }
+ ids.forEach((id,index)=>{
+  const mon=pkm.party.slots.find(m=>m.uid===id);if(!mon)return;
+  let el=PD.querySelector('.pkm-follow-unit[data-uid="'+id+'"]');
+  const height=FOLLOWER_HEIGHTS[mon.species]||ABILITY_DEX?.[speciesId(mon.species)]?.heightm||1;
+  const size=Math.max(12,Math.min(112,height*48,slot-8));
+  if(!el){
+   el=PD.createElement('div');el.className='pkb pkm-follow-unit';el.dataset.uid=id;
+   const im=PD.createElement('img');im.className='follower';im.draggable=false;im.src=spriteUrl(mon.species,{anim:true,shiny:mon.shiny});
+   el.append(im);PD.body.append(el);if(followerPositions.has(id))el.dataset.userPosition='1';installOriginalFollowerMood(el);installFollowerGesture(el);scheduleFollowerRoam(el,true);
+   el.tabIndex=0;el.setAttribute('role','button');el.setAttribute('aria-label',monName(mon)+'，点击互动并听叫声，长按查看详情');
+   el.addEventListener('keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;e.preventDefault();const m=readPkm().party.slots.find(m=>m.uid===el.dataset.uid);if(hasMon(m)&&panelHpInfo(m).hp!==0){lastEcoInteraction=Date.now();const line=pickCryLine(m);playCry(m,line);cryBubble(m,line);el.__originalMood?.pet();}});
+  }
+  const followerImg=el.querySelector('img'),desiredSprite=spriteUrl(mon.species,{anim:true,shiny:mon.shiny});
+  if(followerImg.dataset.pkmDesired!==desiredSprite){followerImg.dataset.pkmDesired=desiredSprite;followerImg.__pkmSpriteState=null;followerImg.src=desiredSprite;}
+  el.style.width=slot+'px';el.style.height=slot+'px';el.style.justifyContent='center';el.style.alignItems='flex-end';
+  followerImg.style.cssText='height:'+size+'px;width:auto;max-width:'+Math.max(24,slot-8)+'px;max-height:'+Math.max(24,slot-8)+'px;object-fit:contain';
+  const col=index%cols,row=Math.floor(index/cols),left=right-slot-col*(slot+gap),top=bottom-slot-row*(slot+gap);
+  const bandW=Math.min(Math.max(1,v.w-2*margin),Math.max(slot,Math.min(260,v.w*.42))),bandH=Math.min(Math.max(1,v.h-2*margin),Math.max(slot,Math.min(200,v.h*.34)));
+  const minX=Math.max(v.x+margin,v.x+v.w-margin-bandW),maxX=Math.max(minX,v.x+v.w-margin-slot);
+  const minY=Math.max(v.y+margin,v.y+v.h-margin-bandH),maxY=Math.max(minY,v.y+v.h-margin-slot);
+  const saved=followerPositions.get(id)||{};
+  const styleX=el.dataset.userPosition==='1'?parseFloat(el.style.left):NaN,styleY=el.dataset.userPosition==='1'?parseFloat(el.style.top):NaN;
+  const savedX=Number.isFinite(styleX)?styleX:(el.dataset.userPosition==='1'?Number(saved.x):NaN),savedY=Number.isFinite(styleY)?styleY:(el.dataset.userPosition==='1'?Number(saved.y):NaN);
+  const x=Number.isFinite(savedX)?savedX:left,y=Number.isFinite(savedY)?savedY:top;
+  el.style.left=Math.max(minX,Math.min(maxX,x))+'px';el.style.top=Math.max(minY,Math.min(maxY,y))+'px';el.style.right='auto';el.style.bottom='auto';
+  el.classList.toggle('pos-l',x<v.x+v.w/2);el.classList.toggle('pos-t',y<v.y+v.h/2);
+  const hp=panelHpInfo(mon);followerImg.title=monName(mon)+' · HP '+hp.label+' · '+height+'m；在屏幕右下区域活动，长按打开队伍详情';
+  followerPositions.set(id,{x:parseFloat(el.style.left),y:parseFloat(el.style.top)});
  });
 }
 let followerGestureDocInstalled=false;
 function installFollowerGesture(el){
- // 触控/鼠标统一走 Pointer Events；在容器上捕获指针，避免图片动画或外层重绘令拖动丢失。
+ // 保留跟随宝可梦的拖动、点击与长按交互；拖动范围限制在右下安全区内。
  el.addEventListener('pointerdown',e=>{
   if(!e.isPrimary||(e.pointerType==='mouse'&&e.button!==0)||followerGesture)return;
   lastEcoInteraction=Date.now();cancelFollowerRoam(el);el.__originalMood?.pauseMovement?.();
-  const r=el.getBoundingClientRect();
-  followerGesture={id:e.pointerId,el,x:e.clientX,y:e.clientY,left:r.left,top:r.top,moved:false,held:false,pointerType:e.pointerType};
-  e.preventDefault();e.stopPropagation();
-  try{el.setPointerCapture(e.pointerId)}catch(_){}
+  const r=el.getBoundingClientRect();followerGesture={id:e.pointerId,el,x:e.clientX,y:e.clientY,left:r.left,top:r.top,moved:false,held:false,pointerType:e.pointerType};
+  e.preventDefault();e.stopPropagation();try{el.setPointerCapture(e.pointerId)}catch(_){}
   followerGesture.timer=P.setTimeout(()=>{const g=followerGesture;if(!el.isConnected||g?.el!==el||g.moved)return;g.held=true;const pkm=readPkm(),i=pkm.party.slots.findIndex(m=>m.uid===el.dataset.uid);panelSelection={scope:'party',index:i};openPanel();},550);
  },{passive:false});
  if(followerGestureDocInstalled)return;followerGestureDocInstalled=true;
  listen(PD,'pointermove',e=>{
   const g=followerGesture;if(!g||g.id!==e.pointerId||!g.el?.isConnected)return;
-  const el=g.el,dx=e.clientX-g.x,dy=e.clientY-g.y,threshold=g.pointerType==='touch'?7:5;
+  const dx=e.clientX-g.x,dy=e.clientY-g.y,threshold=g.pointerType==='touch'?7:5;
   if(!g.moved&&Math.hypot(dx,dy)<threshold)return;
-  g.moved=true;P.clearTimeout(g.timer);el.classList.add('pkm-follower-dragging');e.preventDefault();
-  const v=vp(),minX=v.x+6,minY=v.y+6,maxX=Math.max(minX,v.x+v.w-el.offsetWidth-6),maxY=Math.max(minY,v.y+v.h-el.offsetHeight-6);
+  g.moved=true;P.clearTimeout(g.timer);e.preventDefault();
+  const el=g.el,v=vp(),margin=14,r=el.getBoundingClientRect();
+  const bandW=Math.min(Math.max(1,v.w-2*margin),Math.max(r.width,Math.min(260,v.w*.42))),bandH=Math.min(Math.max(1,v.h-2*margin),Math.max(r.height,Math.min(200,v.h*.34)));
+  const minX=Math.max(v.x+margin,v.x+v.w-margin-bandW),maxX=Math.max(minX,v.x+v.w-margin-r.width);
+  const minY=Math.max(v.y+margin,v.y+v.h-margin-bandH),maxY=Math.max(minY,v.y+v.h-margin-r.height);
   const pos={x:Math.max(minX,Math.min(maxX,g.left+dx)),y:Math.max(minY,Math.min(maxY,g.top+dy))};
-  followerPositions.set(el.dataset.uid,pos);el.style.left=pos.x+'px';el.style.top=pos.y+'px';el.style.right='auto';el.style.bottom='auto';
+  el.style.left=pos.x+'px';el.style.top=pos.y+'px';el.style.right='auto';el.style.bottom='auto';el.dataset.userPosition='1';followerPositions.set(el.dataset.uid,pos);
  },{capture:true,passive:false});
  const finish=(e,cancelled=false)=>{
   const g=followerGesture;if(!g||g.id!==e.pointerId)return;P.clearTimeout(g.timer);const el=g.el;
   if(g.moved){persistFollowers();if(!cancelled)lastEcoInteraction=Date.now();}
   else if(!cancelled&&!g.held){const mon=readPkm().party.slots.find(m=>m.uid===el.dataset.uid);if(hasMon(mon)&&panelHpInfo(mon).hp!==0){lastEcoInteraction=Date.now();const line=pickCryLine(mon);playCry(mon,line);cryBubble(mon,line);el.__originalMood?.pet();}}
-  followerGesture=null;el.classList.remove('pkm-follower-dragging');
-  try{if(el.hasPointerCapture?.(e.pointerId))el.releasePointerCapture(e.pointerId)}catch(_){}
+  followerGesture=null;try{if(el.hasPointerCapture?.(e.pointerId))el.releasePointerCapture(e.pointerId)}catch(_){}
   scheduleFollowerRoam(el,false);
  };
- listen(PD,'pointerup',e=>finish(e,false),true);
- listen(PD,'pointercancel',e=>finish(e,true),true);
- listen(P,'blur',()=>{const g=followerGesture;if(!g)return;P.clearTimeout(g.timer);if(g.moved)persistFollowers();followerGesture=null;g.el?.classList.remove('pkm-follower-dragging');scheduleFollowerRoam(g.el,false);});
+ listen(PD,'pointerup',e=>finish(e,false),true);listen(PD,'pointercancel',e=>finish(e,true),true);
+ listen(P,'blur',()=>{const g=followerGesture;if(!g)return;P.clearTimeout(g.timer);if(g.moved)persistFollowers();followerGesture=null;try{if(g.el?.hasPointerCapture?.(g.id))g.el.releasePointerCapture(g.id)}catch(_){};scheduleFollowerRoam(g.el,false);});
 }
-function careInfo(name,mon){const h=panelHpInfo(mon);const amount=name==='伤药'?20:name==='橙橙果'?10:0;const max=h.max||monStats(mon)?.hp||1;const revive=!!h.faint&&name==='伤药';const heal=revive?Math.min(amount,max):(h.faint?0:Math.min(amount,Math.max(0,max-(h.hp??max))));return{hp:h.faint?0:h.hp,max,heal,revive,valid:heal>0};}
-function showCare(name,id){if(PD.getElementById('pkm-kanto-modal')){toast('对战中请在对战窗口使用道具，避免与战斗结算冲突。');return;}const pkm=readPkm(),mon=pkm.party.slots.find(m=>m.uid===id);if(!mon||!isFollowing(pkm,id)||!(Number(pkm.player.bag[name])>0))return;const effect=careInfo(name,mon);pendingCare={name,id};PD.getElementById('pkm-care-confirm')?.remove();const d=PD.createElement('div');d.id='pkm-care-confirm';d.className='pkb';d.innerHTML=`<div class="care-card"><h3>确认${name==='橙橙果'?'喂食':'使用物品'}</h3><div class="care-line">${itemIcon(name)}<b>${esc(name)}</b> → ${spriteImg(mon.species)}<b>${esc(monName(mon))}</b></div><p>HP ${effect.hp}/${effect.max}${effect.valid?' → '+(effect.revive?effect.heal:effect.hp+effect.heal)+'/'+effect.max+'（+'+effect.heal+'）':''}</p><p>${effect.revive?'濒死状态可用伤药复苏并恢复 20 HP。':effect.valid?'确认后背包扣除 1 个；取消不消耗。':'当前使用无效：满血或该物品不能治疗濒死状态，不消耗物品。'}</p><div class="acts"><button class="ghost" data-care="cancel">取消</button><button class="blue" data-care="confirm" ${effect.valid?'':'disabled'}>确认使用</button></div><small>效果来自原状态栏道具说明；未新增饱腹、食物或额外羁绊数值。</small></div>`;PD.body.append(d);let ignoreTrustedUntil=0;d.addEventListener('pointerup',e=>{if(e.pointerType!=='touch')return;const b=e.target.closest('[data-care]');if(b&&!b.disabled){ignoreTrustedUntil=Date.now()+700;b.click();}});d.addEventListener('click',async e=>{if(e.isTrusted&&Date.now()<ignoreTrustedUntil)return;const act=e.target.closest('[data-care]')?.dataset.care;if(act==='cancel'){pendingCare=null;d.remove();}if(act==='confirm')await applyCare();});}
-async function applyCare(){const op=pendingCare;if(!op)return;pendingCare=null;let applied=false,revived=false;await writePkm(pkm=>{applied=false;revived=false;const m=pkm.party.slots.find(m=>m.uid===op.id);if(PD.getElementById('pkm-kanto-modal')||!m||!isFollowing(pkm,op.id)||(Number(pkm.player.bag[op.name])||0)<1)return;const ef=careInfo(op.name,m);if(!ef.valid)return;m.hp=Math.min(ef.max,ef.revive?ef.heal:ef.hp+ef.heal);m.maxHp=ef.max;if(ef.revive)m.status=null;pkm.player.bag[op.name]--;setHpRegenBaseline(pkm,m);revived=ef.revive;applied=true;});PD.getElementById('pkm-care-confirm')?.remove();if(!applied){toast('目标或物品状态已变化；未使用，也不触发开心互动。');return;}if(applied){const el=PD.querySelector('.pkm-follow-unit[data-uid="'+op.id+'"]');el?.__originalMood?.happy(op.name==='橙橙果'?'feed':'medicine');}toast(revived?'伤药已使濒死宝可梦复苏到 20 HP；背包与队伍状态已同步。':'已按原道具效果使用 '+op.name+'；背包与队伍 HP 已同步。');}
+const CARE_ALIAS={
+ '解毒剂':'解毒药','解麻痹药':'解麻药','解烧伤药':'灼伤药','烧伤药':'灼伤药','全回复药':'全复药','全回复':'全复药','全治疗药':'万灵药','万能药':'万灵药','元气药':'活力块','元气碎片':'活力碎片',
+ 'potion':'伤药','super-potion':'好伤药','hyper-potion':'厉害伤药','max-potion':'全满药','full-restore':'全复药','antidote':'解毒药','paralyze-heal':'解麻药','burn-heal':'灼伤药','ice-heal':'解冻药','awakening':'解眠药','full-heal':'万灵药','revive':'活力碎片','max-revive':'活力块','fresh-water':'美味之水','soda-pop':'劲爽汽水','lemonade':'果汁牛奶','moomoo-milk':'哞哞鲜奶','energy-powder':'元气粉','energy-root':'元气根','revival-herb':'复活草','berry-juice':'树果汁','sweet-heart':'心形甜点','pecha-berry':'桃桃果','cheri-berry':'樱子果','rawst-berry':'莓莓果','aspear-berry':'利木果','chesto-berry':'零余果','lum-berry':'木子果','heal-powder':'万能粉','lava-cookie':'釜炎仙贝','old-gateau':'森之羊羹','rage-candy-bar':'愤怒馒头','casteliacone':'飞云冰淇淋','lumiose-galette':'密阿雷格雷派饼','shalour-sable':'娑罗沙布蕾','big-malasada':'大马拉萨达'
+};
+const CARE_HP={伤药:20,好伤药:60,厉害伤药:120,橙橙果:10,美味之水:30,劲爽汽水:50,果汁牛奶:70,哞哞鲜奶:100,元气粉:60,元气根:120,树果汁:20,心形甜点:20};
+const CARE_STATUS={解毒药:'poison',解麻药:'paralysis',灼伤药:'burn',解冻药:'freeze',解眠药:'sleep',桃桃果:'poison',樱子果:'paralysis',莓莓果:'burn',利木果:'freeze',零余果:'sleep'};
+const CARE_ALL_STATUS=new Set(['全复药','万灵药','万能粉','木子果','釜炎仙贝','森之羊羹','愤怒馒头','飞云冰淇淋','密阿雷格雷派饼','娑罗沙布蕾','大马拉萨达']);
+const CARE_FULL_HP=new Set(['全满药','全复药']);
+const CARE_REVIVE_HALF=new Set(['活力碎片']);
+const CARE_REVIVE_FULL=new Set(['活力块','复活草']);
+function canonicalCareItem(name){const raw=String(name??'').trim();return Object.prototype.hasOwnProperty.call(CARE_ALIAS,raw)?CARE_ALIAS[raw]:raw;}
+function isCareItem(name){const n=canonicalCareItem(name);return Object.hasOwn(CARE_HP,n)||Object.hasOwn(CARE_STATUS,n)||CARE_ALL_STATUS.has(n)||CARE_FULL_HP.has(n)||CARE_REVIVE_HALF.has(n)||CARE_REVIVE_FULL.has(n);}
+function careStatusKey(value){const s=String(value??'').trim().toLowerCase();if(!s)return'';if(/濒死|倒下|失去战斗能力|faint/.test(s))return'faint';if(/中毒|剧毒|poison|toxic/.test(s))return'poison';if(/麻痹|瘫痪|paraly/.test(s))return'paralysis';if(/灼伤|烧伤|烫伤|burn/.test(s))return'burn';if(/冰冻|冻结|冻伤|freeze|frozen/.test(s))return'freeze';if(/睡眠|睡着|沉睡|sleep/.test(s))return'sleep';return'';}
+function careInfo(name,mon){
+ const h=panelHpInfo(mon),max=h.max||monStats(mon)?.hp||1,n=canonicalCareItem(name),status=careStatusKey(mon.status),faint=!!h.faint||status==='faint';
+ const hp=faint?0:Math.max(0,Number(h.hp??max)||0);let nextHp=hp,nextStatus=mon.status??null,revive=false,cured=false,healed=0,valid=false,reason='该道具对当前目标无效果。';
+ if(CARE_REVIVE_HALF.has(n)||CARE_REVIVE_FULL.has(n)){
+  if(faint){nextHp=CARE_REVIVE_HALF.has(n)?Math.max(1,Math.ceil(max/2)):max;nextStatus=null;revive=true;cured=mon.status!=null;healed=nextHp;valid=true;reason='复苏并恢复 HP';}
+  else reason='目标未濒死，复活道具不会消耗。';
+ }else if(!faint){
+  if(Object.hasOwn(CARE_HP,n)||CARE_FULL_HP.has(n)){
+   nextHp=CARE_FULL_HP.has(n)?max:Math.min(max,hp+(CARE_HP[n]||0));healed=Math.max(0,nextHp-hp);valid=healed>0;reason=valid?'恢复 HP':'目标 HP 已满。';
+  }
+  if(CARE_ALL_STATUS.has(n)&&status&&status!=='faint'){nextStatus=null;cured=true;valid=true;reason='治愈异常状态';}
+  else if(CARE_STATUS[n]&&status===CARE_STATUS[n]){nextStatus=null;cured=true;valid=true;reason='治愈'+String(mon.status||'异常状态');}
+  if(CARE_ALL_STATUS.has(n)&&!status&&healed===0)reason='目标没有可治愈的异常状态。';
+  if(CARE_STATUS[n]&&status!==CARE_STATUS[n])reason='目标当前状态与该药品不匹配。';
+ }else reason='先使用活力碎片、活力块或复活草复苏；治疗药不能用于濒死目标。';
+ return{hp,max,heal:healed,nextHp,nextStatus,revive,cured,valid,reason,status:mon.status??null,item:n};
+}
+function showCare(name,id){
+ if(PD.getElementById('pkm-kanto-modal')){toast('对战中请在对战窗口使用道具，避免与战斗结算冲突。');return;}
+ const pkm=readPkm(),mon=pkm.party.slots.find(m=>m.uid===id);if(!mon||!isFollowing(pkm,id)||!(Number(pkm.player.bag[name])>0))return;
+ const effect=careInfo(name,mon);pendingCare={name,id};PD.getElementById('pkm-care-confirm')?.remove();const d=PD.createElement('div');d.id='pkm-care-confirm';d.className='pkb';
+ const hpText=effect.valid&&effect.nextHp!==effect.hp?` → ${effect.nextHp}/${effect.max}（+${effect.heal}）`:'';
+ const statusText=effect.valid&&effect.cured?`<p>状态：${esc(String(effect.status||'濒死'))} → 无异常</p>`:'';
+ d.innerHTML=`<div class="care-card"><h3>确认${canonicalCareItem(name)==='橙橙果'?'喂食':'使用物品'}</h3><div class="care-line">${itemIcon(name)}<b>${esc(name)}</b> → ${spriteImg(mon.species)}<b>${esc(monName(mon))}</b></div><p>HP ${effect.hp}/${effect.max}${hpText}</p>${statusText}<p>${effect.valid?'确认后背包扣除 1 个；取消不消耗。':`当前使用无效：${esc(effect.reason)} 不会扣除物品。`}</p><div class="acts"><button class="ghost" data-care="cancel">取消</button><button class="blue" data-care="confirm" ${effect.valid?'':'disabled'}>确认使用</button></div><small>药品效果按道具说明逐项结算；仅同步明确的 HP/异常状态与背包数量，不凭空增加羁绊。</small></div>`;
+ PD.body.append(d);let ignoreTrustedUntil=0;d.addEventListener('pointerup',e=>{if(e.pointerType!=='touch')return;const b=e.target.closest('[data-care]');if(b&&!b.disabled){ignoreTrustedUntil=Date.now()+700;b.click();}});d.addEventListener('click',async e=>{if(e.isTrusted&&Date.now()<ignoreTrustedUntil)return;const act=e.target.closest('[data-care]')?.dataset.care;if(act==='cancel'){pendingCare=null;d.remove();}if(act==='confirm')await applyCare();});
+}
+async function applyCare(){
+ const op=pendingCare;if(!op)return;pendingCare=null;let applied=false,revived=false,cured=false,healed=0;
+ await writePkm(pkm=>{applied=false;revived=false;cured=false;healed=0;const m=pkm.party.slots.find(m=>m.uid===op.id);if(PD.getElementById('pkm-kanto-modal')||!m||!isFollowing(pkm,op.id)||(Number(pkm.player.bag[op.name])||0)<1)return;const ef=careInfo(op.name,m);if(!ef.valid)return;m.hp=ef.nextHp;m.maxHp=ef.max;if(ef.cured)m.status=null;const count=Number(pkm.player.bag[op.name])||0;if(count<=1)delete pkm.player.bag[op.name];else pkm.player.bag[op.name]=count-1;setHpRegenBaseline(pkm,m);revived=ef.revive;cured=ef.cured;healed=ef.heal;applied=true;});
+ PD.getElementById('pkm-care-confirm')?.remove();if(!applied){toast('目标、状态或物品数量已变化；未使用，也未扣除物品。');return;}
+ const el=PD.querySelector('.pkm-follow-unit[data-uid="'+op.id+'"]');el?.__originalMood?.happy(canonicalCareItem(op.name)==='橙橙果'?'feed':'medicine');
+ const outcomes=[];if(revived)outcomes.push('濒死复苏');if(healed>0)outcomes.push(`HP +${healed}`);if(cured)outcomes.push('异常状态已治愈');
+ toast(`${op.name}已使用：${outcomes.join('，')}；背包与队伍状态已同步。`);
+}
 function installBagDrag(win,root){
  if(root.__pkmCareBinding?.owner===instance)return;root.__pkmCareBinding?.controller.abort();
  const controller=new win.AbortController();root.__pkmCareBinding={owner:instance,controller};cleanups.push(()=>controller.abort());
  const bind=(type,fn,options={})=>root.addEventListener(type,fn,{...options,signal:controller.signal});let active=null;
  const stop=()=>{if(active?.timer)win.clearTimeout(active.timer);active=null;PD.getElementById('pkm-item-drag')?.remove();PD.querySelectorAll('.pkm-drop-ready').forEach(n=>n.classList.remove('pkm-drop-ready'));};
  bind('pointerdown',e=>{
-  const item=e.target.closest('[data-p=bag] .item');if(!item)return;const name=item.querySelector('b')?.textContent.trim();if(!['伤药','橙橙果'].includes(name))return;
+  const item=e.target.closest('[data-p=bag] .item');if(!item)return;const name=item.querySelector('b')?.textContent.trim();if(!isCareItem(name))return;
   const touch=e.pointerType==='touch';if(!touch)e.preventDefault();
   const a=active={pointer:e.pointerId,name,sx:e.clientX,sy:e.clientY,moved:false,armed:!touch,touch,item,fr:win.frameElement?.getBoundingClientRect()||{left:0,top:0}};
   const capture=()=>{try{item.setPointerCapture(e.pointerId)}catch(_){}};
@@ -8629,7 +8754,7 @@ function installBagDrag(win,root){
   let ghost=PD.getElementById('pkm-item-drag');if(!ghost){ghost=PD.createElement('div');ghost.id='pkm-item-drag';ghost.className='pkb';ghost.innerHTML=itemIcon(active.name);PD.body.append(ghost);}
   const x=e.clientX+active.fr.left,y=e.clientY+active.fr.top;ghost.style.left=x+'px';ghost.style.top=y+'px';PD.querySelectorAll('.pkm-drop-ready').forEach(n=>n.classList.remove('pkm-drop-ready'));PD.elementFromPoint(x,y)?.closest('.pkm-follow-unit')?.classList.add('pkm-drop-ready');
  });
- const end=e=>{if(!active)return;const a=active;a.item.style.outline='';stop();if(e.type!=='pointerup'||!a.armed)return;const x=e.clientX+a.fr.left,y=e.clientY+a.fr.top,target=PD.elementFromPoint(x,y)?.closest('.pkm-follow-unit');if(a.moved&&target)showCare(a.name,target.dataset.uid);else if(a.moved)toast('请把原背包中的物品拖到已放出的宝可梦身上；未消耗。');};bind('pointerup',end);bind('pointercancel',end);
+ const end=e=>{if(!active)return;const a=active;a.item.style.outline='';stop();if(e.type!=='pointerup'||!a.armed)return;const x=e.clientX+a.fr.left,y=e.clientY+a.fr.top,target=PD.elementFromPoint(x,y)?.closest('.pkm-follow-unit');if(a.moved&&target)showCare(a.name,target.dataset.uid);else if(a.moved)toast('请把可使用的背包道具拖到已放出的宝可梦身上；未消耗。');};bind('pointerup',end);bind('pointercancel',end);
 }
 
 
@@ -8731,7 +8856,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261101-pokeball-edge-tuck-v1", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261102-variable-medicine-v6", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
