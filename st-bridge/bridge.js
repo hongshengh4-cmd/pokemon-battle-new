@@ -113,7 +113,9 @@ const zhMove = id => ZH?.moves?.[id] || id;
 const zhAbility = id => ZH?.abilities?.[id] || id || null;
 const zhNature = id => ZH?.natures?.[id] || (id ? id : null);
 function spriteUrl(name,{anim=false,shiny=false}={}) {
- const id=speciesId(name),asset=PERSISTENT_SPECIES[id];if(!asset)return '';
+ let id=speciesId(name),asset=PERSISTENT_SPECIES[id];
+ if(!asset){const raw=String(name||'').trim(),entry=Object.entries(PERSISTENT_SPECIES).find(([,x])=>x.name===raw);if(entry){id=entry[0];asset=entry[1];}}
+ if(!asset)return '';
  const url=asset.front;
  return localSprite(shiny?shinySprite(url):url);
 }
@@ -7122,7 +7124,7 @@ function containFloatingUi(){
    const corrected=ballPosFromRect(r);saveBallPos(corrected);setBallAnchor(ball,corrected);
   }
  }
- // Viewport changes trigger a fresh right-lower layout; roaming itself stays within that safe region.
+ // Viewport changes reflow the ball and all followers against the complete visible viewport.
 }
 function placeBall(el) {
   if (!el?.isConnected) return;
@@ -8562,99 +8564,114 @@ function installOriginalFollowerMood(unit) {
 const FOLLOWER_HEIGHTS={"妙蛙种子":0.7,"妙蛙草":1,"妙蛙花":2,"小火龙":0.6,"火恐龙":1.1,"喷火龙":1.7,"杰尼龟":0.5,"卡咪龟":1,"水箭龟":1.6,"绿毛虫":0.3,"铁甲蛹":0.7,"巴大蝶":1.1,"独角虫":0.3,"铁壳蛹":0.6,"大针蜂":1,"波波":0.3,"比比鸟":1.1,"大比鸟":1.5,"小拉达":0.3,"拉达":0.7,"烈雀":0.3,"大嘴雀":1.2,"阿柏蛇":2,"阿柏怪":3.5,"皮卡丘":0.4,"雷丘":0.8,"穿山鼠":0.6,"穿山王":1,"尼多兰":0.4,"尼多娜":0.8,"尼多后":1.3,"尼多朗":0.5,"尼多力诺":0.9,"尼多王":1.4,"皮皮":0.6,"皮可西":1.3,"六尾":0.6,"九尾":1.1,"胖丁":0.5,"胖可丁":1,"超音蝠":0.8,"大嘴蝠":1.6,"走路草":0.5,"臭臭花":0.8,"霸王花":1.2,"派拉斯":0.3,"派拉斯特":1,"毛球":1,"摩鲁蛾":1.5,"地鼠":0.2,"三地鼠":0.7,"喵喵":0.4,"猫老大":1,"可达鸭":0.8,"哥达鸭":1.7,"猴怪":0.5,"火暴猴":1,"卡蒂狗":0.7,"风速狗":1.9,"蚊香蝌蚪":0.6,"蚊香君":1,"蚊香泳士":1.3,"凯西":0.9,"勇基拉":1.3,"胡地":1.5,"腕力":0.8,"豪力":1.5,"怪力":1.6,"喇叭芽":0.7,"口呆花":1,"大食花":1.7,"玛瑙水母":0.9,"毒刺水母":1.6,"小拳石":0.4,"隆隆石":1,"隆隆岩":1.4,"小火马":1,"烈焰马":1.7,"呆呆兽":1.2,"呆壳兽":1.6,"小磁怪":0.3,"三合一磁怪":1,"大葱鸭":0.8,"嘟嘟":1.4,"嘟嘟利":1.8,"小海狮":1.1,"白海狮":1.7,"臭泥":0.9,"臭臭泥":1.2,"大舌贝":0.3,"刺甲贝":1.5,"鬼斯":1.3,"鬼斯通":1.6,"耿鬼":1.5,"大岩蛇":8.8,"催眠貘":1,"引梦貘人":1.6,"大钳蟹":0.4,"巨钳蟹":1.3,"霹雳电球":0.5,"顽皮雷弹":1.2,"蛋蛋":0.4,"椰蛋树":2,"卡拉卡拉":0.4,"嘎啦嘎啦":1,"飞腿郎":1.5,"快拳郎":1.4,"大舌头":1.2,"瓦斯弹":0.6,"双弹瓦斯":1.2,"独角犀牛":1,"钻角犀兽":1.9,"吉利蛋":1.1,"蔓藤怪":1,"袋兽":2.2,"墨海马":0.4,"海刺龙":1.2,"角金鱼":0.6,"金鱼王":1.3,"海星星":0.8,"宝石海星":1.1,"魔墙人偶":1.3,"飞天螳螂":1.5,"迷唇姐":1.4,"电击兽":1.1,"鸭嘴火兽":1.3,"凯罗斯":1.5,"肯泰罗":1.4,"鲤鱼王":0.9,"暴鲤龙":6.5,"拉普拉斯":2.5,"百变怪":0.3,"伊布":0.3,"水伊布":1,"雷伊布":0.8,"火伊布":0.9,"多边兽":0.8,"菊石兽":0.4,"多刺菊石兽":1,"化石盔":0.5,"镰刀盔":1.3,"化石翼龙":1.8,"卡比兽":2.1,"急冻鸟":1.7,"闪电鸟":1.6,"火焰鸟":2,"迷你龙":1.8,"哈克龙":4,"快龙":2.2,"超梦":2,"梦幻":0.4,"菊草叶":0.9,"月桂叶":1.2,"大竺葵":1.8,"火球鼠":0.5,"火岩鼠":0.9,"火暴兽":1.7,"小锯鳄":0.6,"蓝鳄":1.1,"大力鳄":2.3,"尾立":0.8,"大尾立":1.8,"咕咕":0.7,"猫头夜鹰":1.6,"芭瓢虫":1,"安瓢虫":1.4,"圆丝蛛":0.5,"阿利多斯":1.1,"叉字蝠":1.8,"灯笼鱼":0.5,"电灯怪":1.2,"皮丘":0.3,"皮宝宝":0.3,"宝宝丁":0.3,"波克比":0.3,"波克基古":0.6,"天然雀":0.2,"天然鸟":1.5,"咩利羊":0.6,"茸茸羊":0.8,"电龙":1.4,"美丽花":0.4,"玛力露":0.4,"玛力露丽":0.8,"树才怪":1.2,"蚊香蛙皇":1.1,"毽子草":0.4,"毽子花":0.6,"毽子棉":0.8,"长尾怪手":0.8,"向日种子":0.3,"向日花怪":0.8,"蜻蜻蜓":1.2,"乌波":0.4,"沼王":1.4,"太阳伊布":0.9,"月亮伊布":1,"黑暗鸦":0.5,"呆呆王":2,"梦妖":0.7,"未知图腾":0.5,"果然翁":1.3,"麒麟奇":1.5,"榛果球":0.6,"佛烈托斯":1.2,"土龙弟弟":1.5,"天蝎":1.1,"大钢蛇":9.2,"布鲁":0.6,"布鲁皇":1.4,"千针鱼":0.5,"巨钳螳螂":1.8,"壶壶":0.6,"赫拉克罗斯":1.5,"狃拉":0.9,"熊宝宝":0.6,"圈圈熊":1.8,"熔岩虫":0.7,"熔岩蜗牛":0.8,"小山猪":0.4,"长毛猪":1.1,"太阳珊瑚":0.6,"铁炮鱼":0.6,"章鱼桶":0.9,"信使鸟":0.9,"巨翅飞鱼":2.1,"盔甲鸟":1.7,"戴鲁比":0.6,"黑鲁加":1.4,"刺龙王":1.8,"小小象":0.5,"顿甲":1.1,"多边兽２型":0.6,"惊角鹿":1.4,"图图犬":1.2,"无畏小子":0.7,"战舞郎":1.4,"迷唇娃":0.4,"电击怪":0.6,"鸭嘴宝宝":0.7,"大奶罐":1.2,"幸福蛋":1.5,"雷公":1.9,"炎帝":2.1,"水君":2,"幼基拉斯":0.6,"沙基拉斯":1.2,"班基拉斯":2,"洛奇亚":5.2,"凤王":3.8,"时拉比":0.6,"木守宫":0.5,"森林蜥蜴":0.9,"蜥蜴王":1.7,"火稚鸡":0.4,"力壮鸡":0.9,"火焰鸡":1.9,"水跃鱼":0.4,"沼跃鱼":0.7,"巨沼怪":1.5,"土狼犬":0.5,"大狼犬":1,"蛇纹熊":0.4,"直冲熊":0.5,"刺尾虫":0.3,"甲壳茧":0.6,"狩猎凤蝶":1,"盾甲茧":0.7,"毒粉蛾":1.2,"莲叶童子":0.5,"莲帽小童":1.2,"乐天河童":1.5,"橡实果":0.5,"长鼻叶":1,"狡猾天狗":1.3,"傲骨燕":0.3,"大王燕":0.7,"长翅鸥":0.6,"大嘴鸥":1.2,"拉鲁拉丝":0.4,"奇鲁莉安":0.8,"沙奈朵":1.6,"溜溜糖球":0.5,"雨翅蛾":0.8,"蘑蘑菇":0.4,"斗笠菇":1.2,"懒人獭":0.8,"过动猿":1.4,"请假王":2,"土居忍士":0.5,"铁面忍者":0.8,"脱壳忍者":0.8,"咕妞妞":0.6,"吼爆弹":1,"爆音怪":1.5,"幕下力士":1,"铁掌力士":2.3,"露力丽":0.2,"朝北鼻":1,"向尾喵":0.6,"优雅猫":1.1,"勾魂眼":0.5,"大嘴娃":0.6,"可可多拉":0.4,"可多拉":0.9,"波士可多拉":2.1,"玛沙那":0.6,"恰雷姆":1.3,"落雷兽":0.6,"雷电兽":1.5,"正电拍拍":0.4,"負电拍拍":0.4,"电萤虫":0.7,"甜甜萤":0.6,"毒蔷薇":0.3,"溶食兽":0.4,"吞食兽":1.7,"利牙鱼":0.8,"巨牙鲨":1.8,"吼吼鲸":2,"吼鲸王":14.5,"呆火驼":0.7,"喷火驼":1.9,"煤炭龟":0.5,"跳跳猪":0.7,"噗噗猪":0.9,"晃晃斑":1.1,"大颚蚁":0.7,"超音波幼虫":1.1,"沙漠蜻蜓":2,"刺球仙人掌":0.4,"梦歌仙人掌":1.3,"青绵鸟":0.4,"七夕青鸟":1.1,"猫鼬斩":1.3,"饭匙蛇":2.7,"月石":1,"太阳岩":1.2,"泥泥鳅":0.4,"鲶鱼王":0.9,"龙虾小兵":0.6,"铁螯龙虾":1.1,"天秤偶":0.5,"念力土偶":1.5,"触手百合":1,"摇篮百合":1.5,"太古羽虫":0.7,"太古盔甲":1.5,"丑丑鱼":0.6,"美纳斯":6.2,"飘浮泡泡":0.3,"变隐龙":1,"怨影娃娃":0.6,"诅咒娃娃":1.1,"夜巡灵":0.8,"彷徨夜灵":1.6,"热带龙":2,"风铃铃":0.6,"阿勃梭鲁":1.2,"小果然":0.6,"雪童子":0.7,"冰鬼护":1.5,"海豹球":0.8,"海魔狮":1.1,"帝牙海狮":1.4,"珍珠贝":0.4,"猎斑鱼":1.7,"樱花鱼":1.8,"古空棘鱼":1,"爱心鱼":0.6,"宝贝龙":0.6,"甲壳龙":1.1,"暴飞龙":1.5,"铁哑铃":0.6,"金属怪":1.2,"巨金怪":1.6,"雷吉洛克":1.7,"雷吉艾斯":1.8,"雷吉斯奇鲁":1.9,"拉帝亚斯":1.4,"拉帝欧斯":2,"盖欧卡":4.5,"固拉多":3.5,"烈空坐":7,"基拉祈":0.3,"代欧奇希斯":1.7,"草苗龟":0.4,"树林龟":1.1,"土台龟":2.2,"小火焰猴":0.5,"猛火猴":0.9,"烈焰猴":1.2,"波加曼":0.4,"波皇子":0.8,"帝王拿波":1.7,"姆克儿":0.3,"姆克鸟":0.6,"姆克鹰":1.2,"大牙狸":0.5,"大尾狸":1,"圆法师":0.3,"音箱蟀":1,"小猫怪":0.5,"勒克猫":0.9,"伦琴猫":1.4,"含羞苞":0.2,"罗丝雷朵":0.9,"头盖龙":0.9,"战槌龙":1.6,"盾甲龙":0.5,"护城龙":1.3,"结草儿":0.2,"结草贵妇":0.5,"绅士蛾":0.9,"三蜜蜂":0.3,"蜂女王":1.2,"帕奇利兹":0.4,"泳圈鼬":0.7,"浮潜鼬":1.1,"樱花宝":0.4,"樱花儿":0.5,"无壳海兔":0.3,"海兔兽":0.9,"双尾怪手":1.2,"飘飘球":0.4,"随风球":1.2,"卷卷耳":0.4,"长耳兔":1.2,"梦妖魔":0.9,"乌鸦头头":0.9,"魅力喵":0.5,"东施喵":1,"铃铛响":0.2,"臭鼬噗":0.4,"坦克臭鼬":1,"铜镜怪":0.5,"青铜钟":1.3,"盆才怪":0.5,"魔尼尼":0.6,"小福蛋":0.6,"聒噪鸟":0.5,"花岩怪":1,"圆陆鲨":0.7,"尖牙陆鲨":1.4,"烈咬陆鲨":1.9,"小卡比兽":0.6,"利欧路":0.7,"路卡利欧":1.2,"沙河马":0.8,"河马兽":2,"钳尾蝎":0.8,"龙王蝎":1.3,"不良蛙":0.7,"毒骷蛙":1.3,"尖牙笼":1.4,"荧光鱼":0.4,"霓虹鱼":1.2,"小球飞鱼":1,"雪笠怪":1,"暴雪王":2.2,"玛狃拉":1.1,"自爆磁怪":1.2,"大舌舔":1.7,"超甲狂犀":2.4,"巨蔓藤":2,"电击魔兽":1.8,"鸭嘴炎兽":1.6,"波克基斯":1.5,"远古巨蜓":1.9,"叶伊布":1,"冰伊布":0.8,"天蝎王":2,"象牙猪":2.5,"多边兽乙型":0.9,"艾路雷朵":1.6,"大朝北鼻":1.4,"黑夜魔灵":2.2,"雪妖女":1.3,"洛托姆":0.3,"由克希":0.3,"艾姆利多":0.3,"亚克诺姆":0.3,"帝牙卢卡":5.4,"帕路奇亚":4.2,"席多蓝恩":1.7,"雷吉奇卡斯":3.7,"骑拉帝纳":4.5,"克雷色利亚":1.5,"霏欧纳":0.4,"玛纳霏":0.3,"达克莱伊":1.5,"谢米":0.2,"阿尔宙斯":3.2,"比克提尼":0.4,"藤藤蛇":0.6,"青藤蛇":0.8,"君主蛇":3.3,"暖暖猪":0.5,"炒炒猪":1,"炎武王":1.6,"水水獭":0.5,"双刃丸":0.8,"大剑鬼":1.5,"探探鼠":0.5,"步哨鼠":1.1,"小约克":0.4,"哈约克":0.9,"长毛狗":1.2,"扒手猫":0.4,"酷豹":1.1,"花椰猴":0.6,"花椰猿":1.1,"爆香猴":0.6,"爆香猿":1,"冷水猴":0.6,"冷水猿":1,"食梦梦":0.6,"梦梦蚀":1.1,"豆豆鸽":0.3,"咕咕鸽":0.6,"高傲雉鸡":1.2,"斑斑马":0.8,"雷电斑马":1.6,"石丸子":0.4,"地幔岩":0.9,"庞岩怪":1.7,"滚滚蝙蝠":0.4,"心蝙蝠":0.9,"螺钉地鼠":0.3,"龙头地鼠":0.7,"差不多娃娃":1.1,"搬运小匠":0.6,"铁骨土人":1.2,"修建老匠":1.4,"圆蝌蚪":0.5,"蓝蟾蜍":0.8,"蟾蜍王":1.5,"投摔鬼":1.3,"打击鬼":1.4,"虫宝包":0.3,"宝包茧":0.5,"保姆虫":1.2,"百足蜈蚣":0.4,"车轮球":1.2,"蜈蚣王":2.5,"木棉球":0.3,"风妖精":0.7,"百合根娃娃":0.5,"裙儿小姐":1.1,"野蛮鲈鱼":1,"黑眼鳄":0.7,"混混鳄":1,"流氓鳄":1.5,"火红不倒翁":0.6,"达摩狒狒":1.3,"沙铃仙人掌":1,"石居蟹":0.3,"岩殿居蟹":1.4,"滑滑小子":0.6,"头巾混混":1.1,"象征鸟":1.4,"哭哭面具":0.5,"迭失棺":1.7,"原盖海龟":0.7,"肋骨海龟":1.2,"始祖小鸟":0.5,"始祖大鸟":1.4,"破破袋":0.6,"灰尘山":1.9,"索罗亚":0.7,"索罗亚克":1.6,"泡沫栗鼠":0.4,"奇诺栗鼠":0.5,"哥德宝宝":0.4,"哥德小童":0.7,"哥德小姐":1.5,"单卵细胞球":0.3,"双卵细胞球":0.6,"人造细胞卵":1,"鸭宝宝":0.5,"舞天鹅":1.3,"迷你冰":0.4,"多多冰":1.1,"双倍多多冰":1.3,"四季鹿":0.6,"萌芽鹿":1.9,"电飞鼠":0.4,"盖盖虫":0.5,"骑士蜗牛":1,"哎呀球菇":0.2,"败露球菇":0.6,"轻飘飘":1.2,"胖嘟嘟":2.2,"保姆曼波":1.2,"电电虫":0.1,"电蜘蛛":0.8,"种子铁球":0.6,"坚果哑铃":1,"齿轮儿":0.3,"齿轮组":0.6,"齿轮怪":0.6,"麻麻小鱼":0.2,"麻麻鳗":1.2,"麻麻鳗鱼王":2.1,"小灰怪":0.5,"大宇怪":1,"烛光灵":0.3,"灯火幽灵":0.6,"水晶灯火灵":1,"牙牙":0.6,"斧牙龙":1,"双斧战龙":1.8,"喷嚏熊":0.5,"冻原熊":2.6,"几何雪花":1.1,"小嘴蜗":0.4,"敏捷虫":0.8,"泥巴鱼":0.7,"功夫鼬":0.9,"师父鼬":1.4,"赤面龙":1.6,"泥偶小人":1,"泥偶巨人":2.8,"驹刀小兵":0.5,"劈斩司令":1.6,"爆炸头水牛":1.6,"毛头小鹰":0.5,"勇士雄鹰":1.5,"秃鹰丫头":0.5,"秃鹰娜":1.2,"熔蚁兽":1.4,"铁蚁":0.3,"单首龙":0.8,"双首暴龙":1.4,"三首恶龙":1.8,"燃烧虫":1.1,"火神蛾":1.6,"勾帕路翁":2.1,"代拉基翁":1.9,"毕力吉翁":2,"龙卷云":1.5,"雷电云":1.5,"莱希拉姆":3.2,"捷克罗姆":2.9,"土地云":1.5,"酋雷姆":3,"凯路迪欧":1.4,"美洛耶塔":0.6,"盖诺赛克特":1.5,"哈力栗":0.4,"胖胖哈力":0.7,"布里卡隆":1.6,"火狐狸":0.4,"长尾火狐":1,"妖火红狐":1.5,"呱呱泡蛙":0.3,"呱头蛙":0.6,"甲贺忍蛙":1.5,"掘掘兔":0.4,"掘地兔":1,"小箭雀":0.3,"火箭雀":0.7,"烈箭鹰":1.2,"粉蝶虫":0.3,"粉蝶蛹":0.3,"彩粉蝶":1.2,"小狮狮":0.6,"火炎狮":1.5,"花蓓蓓":0.1,"花叶蒂":0.2,"花洁夫人":1.1,"坐骑小羊":0.9,"坐骑山羊":1.7,"顽皮熊猫":0.6,"霸道熊猫":2.1,"多丽米亚":1.2,"妙喵":0.3,"超能妙喵":0.6,"独剑鞘":0.8,"双剑鞘":0.8,"坚盾剑怪":1.7,"粉香香":0.2,"芳香精":0.8,"绵绵泡芙":0.4,"胖甜妮":0.8,"好啦鱿":0.4,"乌贼王":1.5,"龟脚脚":0.5,"龟足巨铠":1.3,"垃垃藻":0.5,"毒藻龙":1.8,"铁臂枪虾":0.5,"钢炮臂虾":1.3,"伞电蜥":0.5,"光电伞蜥":1,"宝宝暴龙":0.8,"怪颚龙":2.5,"冰雪龙":1.3,"冰雪巨龙":2.7,"仙子伊布":1,"摔角鹰人":0.8,"咚咚鼠":0.2,"小碎钻":0.3,"黏黏宝":0.3,"黏美儿":0.8,"黏美龙":2,"钥圈儿":0.2,"小木灵":0.4,"朽木妖":1.5,"南瓜精":0.4,"南瓜怪人":0.9,"冰宝":1,"冰岩怪":2,"嗡蝠":0.5,"音波龙":1.5,"哲尔尼亚斯":3,"伊裴尔塔尔":5.8,"基格尔德":5,"蒂安希":0.7,"胡帕":0.5,"波尔凯尼恩":1.7,"木木枭":0.3,"投羽枭":0.7,"狙射树枭":1.6,"火斑喵":0.4,"炎热喵":0.7,"炽焰咆哮虎":1.8,"球球海狮":0.4,"花漾海狮":0.6,"西狮海壬":1.8,"小笃儿":0.3,"喇叭啄鸟":0.6,"铳嘴大鸟":1.1,"猫鼬少":0.4,"猫鼬探长":0.7,"强颚鸡母虫":0.4,"虫电宝":0.5,"锹农炮虫":1.5,"好胜蟹":0.6,"好胜毛蟹":1.7,"花舞鸟":0.6,"萌虻":0.1,"蝶结萌虻":0.2,"岩狗狗":0.5,"鬃岩狼人":0.8,"弱丁鱼":0.2,"好坏星":0.4,"超坏星":0.7,"泥驴仔":1,"重泥挽马":2.5,"滴蛛":0.3,"滴蛛霸":1.8,"伪螳草":0.3,"兰螳花":0.9,"睡睡菇":0.2,"灯罩夜菇":1,"夜盗火蜥":0.6,"焰后蜥":1.2,"童偶熊":0.5,"穿着熊":2.1,"甜竹竹":0.3,"甜舞妮":0.7,"甜冷美后":1.2,"花疗环环":0.1,"智挥猩":1.5,"投掷猴":2,"胆小虫":0.5,"具甲武者":2,"沙丘娃":0.5,"噬沙堡爷":1.3,"拳海参":0.3,"属性：空":1.9,"银伴战兽":2.3,"小陨星":0.3,"树枕尾熊":0.4,"爆焰龟兽":2,"托戈德玛尔":0.3,"谜拟丘":0.2,"磨牙彩皮鱼":0.9,"老翁龙":3,"破破舵轮":3.9,"心鳞宝":0.6,"鳞甲龙":1.2,"杖尾鳞甲龙":1.6,"卡璞・鸣鸣":1.8,"卡璞・蝶蝶":1.2,"卡璞・哞哞":1.9,"卡璞・鳍鳍":1.3,"科斯莫古":0.2,"科斯莫姆":0.1,"索尔迦雷欧":3.4,"露奈雅拉":4,"虚吾伊德":1.2,"爆肌蚊":2.4,"费洛美螂":1.8,"电束木":3.8,"铁火辉夜":9.2,"纸御剑":0.3,"恶食大王":5.5,"奈克洛兹玛":2.4,"玛机雅娜":1,"玛夏多":0.7,"毒贝比":0.6,"四颚针龙":3.6,"垒磊石":5.5,"砰头小丑":1.8,"捷拉奥拉":1.5,"美录坦":0.2,"美录梅塔":2.5,"敲音猴":0.3,"啪咚猴":0.7,"轰擂金刚猩":2.1,"炎兔儿":0.3,"腾蹴小将":0.6,"闪焰王牌":1.4,"泪眼蜥":0.3,"变涩蜥":0.7,"千面避役":1.9,"贪心栗鼠":0.3,"藏饱栗鼠":0.6,"稚山雀":0.2,"蓝鸦":0.8,"钢铠鸦":2.2,"索侦虫":0.4,"天罩虫":0.4,"以欧路普":0.4,"狡小狐":0.6,"猾大狐":1.2,"幼棉棉":0.4,"白蓬蓬":0.5,"毛辫羊":0.6,"毛毛角羊":1.3,"咬咬龟":0.3,"暴噬龟":1,"来电汪":0.3,"逐电犬":1,"小炭仔":0.3,"大炭车":1.1,"巨炭山":2.8,"啃果虫":0.2,"苹裹龙":0.3,"丰蜜龙":0.4,"沙包蛇":2.2,"沙螺蟒":3.8,"古月鸟":0.8,"刺梭鱼":0.5,"戽斗尖梭":1.3,"电音婴":0.4,"颤弦蝾螈":1.6,"烧火蚣":0.7,"焚焰蚣":3,"拳拳蛸":0.6,"八爪武师":1.6,"来悲茶":0.1,"怖思壶":0.2,"迷布莉姆":0.4,"提布莉姆":0.6,"布莉姆温":2.1,"捣蛋小妖":0.4,"诈唬魔":0.8,"长毛巨魔":1.5,"堵拦熊":1.6,"喵头目":0.8,"魔灵珊瑚":1,"葱游兵":0.8,"踏冰人偶":1.5,"迭失板":1.6,"小仙奶":0.2,"霜奶仙":0.3,"列阵兵":3,"啪嚓海胆":0.3,"雪吞虫":0.3,"雪绒蛾":1.3,"巨石丁":2.5,"冰砌鹅":1.4,"爱管侍":0.9,"莫鲁贝可":0.3,"铜象":1.2,"大王铜象":3,"雷鸟龙":1.8,"雷鸟海兽":2.3,"鳃鱼龙":2.3,"鳃鱼海兽":2,"铝钢龙":1.8,"多龙梅西亚":0.5,"多龙奇":1.4,"多龙巴鲁托":3,"苍响":2.8,"藏玛然特":2.9,"无极汰那":20,"熊徒弟":0.6,"武道熊师":1.9,"萨戮德":1.8,"雷吉艾勒奇":1.2,"雷吉铎拉戈":2.1,"雪暴马":2.2,"灵幽马":2,"蕾冠王":1.1,"诡角鹿":1.8,"劈斧螳螂":1.8,"月月熊":2.4,"幽尾玄鱼":3,"大狃拉":1.3,"万针鱼":2.5,"眷恋云":1.6,"新叶喵":0.4,"蒂蕾喵":0.9,"魔幻假面喵":1.5,"呆火鳄":0.4,"炙烫鳄":1,"骨纹巨声鳄":1.6,"润水鸭":0.5,"涌跃鸭":1.2,"狂欢浪舞鸭":1.8,"爱吃豚":0.5,"飘香豚":1,"团珠蛛":0.3,"操陷蛛":1,"豆蟋蟀":0.2,"烈腿蝗":1,"布拨":0.3,"布土拨":0.4,"巴布土拨":0.9,"一对鼠":0.3,"一家鼠":0.3,"狗仔包":0.3,"麻花犬":0.5,"迷你芙":0.3,"奥利纽":0.6,"奥利瓦":1.4,"怒鹦哥":0.6,"盐石宝":0.4,"盐石垒":0.6,"盐石巨灵":2.3,"炭小侍":0.6,"红莲铠骑":1.5,"苍炎刃鬼":1.6,"光蚪仔":0.3,"电肚蛙":1.2,"电海燕":0.4,"大电海燕":1.4,"偶叫獒":0.5,"獒教父":1.1,"滋汁鼹":0.2,"涂标客":0.7,"纳噬草":0.6,"怖纳噬草":1.2,"原野水母":0.9,"陆地水母":1.9,"毛崖蟹":1.3,"热辣娃":0.3,"狠辣椒":0.9,"虫滚泥":0.2,"虫甲圣":0.3,"飘飘雏":0.2,"超能艳鸵":1.9,"小锻匠":0.4,"巧锻匠":0.7,"巨锻匠":0.7,"海地鼠":1.2,"三海地鼠":1.2,"下石鸟":1.5,"波普海豚":1.3,"海豚侠":1.3,"噗隆隆":1,"普隆隆姆":1.8,"摩托蜥":1.6,"拖拖蚓":2.5,"晶光芽":0.7,"晶光花":1.5,"墓仔狗":0.6,"墓扬犬":2,"纏红鹤":1.6,"走鲸":1.2,"浩大鲸":4.5,"轻身鳕":2.5,"吃吼霸":12,"米立龙":0.3,"弃世猴":1.2,"土王":1.8,"奇麒麟":3.2,"土龙节节":3.6,"仆刀将军":2,"雄伟牙":2.2,"吼叫尾":1.2,"猛恶菇":1.2,"振翼发":1.4,"爬地翅":3.2,"沙铁皮":2.3,"铁轍迹":0.9,"铁包袱":0.6,"铁臂膀":1.8,"铁脖颈":1.3,"铁毒蛾":1.2,"铁荆棘":1.6,"凉脊龙":0.5,"冻脊龙":0.8,"戟脊龙":2.1,"索财灵":0.3,"赛富豪":1.2,"古简蜗":1.5,"古剑豹":1.9,"古鼎鹿":2.7,"古玉鱼":0.4,"轰鸣月":2,"铁武者":1.4,"故勒顿":2.5,"密勒顿":3.5,"波荡水":3.5,"铁斑叶":1.5,"裹蜜虫":0.4,"斯魔茶":0.1,"来悲粗茶":0.2,"够赞狗":1.8,"愿增猿":1,"吉雉鸡":1.4,"厄诡椪":1.2,"铝钢桥龙":2,"蜜集大蛇":1.8,"破空焰":3.5,"猛雷鼓":5.2,"铁磐岩":1.5,"铁头壳":1.6,"太乐巴戈斯":0.2,"桃歹郎":0.3};
 function followingIds(pkm){const valid=new Set(pkm.party.slots.filter(hasMon).map(m=>m.uid));return [...new Set(Array.isArray(pkm.party.following)?pkm.party.following:(pkm.party.follow?[pkm.party.follow]:[]))].filter(id=>valid.has(id));}
 function isFollowing(pkm,id){return !!id && followingIds(pkm).includes(id);}
-const FOLLOW_POS_KEY='pkmKantoFollowers-v1327';let storedFollowPos={};try{storedFollowPos=JSON.parse(lsGet(FOLLOW_POS_KEY)||'{}')||{};}catch(_){}const followerPositions=new Map(Object.entries(storedFollowPos));function persistFollowers(){lsSet(FOLLOW_POS_KEY,JSON.stringify(Object.fromEntries(followerPositions)));} let followerGesture=null, itemGesture=null, pendingCare=null, lastEcoInteraction=0;
-function cancelFollowerRoam(el){if(!el)return;el.__pkmRoamGeneration=(el.__pkmRoamGeneration||0)+1;if(el.__pkmRoamTimer)host.clearTimeout(el.__pkmRoamTimer);if(el.__pkmRoamFrame)host.cancelAnimationFrame(el.__pkmRoamFrame);el.__pkmRoamTimer=0;el.__pkmRoamFrame=0;el.classList.remove('walk');}
-function scheduleFollowerRoam(el, initial=false){
+const FOLLOW_POS_KEY='pkmKantoFollowers-v1328';let storedFollowPos={};try{storedFollowPos=JSON.parse(lsGet(FOLLOW_POS_KEY)||'{}')||{};}catch(_){}const followerPositions=new Map(Object.entries(storedFollowPos));function persistFollowers(){lsSet(FOLLOW_POS_KEY,JSON.stringify(Object.fromEntries(followerPositions)));} let followerGesture=null, itemGesture=null, pendingCare=null, lastEcoInteraction=0;
+function cancelFollowerRoam(el){
+ if(!el)return;
+ el.__pkmRoamGeneration=(el.__pkmRoamGeneration||0)+1;
+ if(el.__pkmRoamTimer)P.clearTimeout(el.__pkmRoamTimer);
+ if(el.__pkmRoamFrame)P.cancelAnimationFrame(el.__pkmRoamFrame);
+ el.__pkmRoamTimer=0;el.__pkmRoamFrame=0;el.classList.remove('walk');
+}
+function scheduleFollowerRoam(el,initial=false){
  if(!el?.isConnected||destroyed)return;
  cancelFollowerRoam(el);const generation=el.__pkmRoamGeneration;
- el.__pkmRoamTimer=host.setTimeout(()=>{
+ el.__pkmRoamTimer=P.setTimeout(()=>{
   el.__pkmRoamTimer=0;
   if(!el.isConnected||destroyed||generation!==el.__pkmRoamGeneration||followerGesture?.el===el)return;
-  if(host.document?.hidden||PD.getElementById('pkm-kanto-modal')||PD.getElementById('pkm-kanto-panel')?.classList.contains('show')){scheduleFollowerRoam(el,false);return;}
+  if(P.document?.hidden||PD.getElementById('pkm-kanto-modal')){scheduleFollowerRoam(el,false);return;}
   const v=vp(),r=el.getBoundingClientRect(),margin=14;
-  const bandW=Math.min(Math.max(1,v.w-2*margin),Math.max(r.width,Math.min(260,v.w*.42)));
-  const bandH=Math.min(Math.max(1,v.h-2*margin),Math.max(r.height,Math.min(200,v.h*.34)));
-  const minX=Math.max(v.x+margin,v.x+v.w-margin-bandW),maxX=Math.max(minX,v.x+v.w-margin-r.width);
-  const minY=Math.max(v.y+margin,v.y+v.h-margin-bandH),maxY=Math.max(minY,v.y+v.h-margin-r.height);
+  // Followers may roam anywhere in the visible viewport; only keep their full wrapper on-screen.
+  const minX=v.x+margin,maxX=Math.max(minX,v.x+v.w-margin-r.width);
+  const minY=v.y+margin,maxY=Math.max(minY,v.y+v.h-margin-r.height);
   const from={x:Math.max(minX,Math.min(maxX,r.left)),y:Math.max(minY,Math.min(maxY,r.top))};
   const others=[...PD.querySelectorAll('.pkm-follow-unit')].filter(other=>other!==el&&other.isConnected);
-  const canPlace=(x,y)=>!others.some(other=>{const q=other.getBoundingClientRect();return x<q.right+6&&x+r.width>q.left-6&&y<q.bottom+6&&y+r.height>q.top-6;});
+  const ball=PD.getElementById('pkm-kanto-ball'),ballRect=ball?.getBoundingClientRect();
+  const canPlace=(x,y)=>{
+   if(ballRect?.width&&x<ballRect.right+8&&x+r.width>ballRect.left-8&&y<ballRect.bottom+8&&y+r.height>ballRect.top-8)return false;
+   return !others.some(other=>{const q=other.getBoundingClientRect();return x<q.right+8&&x+r.width>q.left-8&&y<q.bottom+8&&y+r.height>q.top-8;});
+  };
   let to=null;
-  for(let tries=0;tries<18&&!to;tries++){
+  for(let tries=0;tries<48&&!to;tries++){
    const candidate={x:minX+Math.random()*Math.max(0,maxX-minX),y:minY+Math.random()*Math.max(0,maxY-minY)};
    if(canPlace(candidate.x,candidate.y))to=candidate;
   }
   if(!to){scheduleFollowerRoam(el,false);return;}
-  if(Math.hypot(to.x-from.x,to.y-from.y)<24){to={x:Math.max(minX,Math.min(maxX,from.x+(Math.random()<.5?-1:1)*42)),y:Math.max(minY,Math.min(maxY,from.y+(Math.random()-.5)*44))};}
-  const duration=1500+Math.random()*1200,start=host.performance?.now?host.performance.now():Date.now();
+  if(Math.hypot(to.x-from.x,to.y-from.y)<28){scheduleFollowerRoam(el,false);return;}
+  const duration=1500+Math.random()*1200,start=P.performance?.now?P.performance.now():Date.now();
   el.classList.add('walk');el.style.right='auto';el.style.bottom='auto';
   const step=now=>{
    if(!el.isConnected||destroyed||generation!==el.__pkmRoamGeneration||followerGesture?.el===el){el.classList.remove('walk');el.__pkmRoamFrame=0;return;}
-   const stamp=Number.isFinite(now)?now:(host.performance?.now?host.performance.now():Date.now()),t=Math.min(1,Math.max(0,(stamp-start)/duration)),e=t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
-   const pos={x:from.x+(to.x-from.x)*e,y:from.y+(to.y-from.y)*e};
+   const stamp=Number.isFinite(now)?now:(P.performance?.now?P.performance.now():Date.now()),t=Math.min(1,Math.max(0,(stamp-start)/duration)),ease=t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+   const pos={x:from.x+(to.x-from.x)*ease,y:from.y+(to.y-from.y)*ease};
    if(!canPlace(pos.x,pos.y)){
-    if(t<1){el.__pkmRoamFrame=host.requestAnimationFrame(step);return;}
+    if(t<1){el.__pkmRoamFrame=P.requestAnimationFrame(step);return;}
     el.__pkmRoamFrame=0;el.classList.remove('walk');scheduleFollowerRoam(el,false);return;
    }
    el.style.left=pos.x+'px';el.style.top=pos.y+'px';followerPositions.set(el.dataset.uid,pos);
-   if(t<1)el.__pkmRoamFrame=host.requestAnimationFrame(step);else{el.__pkmRoamFrame=0;el.classList.remove('walk');scheduleFollowerRoam(el,false);}
+   if(t<1)el.__pkmRoamFrame=P.requestAnimationFrame(step);else{el.__pkmRoamFrame=0;el.classList.remove('walk');persistFollowers();scheduleFollowerRoam(el,false);}
   };
-  el.__pkmRoamFrame=host.requestAnimationFrame(step);
- },initial?6500+Math.random()*6500:4500+Math.random()*7500);
+  el.__pkmRoamFrame=P.requestAnimationFrame(step);
+ },initial?1800+Math.random()*1800:2200+Math.random()*4200);
 }
 function syncMultiFollowers(pkm){
- const ids=followingIds(pkm), ball=PD.getElementById('pkm-kanto-ball');
- // The Poké Ball is a permanent control, never replaced by or hidden for a follower.
+ const ids=followingIds(pkm),ball=PD.getElementById('pkm-kanto-ball');
  if(ball)ball.style.setProperty('display','flex','important');
- PD.querySelectorAll('.pkm-follow-unit').forEach(el=>{if(!ids.includes(el.dataset.uid)){cancelFollowerRoam(el);el.__originalMood?.dispose();el.remove()}});
+ PD.querySelectorAll('.pkm-follow-unit').forEach(el=>{if(!ids.includes(el.dataset.uid)){cancelFollowerRoam(el);el.__originalMood?.dispose();el.remove();}});
  if(!ids.length)return;
- const v=vp(), margin=14, gap=8;
- const cols=v.w<300?1:(v.w<560?2:3), usedCols=Math.min(cols,ids.length), rows=Math.ceil(ids.length/cols);
- const slot=Math.max(20,Math.min(124,(v.h-2*margin-gap*(rows-1))/rows,(v.w-2*margin-gap*(usedCols-1))/usedCols));
- const clusterW=usedCols*slot+(usedCols-1)*gap, clusterH=rows*slot+(rows-1)*gap;
- let right=v.x+v.w-margin, bottom=v.y+v.h-margin;
- const cluster={left:right-clusterW,top:bottom-clusterH,right,bottom};
- const ballRect=ball?.isConnected?ball.getBoundingClientRect():null;
- const overlapsBall=ballRect&&cluster.left<ballRect.right+gap&&cluster.right>ballRect.left-gap&&cluster.top<ballRect.bottom+gap&&cluster.bottom>ballRect.top-gap;
- if(overlapsBall){
-  const leftOfBall=ballRect.left-gap;
-  if(leftOfBall-clusterW>=v.x+margin)right=leftOfBall;
-  else if(ballRect.top-gap-clusterH>=v.y+margin)bottom=ballRect.top-gap;
-  else {right=v.x+margin+clusterW;}
- }
+ const v=vp(),margin=14,gap=10;
+ const cols=Math.min(v.w<560?2:3,ids.length),rows=Math.ceil(ids.length/cols);
+ const maxSlot=Math.min(124,(v.w-2*margin-gap*(cols-1))/cols,(v.h-2*margin-gap*(rows-1))/rows);
+ const slot=Math.max(42,maxSlot);
+ const minX=v.x+margin,maxX=Math.max(minX,v.x+v.w-margin-slot),minY=v.y+margin,maxY=Math.max(minY,v.y+v.h-margin-slot);
+ const seedAt=index=>{
+  const col=index%cols,row=Math.floor(index/cols);
+  const x=cols<=1?maxX:minX+(maxX-minX)*col/(cols-1);
+  const y=rows<=1?maxY:minY+(maxY-minY)*row/(rows-1);
+  return{x,y};
+ };
  ids.forEach((id,index)=>{
   const mon=pkm.party.slots.find(m=>m.uid===id);if(!mon)return;
   let el=PD.querySelector('.pkm-follow-unit[data-uid="'+id+'"]');
+  const wasConnected=!!el?.isConnected;
   const height=FOLLOWER_HEIGHTS[mon.species]||ABILITY_DEX?.[speciesId(mon.species)]?.heightm||1;
   const size=Math.max(12,Math.min(112,height*48,slot-8));
   if(!el){
    el=PD.createElement('div');el.className='pkb pkm-follow-unit';el.dataset.uid=id;
-   const im=PD.createElement('img');im.className='follower';im.draggable=false;im.src=spriteUrl(mon.species,{anim:true,shiny:mon.shiny});
+   const im=PD.createElement('img');im.className='follower';im.draggable=false;im.alt=monName(mon);im.referrerPolicy='no-referrer';im.onerror=()=>{try{recoverSprite(im);}catch(_){}};im.src=spriteUrl(mon.species,{anim:true,shiny:mon.shiny});
    el.append(im);PD.body.append(el);if(followerPositions.has(id))el.dataset.userPosition='1';installOriginalFollowerMood(el);installFollowerGesture(el);scheduleFollowerRoam(el,true);
    el.tabIndex=0;el.setAttribute('role','button');el.setAttribute('aria-label',monName(mon)+'，点击互动并听叫声，长按查看详情');
    el.addEventListener('keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;e.preventDefault();const m=readPkm().party.slots.find(m=>m.uid===el.dataset.uid);if(hasMon(m)&&panelHpInfo(m).hp!==0){lastEcoInteraction=Date.now();const line=pickCryLine(m);playCry(m,line);cryBubble(m,line);el.__originalMood?.pet();}});
   }
   const followerImg=el.querySelector('img'),desiredSprite=spriteUrl(mon.species,{anim:true,shiny:mon.shiny});
   if(followerImg.dataset.pkmDesired!==desiredSprite){followerImg.dataset.pkmDesired=desiredSprite;followerImg.__pkmSpriteState=null;followerImg.src=desiredSprite;}
+  followerImg.alt=monName(mon);
   el.style.width=slot+'px';el.style.height=slot+'px';el.style.justifyContent='center';el.style.alignItems='flex-end';
   followerImg.style.cssText='height:'+size+'px;width:auto;max-width:'+Math.max(24,slot-8)+'px;max-height:'+Math.max(24,slot-8)+'px;object-fit:contain';
-  const col=index%cols,row=Math.floor(index/cols),left=right-slot-col*(slot+gap),top=bottom-slot-row*(slot+gap);
-  const bandW=Math.min(Math.max(1,v.w-2*margin),Math.max(slot,Math.min(260,v.w*.42))),bandH=Math.min(Math.max(1,v.h-2*margin),Math.max(slot,Math.min(200,v.h*.34)));
-  const minX=Math.max(v.x+margin,v.x+v.w-margin-bandW),maxX=Math.max(minX,v.x+v.w-margin-slot);
-  const minY=Math.max(v.y+margin,v.y+v.h-margin-bandH),maxY=Math.max(minY,v.y+v.h-margin-slot);
-  const saved=followerPositions.get(id)||{};
-  const styleX=el.dataset.userPosition==='1'?parseFloat(el.style.left):NaN,styleY=el.dataset.userPosition==='1'?parseFloat(el.style.top):NaN;
-  const savedX=Number.isFinite(styleX)?styleX:(el.dataset.userPosition==='1'?Number(saved.x):NaN),savedY=Number.isFinite(styleY)?styleY:(el.dataset.userPosition==='1'?Number(saved.y):NaN);
-  const x=Number.isFinite(savedX)?savedX:left,y=Number.isFinite(savedY)?savedY:top;
-  el.style.left=Math.max(minX,Math.min(maxX,x))+'px';el.style.top=Math.max(minY,Math.min(maxY,y))+'px';el.style.right='auto';el.style.bottom='auto';
-  el.classList.toggle('pos-l',x<v.x+v.w/2);el.classList.toggle('pos-t',y<v.y+v.h/2);
-  const hp=panelHpInfo(mon);followerImg.title=monName(mon)+' · HP '+hp.label+' · '+height+'m；在屏幕右下区域活动，长按打开队伍详情';
-  followerPositions.set(id,{x:parseFloat(el.style.left),y:parseFloat(el.style.top)});
+  const seed=seedAt(index),saved=followerPositions.get(id)||{};
+  const currentX=wasConnected?parseFloat(el.style.left):NaN,currentY=wasConnected?parseFloat(el.style.top):NaN;
+  const savedX=Number.isFinite(currentX)?currentX:Number(saved.x),savedY=Number.isFinite(currentY)?currentY:Number(saved.y);
+  let pos={x:Math.max(minX,Math.min(maxX,Number.isFinite(savedX)?savedX:seed.x)),y:Math.max(minY,Math.min(maxY,Number.isFinite(savedY)?savedY:seed.y))};
+  const ballRect=ball?.isConnected?ball.getBoundingClientRect():null;
+  const others=[...PD.querySelectorAll('.pkm-follow-unit')].filter(other=>other!==el&&other.isConnected);
+  const clearAt=(x,y)=>{
+   if(ballRect?.width&&x<ballRect.right+8&&x+slot>ballRect.left-8&&y<ballRect.bottom+8&&y+slot>ballRect.top-8)return false;
+   return !others.some(other=>{const q=other.getBoundingClientRect();return x<q.right+8&&x+slot>q.left-8&&y<q.bottom+8&&y+slot>q.top-8;});
+  };
+  if(!clearAt(pos.x,pos.y)){
+   const candidates=ids.map((_,i)=>seedAt(i));
+   for(let tries=0;tries<36;tries++)candidates.push({x:minX+Math.random()*Math.max(0,maxX-minX),y:minY+Math.random()*Math.max(0,maxY-minY)});
+   const free=candidates.find(q=>clearAt(q.x,q.y));if(free)pos=free;
+  }
+  el.style.left=pos.x+'px';el.style.top=pos.y+'px';el.style.right='auto';el.style.bottom='auto';
+  el.classList.toggle('pos-l',pos.x<v.x+v.w/2);el.classList.toggle('pos-t',pos.y<v.y+v.h/2);
+  followerImg.title=monName(mon)+' · HP '+panelHpInfo(mon).label+' · '+height+'m；在整个可视屏幕范围内活动，长按打开队伍详情';
+  followerPositions.set(id,pos);
  });
+ persistFollowers();
 }
 let followerGestureDocInstalled=false;
 function installFollowerGesture(el){
- // 保留跟随宝可梦的拖动、点击与长按交互；拖动范围限制在右下安全区内。
+ // 保留跟随宝可梦的拖动、点击与长按交互；全屏可拖动，但始终留在可视屏幕内。
  el.addEventListener('pointerdown',e=>{
   if(!e.isPrimary||(e.pointerType==='mouse'&&e.button!==0)||followerGesture)return;
   lastEcoInteraction=Date.now();cancelFollowerRoam(el);el.__originalMood?.pauseMovement?.();
@@ -8669,9 +8686,8 @@ function installFollowerGesture(el){
   if(!g.moved&&Math.hypot(dx,dy)<threshold)return;
   g.moved=true;P.clearTimeout(g.timer);e.preventDefault();
   const el=g.el,v=vp(),margin=14,r=el.getBoundingClientRect();
-  const bandW=Math.min(Math.max(1,v.w-2*margin),Math.max(r.width,Math.min(260,v.w*.42))),bandH=Math.min(Math.max(1,v.h-2*margin),Math.max(r.height,Math.min(200,v.h*.34)));
-  const minX=Math.max(v.x+margin,v.x+v.w-margin-bandW),maxX=Math.max(minX,v.x+v.w-margin-r.width);
-  const minY=Math.max(v.y+margin,v.y+v.h-margin-bandH),maxY=Math.max(minY,v.y+v.h-margin-r.height);
+  const minX=v.x+margin,maxX=Math.max(minX,v.x+v.w-margin-r.width);
+  const minY=v.y+margin,maxY=Math.max(minY,v.y+v.h-margin-r.height);
   const pos={x:Math.max(minX,Math.min(maxX,g.left+dx)),y:Math.max(minY,Math.min(maxY,g.top+dy))};
   el.style.left=pos.x+'px';el.style.top=pos.y+'px';el.style.right='auto';el.style.bottom='auto';el.dataset.userPosition='1';followerPositions.set(el.dataset.uid,pos);
  },{capture:true,passive:false});
@@ -8856,7 +8872,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261102-variable-medicine-v6", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261102-fullscreen-followers-v7", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
