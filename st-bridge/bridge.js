@@ -7251,7 +7251,13 @@ function installBallDrag(el) {
   let layoutFrame = 0, settleTimer = 0;
   const reflow = () => {
     if (layoutFrame || destroyed) return;
-    layoutFrame = P.requestAnimationFrame(() => { layoutFrame = 0; if (destroyed) return; placeBall(el); containFloatingUi(); syncMultiFollowers(readPkm()); placePanel(); });
+    layoutFrame = P.requestAnimationFrame(() => {
+      layoutFrame = 0; if (destroyed) return;
+      const roaming=[...PD.querySelectorAll('.pkm-follow-unit')].filter(unit=>unit.__pkmRoamFrame||unit.__pkmRoamTimer);
+      roaming.forEach(cancelFollowerRoam); // freeze at the visible position before viewport bounds are recalculated
+      placeBall(el); containFloatingUi(); syncMultiFollowers(readPkm()); placePanel();
+      roaming.forEach(unit=>{if(unit.isConnected)scheduleFollowerRoam(unit,false);});
+    });
   };
   const rotate = () => { reflow(); P.clearTimeout(settleTimer); settleTimer = P.setTimeout(reflow, 350); };
   cleanups.push(() => { P.cancelAnimationFrame(layoutFrame); P.clearTimeout(settleTimer); });
@@ -8574,7 +8580,7 @@ function cancelFollowerRoam(el){
  if(!el)return;
  el.__pkmRoamGeneration=(el.__pkmRoamGeneration||0)+1;
  if(el.__pkmRoamTimer)P.clearTimeout(el.__pkmRoamTimer);
- if(el.__pkmRoamFrame)P.cancelAnimationFrame(el.__pkmRoamFrame);
+ if(el.__pkmRoamFrame){P.cancelAnimationFrame(el.__pkmRoamFrame);const r=el.getBoundingClientRect();el.style.left=r.left+'px';el.style.top=r.top+'px';el.style.transform='';el.style.willChange='';}
  el.__pkmRoamTimer=0;el.__pkmRoamFrame=0;el.classList.remove('walk');
 }
 function scheduleFollowerRoam(el,initial=false){
@@ -8589,35 +8595,39 @@ function scheduleFollowerRoam(el,initial=false){
   const minX=v.x+margin,maxX=Math.max(minX,v.x+v.w-margin-r.width);
   const minY=v.y+margin,maxY=Math.max(minY,v.y+v.h-margin-r.height);
   const from={x:Math.max(minX,Math.min(maxX,r.left)),y:Math.max(minY,Math.min(maxY,r.top))};
-  const others=[...PD.querySelectorAll('.pkm-follow-unit')].filter(other=>other!==el&&other.isConnected);
+  // Measure siblings once per trip. Reading getBoundingClientRect on every animation frame
+  // forced repeated layouts and made several followers stutter when moving together.
+  const others=[...PD.querySelectorAll('.pkm-follow-unit')].filter(other=>other!==el&&other.isConnected).map(other=>other.getBoundingClientRect());
   const ball=PD.getElementById('pkm-kanto-ball'),ballRect=ball?.getBoundingClientRect();
   const canPlace=(x,y)=>{
    if(ballRect?.width&&x<ballRect.right+8&&x+r.width>ballRect.left-8&&y<ballRect.bottom+8&&y+r.height>ballRect.top-8)return false;
-   return !others.some(other=>{const q=other.getBoundingClientRect();return x<q.right+8&&x+r.width>q.left-8&&y<q.bottom+8&&y+r.height>q.top-8;});
+   return !others.some(q=>x<q.right+8&&x+r.width>q.left-8&&y<q.bottom+8&&y+r.height>q.top-8);
   };
+  // Short, nearby steps make the full-screen wander read as walking rather than teleporting.
+  const stepX=Math.min(280,Math.max(110,v.w*.16)),stepY=Math.min(180,Math.max(90,v.h*.14));
   let to=null;
   for(let tries=0;tries<48&&!to;tries++){
-   const candidate={x:minX+Math.random()*Math.max(0,maxX-minX),y:minY+Math.random()*Math.max(0,maxY-minY)};
+   const candidate={x:Math.max(minX,Math.min(maxX,from.x+(Math.random()*2-1)*stepX)),y:Math.max(minY,Math.min(maxY,from.y+(Math.random()*2-1)*stepY))};
    if(canPlace(candidate.x,candidate.y))to=candidate;
   }
   if(!to){scheduleFollowerRoam(el,false);return;}
-  if(Math.hypot(to.x-from.x,to.y-from.y)<28){scheduleFollowerRoam(el,false);return;}
-  const duration=1500+Math.random()*1200,start=P.performance?.now?P.performance.now():Date.now();
+  const distance=Math.hypot(to.x-from.x,to.y-from.y);if(distance<28){scheduleFollowerRoam(el,false);return;}
+  const duration=Math.max(3000,Math.min(6500,2800+distance/130*1000)),start=P.performance?.now?P.performance.now():Date.now();
   el.__originalMood?.resumeForWalking?.();
-  el.classList.add('walk');el.style.right='auto';el.style.bottom='auto';
+  el.classList.add('walk');el.style.right='auto';el.style.bottom='auto';el.style.transform='';el.style.willChange='transform';
   const step=now=>{
    if(!el.isConnected||destroyed||generation!==el.__pkmRoamGeneration||followerGesture?.el===el){el.classList.remove('walk');el.__pkmRoamFrame=0;return;}
    const stamp=Number.isFinite(now)?now:(P.performance?.now?P.performance.now():Date.now()),t=Math.min(1,Math.max(0,(stamp-start)/duration)),ease=t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
    const pos={x:from.x+(to.x-from.x)*ease,y:from.y+(to.y-from.y)*ease};
-   if(!canPlace(pos.x,pos.y)){
-    if(t<1){el.__pkmRoamFrame=P.requestAnimationFrame(step);return;}
-    el.__pkmRoamFrame=0;el.classList.remove('walk');scheduleFollowerRoam(el,false);return;
+   // Transform is compositor-friendly: avoid per-frame left/top layout recalculation.
+   el.style.transform=`translate3d(${pos.x-from.x}px,${pos.y-from.y}px,0)`;
+   if(t<1)el.__pkmRoamFrame=P.requestAnimationFrame(step);else{
+    el.__pkmRoamFrame=0;el.style.left=to.x+'px';el.style.top=to.y+'px';el.style.transform='';el.style.willChange='';
+    followerPositions.set(el.dataset.uid,to);el.classList.remove('walk');persistFollowers();scheduleFollowerRoam(el,false);
    }
-   el.style.left=pos.x+'px';el.style.top=pos.y+'px';followerPositions.set(el.dataset.uid,pos);
-   if(t<1)el.__pkmRoamFrame=P.requestAnimationFrame(step);else{el.__pkmRoamFrame=0;el.classList.remove('walk');persistFollowers();scheduleFollowerRoam(el,false);}
   };
   el.__pkmRoamFrame=P.requestAnimationFrame(step);
- },initial?1800+Math.random()*1800:2200+Math.random()*4200);
+ },initial?2200+Math.random()*2200:4200+Math.random()*4200);
 }
 function syncMultiFollowers(pkm){
  const ids=followingIds(pkm),ball=PD.getElementById('pkm-kanto-ball');
@@ -8653,6 +8663,8 @@ function syncMultiFollowers(pkm){
   followerImg.alt=monName(mon);
   el.style.width=slot+'px';el.style.height=slot+'px';el.style.justifyContent='center';el.style.alignItems='flex-end';
   followerImg.style.cssText='height:'+size+'px;width:auto;max-width:'+Math.max(24,slot-8)+'px;max-height:'+Math.max(24,slot-8)+'px;object-fit:contain';
+  // A refresh during a transform animation must not rewrite its base left/top and cause a jump.
+  if(wasConnected&&el.__pkmRoamFrame)return;
   const seed=seedAt(index),saved=followerPositions.get(id)||{};
   const currentX=wasConnected?parseFloat(el.style.left):NaN,currentY=wasConnected?parseFloat(el.style.top):NaN;
   const savedX=Number.isFinite(currentX)?currentX:Number(saved.x),savedY=Number.isFinite(currentY)?currentY:Number(saved.y);
@@ -8663,7 +8675,7 @@ function syncMultiFollowers(pkm){
    if(ballRect?.width&&x<ballRect.right+8&&x+slot>ballRect.left-8&&y<ballRect.bottom+8&&y+slot>ballRect.top-8)return false;
    return !others.some(other=>{const q=other.getBoundingClientRect();return x<q.right+8&&x+slot>q.left-8&&y<q.bottom+8&&y+slot>q.top-8;});
   };
-  if(!clearAt(pos.x,pos.y)){
+  if(!wasConnected&&!clearAt(pos.x,pos.y)){
    const candidates=ids.map((_,i)=>seedAt(i));
    for(let tries=0;tries<36;tries++)candidates.push({x:minX+Math.random()*Math.max(0,maxX-minX),y:minY+Math.random()*Math.max(0,maxY-minY)});
    const free=candidates.find(q=>clearAt(q.x,q.y));if(free)pos=free;
@@ -8878,7 +8890,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261102-fullscreen-followers-v8", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261102-smooth-followers-v11", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
