@@ -8514,8 +8514,13 @@ function installOriginalFollowerMood(unit) {
     const r=b.getBoundingClientRect();b.classList.remove('walk');b.style.transition='';
     b.style.left=Math.round(r.left)+'px';b.style.top=Math.round(r.top)+'px';b.style.right='auto';b.style.bottom='auto';
   }
+  function resumeForWalking() {
+    // 漫步开始时唤醒伙伴，清掉睡眠计时器、Z 粒子和睡觉气泡，避免边走边打哈欠/冒 Z。
+    if(F.sleep){F.sleep=false;unit.classList.remove('sleep');host.clearInterval(F.zz);F.zz=null;host.clearTimeout(F.sayTimer);F.sayTimer=null;unit.querySelector('.pkm-say')?.classList.remove('on');unit.querySelectorAll('.pkm-pt').forEach(p=>{if(p.querySelector('.zz'))p.remove();});}
+    F.last=Date.now();
+  }
   function idle() {
-    const f = follower(); if (!f || F.sleep || busy() || panelOpen() || F.pointer?.moved || followerGesture?.el===unit || hpRatio(f) <= 0) return;
+    const f = follower(); if (!f || F.sleep || busy() || panelOpen() || unit.classList.contains('walk') || F.pointer?.moved || followerGesture?.el===unit || hpRatio(f) <= 0) return;
     const r = hpRatio(f);
     if (r < .3 && Math.random() < .6) { burst(DROP, 1); anim('nod', 650); return; }
     if (/毒/.test(String(f.status || '')) && Math.random() < .5) { burst(BUBL, 2); anim('shake', 500); return; }
@@ -8557,7 +8562,7 @@ function installOriginalFollowerMood(unit) {
     if(Date.now()>F.next && !followerGesture){F.next=Date.now()+5000+Math.random()*7000;idle();}
   },1000);
   function dispose(){host.clearInterval(loop);host.clearInterval(F.zz);for(const key of ['sayTimer','emoTimer','animTimer','faceTimer','wanderTimer','syncTimer'])host.clearTimeout(F[key]);css.remove();}
-  ensureLayer();const api={interact,pet,happy,hover,dispose};unit.__originalMood=api;return api;
+  ensureLayer();const api={interact,pet,happy,hover,resumeForWalking,dispose};unit.__originalMood=api;return api;
 }
 
 // v1.3.27: original card interfaces, multi-follow and direct care interactions.
@@ -8598,6 +8603,7 @@ function scheduleFollowerRoam(el,initial=false){
   if(!to){scheduleFollowerRoam(el,false);return;}
   if(Math.hypot(to.x-from.x,to.y-from.y)<28){scheduleFollowerRoam(el,false);return;}
   const duration=1500+Math.random()*1200,start=P.performance?.now?P.performance.now():Date.now();
+  el.__originalMood?.resumeForWalking?.();
   el.classList.add('walk');el.style.right='auto';el.style.bottom='auto';
   const step=now=>{
    if(!el.isConnected||destroyed||generation!==el.__pkmRoamGeneration||followerGesture?.el===el){el.classList.remove('walk');el.__pkmRoamFrame=0;return;}
@@ -8872,7 +8878,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261102-fullscreen-followers-v7", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261102-fullscreen-followers-v8", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
