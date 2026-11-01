@@ -120,7 +120,8 @@ function spriteUrl(name,{anim=false,shiny=false}={}) {
 
 const spriteImg = (name, opts = {}, cls = 'pk-spr') => { const u = spriteUrl(name, opts); return u ? `<img class="${cls}" src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer" > ` : `<span class="${cls} pk-spr-ph">?</span>`; };
 function itemIcon(name) {
-  const slug = K.ITEM_ICONS[name];
+  const localCatalogIcons={ '自行车':'bicycle', '香水（30mL）':'sachet' };
+  const slug = localCatalogIcons[name] || K.ITEM_ICONS[name];
   const emoji = (K.ITEM_EMOJI.find(([re]) => re.test(name)) || [null, '🎒'])[1];
   return slug ? `<img class="pk-item" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/${slug}.png" alt="" loading="lazy" onerror="this.replaceWith(document.createTextNode('${emoji}'))">` : `<span class="pk-item-e">${emoji}</span>`;
 }
@@ -523,7 +524,7 @@ function normalize(pkm) {
   return pkm;
 }
 const hasMon = s => !!(s && (s.species || s.name));
-const SHOP_PRICE = {"mart":{"精灵球":200,"超级球":600,"高级球":1200,"伤药":200,"好伤药":700,"厉害伤药":1200,"全满药":2500,"全复药":3000,"活力碎片":1500,"解毒药":200,"解麻药":200,"解眠药":250,"解烧伤药":250,"解冻药":250,"万灵药":400,"除虫喷雾":350,"白银喷雾":500,"黄金喷雾":700,"穿洞绳":300,"宝可梦玩偶":100},"department":{"先机球":1000,"黑暗球":1000,"计时球":1000,"重复球":1000,"捕网球":1000,"巢穴球":1000,"潜水球":1000,"豪华球":1000,"治愈球":300,"HP增强剂":10000,"攻击增强剂":10000,"防御增强剂":10000,"特攻增强剂":10000,"特防增强剂":10000,"速度增强剂":10000,"力量强化":500,"防御强化":550,"特攻强化":350,"特防强化":350,"速度强化":350,"命中强化":1000,"能力防守":1500,"击中要害":1000,"火之石":2100,"水之石":2100,"雷之石":2100,"叶之石":2100}};
+const SHOP_PRICE = {"mart":{"精灵球":200,"超级球":600,"高级球":1200,"伤药":200,"好伤药":700,"厉害伤药":1200,"全满药":2500,"全复药":3000,"活力碎片":1500,"解毒药":200,"解麻药":200,"解眠药":250,"解烧伤药":250,"解冻药":250,"万灵药":400,"除虫喷雾":350,"白银喷雾":500,"黄金喷雾":700,"穿洞绳":300,"宝可梦玩偶":100},"department":{"先机球":1000,"黑暗球":1000,"计时球":1000,"重复球":1000,"捕网球":1000,"巢穴球":1000,"潜水球":1000,"豪华球":1000,"治愈球":300,"HP增强剂":10000,"攻击增强剂":10000,"防御增强剂":10000,"特攻增强剂":10000,"特防增强剂":10000,"速度增强剂":10000,"力量强化":500,"防御强化":550,"特攻强化":350,"特防强化":350,"速度强化":350,"命中强化":1000,"能力防守":1500,"击中要害":1000,"火之石":2100,"水之石":2100,"雷之石":2100,"叶之石":2100},"bicycle":{"自行车":30000},"perfume":{"香水（30mL）":6600}};
 function purchaseItems(store, rows) {
   const catalog = SHOP_PRICE[String(store || '')];
   if (!catalog || !Array.isArray(rows) || !rows.length) return Promise.resolve({ok:false, reason:'invalid'});
@@ -3696,7 +3697,7 @@ function syncMultiFollowers(pkm){
 }
 let followerGestureDocInstalled=false;
 function installFollowerGesture(el){
- el.addEventListener('pointermove',e=>{if(!followerGesture)el.__originalMood?.hover(e);});
+ // 抚摸只由未移动的点按触发；悬停/移动不再触发抚摸。
  el.addEventListener('pointerdown',e=>{
   if(!e.isPrimary||(e.pointerType==='mouse'&&e.button!==0)||followerGesture)return;
   lastEcoInteraction=Date.now();cancelFollowerRoam(el);e.preventDefault();e.stopPropagation();
@@ -3707,9 +3708,8 @@ function installFollowerGesture(el){
  });
  if(followerGestureDocInstalled)return;followerGestureDocInstalled=true;
  listen(PD,'pointermove',e=>{
-  const g=followerGesture;if(!g||g.id!==e.pointerId||!g.el?.isConnected)return;const el=g.el,dx=e.clientX-g.x,dy=e.clientY-g.y,dd=e.clientX-(g.lastX??g.x);g.lastX=e.clientX;
-  if(Math.abs(dd)>2&&Math.abs(dx)<56&&Math.abs(dy)<40){const dir=dd>0?1:-1;if(dir!==g.strokeDir){g.strokeDir=dir;g.strokes=(g.strokes||0)+1;}if(g.strokes>=5){g.petting=true;g.moved=true;P.clearTimeout(g.timer);followerPositions.set(el.dataset.uid,{x:g.left,y:g.top});el.style.left=g.left+'px';el.style.top=g.top+'px';el.__originalMood?.pet();}}
-  if(g.petting)return;const threshold=g.pointerType==='touch'?7:5;if(!g.moved&&Math.hypot(dx,dy)<threshold)return;g.moved=true;P.clearTimeout(g.timer);e.preventDefault();
+  const g=followerGesture;if(!g||g.id!==e.pointerId||!g.el?.isConnected)return;const el=g.el,dx=e.clientX-g.x,dy=e.clientY-g.y;
+  const threshold=g.pointerType==='touch'?7:5;if(!g.moved&&Math.hypot(dx,dy)<threshold)return;g.moved=true;P.clearTimeout(g.timer);e.preventDefault();
   const v=vp(),pos={x:Math.max(6,Math.min(v.w-el.offsetWidth-6,g.left+dx)),y:Math.max(6,Math.min(v.h-el.offsetHeight-6,g.top+dy))};followerPositions.set(el.dataset.uid,pos);el.style.left=pos.x+'px';el.style.top=pos.y+'px';
  },{passive:false});
  listen(PD,'pointerup',e=>{
@@ -3846,7 +3846,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261101-map-shop-fishing-17", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261101-map-shop-fishing-shop-prices-19", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel: () => PD.getElementById('pkm-kanto-panel')?.remove(), read: readPkm, purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
