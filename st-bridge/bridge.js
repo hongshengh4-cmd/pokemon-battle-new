@@ -1626,110 +1626,182 @@ html.pkm-kanto-native-fullscreen #pkm-kanto-modal>.bar,html.pkm-kanto-pseudo-ful
 #pkm-kanto-ball.docked-left .count,#pkm-kanto-ball.docked-right .count{opacity:.72}
 @media(max-width:680px){#pkm-kanto-ball{width:68px;height:68px}#pkm-kanto-ball .orb .ball-art{width:134px;height:134px;top:calc(50% - 15px)}}
 
-/* 2026-11-01 approved warm red/ivory team panel; presentation-only overrides. */
-#pkm-kanto-panel{color:#382f31!important;background:linear-gradient(145deg,#fffdf8,#f6f0e8)!important;border:1px solid #d8b16a!important;border-radius:18px!important;box-shadow:0 24px 64px rgba(0,0,0,.38),0 0 0 1px rgba(212,183,122,.26)!important;overflow:hidden!important;font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif!important}
-#pkm-kanto-panel .pb-head{flex:none;min-height:64px;padding:10px 13px;background:linear-gradient(105deg,#7e1927 0%,#b52739 48%,#e24b57 100%)!important;border-bottom:3px solid #d8b16a;box-shadow:0 4px 14px rgba(111,28,41,.23);color:#fff}
-#pkm-kanto-panel .pb-head h3{color:#fff;font-size:15px;letter-spacing:.05em;text-shadow:0 1px 3px rgba(45,10,15,.28)}
-#pkm-kanto-panel .pb-head h3 i{width:22px;height:22px;border:2px solid #30272a;background:linear-gradient(to bottom,#ed4858 0 44%,#30272a 44% 55%,#faf5ee 55%);box-shadow:0 1px 5px rgba(0,0,0,.28)}
-#pkm-kanto-panel .pb-drag-grip{background:rgba(255,255,255,.13)!important;border:1px solid rgba(255,255,255,.36);color:#fff0e6}
-#pkm-kanto-panel .pb-tools{gap:7px}
-#pkm-kanto-panel .pb-tabs{background:rgba(58,14,24,.26)!important;border:1px solid rgba(255,255,255,.17);border-radius:10px;padding:3px}
-#pkm-kanto-panel .pb-tabs button{color:#ffe5df!important;border-radius:8px;padding:6px 12px;font-size:12px;transition:background .15s,color .15s,transform .15s}
-#pkm-kanto-panel .pb-tabs button.on{background:linear-gradient(145deg,#fffaf1,#ead8bd)!important;color:#7e1927!important;box-shadow:0 2px 0 #d8b16a,0 2px 7px rgba(0,0,0,.13);transform:translateY(-1px)}
-#pkm-kanto-panel .pb-icons{gap:5px}
-#pkm-kanto-panel .pb-x{width:32px;height:32px;flex-basis:32px;background:rgba(255,255,255,.14)!important;border:1px solid rgba(255,255,255,.34);color:#fff;font-size:15px;transition:background .15s,transform .15s}
-#pkm-kanto-panel .pb-x:hover{background:rgba(255,255,255,.28)!important;transform:translateY(-1px)}
-#pkm-kanto-panel .pb-body{gap:9px;padding:9px 10px 8px;background:#f7f2ea;min-height:0}
-#pkm-kanto-panel .pb-left{background:#f7f2ea;min-width:0}
-#pkm-kanto-panel .pb-right{background:#fffdfa!important;border:1px solid #eadfd4;border-radius:13px;scrollbar-color:#d7c2ad #f7f2ea}
-#pkm-kanto-panel .party{gap:8px;padding:3px;scrollbar-color:#d7c2ad #f7f2ea}
-#pkm-kanto-panel .slot{min-height:92px;padding:8px 9px;border:1px solid #e5d9ce!important;border-radius:13px!important;background:linear-gradient(145deg,#fff,#fcfaf6)!important;color:#382f31!important;box-shadow:0 3px 9px rgba(123,85,67,.07)!important;grid-template-columns:56px minmax(0,1fr);gap:7px;transition:border-color .18s,box-shadow .18s,transform .18s}
-#pkm-kanto-panel .slot:hover{border-color:#d97880!important;transform:translateY(-1px);box-shadow:0 7px 16px rgba(123,85,67,.13)!important}
-#pkm-kanto-panel .slot.lead{background:linear-gradient(145deg,#fff8e7,#f8edcf)!important;border-color:#e7cb8c!important;color:#493719!important}
-#pkm-kanto-panel .slot.sel{border:2px solid #ce3648!important;background:#fff9f7!important;box-shadow:0 0 0 2px rgba(211,59,75,.12),0 3px 9px rgba(123,85,67,.08)!important}
-#pkm-kanto-panel .slot.lead.sel{background:linear-gradient(145deg,#fff8e7,#f8edcf)!important}
-#pkm-kanto-panel .slot.faint{background:linear-gradient(145deg,#f8e9e5,#efceca)!important;color:#542d2d!important;border-color:#dcaaa6!important}
-#pkm-kanto-panel .slot.empty{min-height:76px;background:rgba(255,255,255,.45)!important;border:1px dashed #d9c7b8!important;color:#a6978e!important;box-shadow:none!important}
-#pkm-kanto-panel .slot img{width:54px;height:54px;object-fit:contain;image-rendering:auto;margin:-3px 0}
-#pkm-kanto-panel .slot .n{font-size:12px;color:#342f31}
-#pkm-kanto-panel .slot .n .g.f{color:#d84a77}#pkm-kanto-panel .slot .n .g.m{color:#4c78b8}
-#pkm-kanto-panel .slot .lvl{font-size:10px;color:#777071;font-weight:700}
-#pkm-kanto-panel .slot .hp{color:#5d5350;font-size:9px}
-#pkm-kanto-panel .slot .hp i{height:6px;background:#e5e1dc;border:0;padding:0}
-#pkm-kanto-panel .slot .hp i b{background:#71bd85}
-#pkm-kanto-panel .slot .hp i b.mid{background:#e4ae4c}#pkm-kanto-panel .slot .hp i b.low{background:#dc5c61}
-#pkm-kanto-panel .slot .hpn{font-size:9px;color:#817a77}
-#pkm-kanto-panel .slot .stt{left:7px;bottom:5px;border-radius:5px;background:#b85657;color:#fff;font-size:8px}
-#pkm-kanto-panel .slot .lead-tag{right:8px;top:-7px;background:#fbe2a8;color:#805916;border:1px solid #e5c975;border-radius:6px;font-size:8px;padding:1px 5px}
-#pkm-kanto-panel .slot .fo,#pkm-kanto-panel .bx .fo{background:#d9efe7;color:#34785f;border:1px solid #b8ddcf;border-radius:6px;font-size:8px}
-#pkm-kanto-panel .pk-note{flex:none;margin:5px 4px 2px;color:#887d78;font-size:9.5px;line-height:1.55}
-#pkm-kanto-panel .box-top{color:#675d5a;margin:0 1px 7px}
-#pkm-kanto-panel .box-top button{width:32px;height:30px;background:#fffaf5!important;border:1px solid #e2d5cb;color:#8c3640;border-radius:8px}
-#pkm-kanto-panel .box-top button:hover{background:#f8e6e4!important}
-#pkm-kanto-panel .box-top .bn{background:linear-gradient(135deg,#fff4ef,#f3e7d9)!important;color:#7e2636;border:1px solid #ead5c8;box-shadow:none;border-radius:9px;font-size:12px;padding:5px}
-#pkm-kanto-panel .box-top small{font-size:10px;color:#8a7b77}
-#pkm-kanto-panel .boxgrid{background:linear-gradient(145deg,#f1e5d7,#e8d8c5)!important;border:1px solid #ddc8b3;border-radius:13px;padding:7px;gap:5px;box-shadow:inset 0 1px 5px rgba(113,75,55,.12)!important;scrollbar-color:#cbb39d #eee2d5}
-#pkm-kanto-panel .bx{border:1px solid #e7ddd3;border-radius:9px;background:#fffdfa;transition:background .15s,border-color .15s,transform .15s}
-#pkm-kanto-panel .bx:hover{background:#fff!important;border-color:#d97880;transform:translateY(-1px)}
-#pkm-kanto-panel .bx.sel{background:#fff4f2!important;border:2px solid #cf3548;box-shadow:0 0 0 2px rgba(207,53,72,.12)}
-#pkm-kanto-panel .bx.e{background:rgba(255,255,255,.35)!important;border:1px dashed #d8c7b7;cursor:default}
-#pkm-kanto-panel .bx img{width:58px;height:58px;object-fit:contain;image-rendering:auto}
-#pkm-kanto-panel .bx small{color:#817672;font-size:9px}
-#pkm-kanto-panel .dt-empty{color:#9a8980;font-size:12px}
-#pkm-kanto-panel .dt-top{background:linear-gradient(115deg,#fff4ef,#f3e7d9)!important;border-bottom:1px solid #ead5c8;padding:10px 12px 7px}
-#pkm-kanto-panel .dt-top .dt-sprite{width:100px;height:100px;object-fit:contain;image-rendering:auto;margin:-5px 0 -8px}
-#pkm-kanto-panel .dt-ball{color:#9b7770;font-size:10px}
-#pkm-kanto-panel .dt-name{color:#382f31;font-size:17px}
-#pkm-kanto-panel .dt-name small{color:#8a7b77;font-size:10px}
-#pkm-kanto-panel .dt-top .dt-flags span{background:#f3e5de;color:#886057;font-size:9px}
-#pkm-kanto-panel .dt-top .dt-flags .gold{background:#fbe2a8;color:#805916}
-#pkm-kanto-panel .dt-sec{padding:7px 11px}
-#pkm-kanto-panel .dt-sec h5{color:#a42c3d;font-size:10px;letter-spacing:.04em}
-#pkm-kanto-panel .dt-sec h5::after{background:#eadfd4}
-#pkm-kanto-panel .kv{gap:5px;font-size:10px}
-#pkm-kanto-panel .kv div{background:#fff;border:1px solid #eee7e1;border-radius:8px;color:#403a3b;padding:6px 7px}
-#pkm-kanto-panel .kv span{color:#958884;font-size:8px}
-#pkm-kanto-panel .mv{gap:5px}
-#pkm-kanto-panel .mv div{background:linear-gradient(135deg,#8e3444,#c7525e)!important;border-radius:8px;color:#fff;font-size:10px;text-shadow:none}
-#pkm-kanto-panel .mv small{font-size:8px;color:#ffe1df}
-#pkm-kanto-panel .st6{font-size:10px;color:#514648}
-#pkm-kanto-panel .st6 i{background:#eee6df}
-#pkm-kanto-panel .exp{background:#eee8e2}
-#pkm-kanto-panel .exp b{background:linear-gradient(90deg,#d93449,#ef7880)}
-#pkm-kanto-panel .acts{background:#fffdfa;border-top:1px solid #eadfd4;padding:9px 11px 11px}
-#pkm-kanto-panel .acts button{background:linear-gradient(135deg,#b52739,#e24b57)!important;color:#fff;border-radius:9px;box-shadow:0 2px 0 #8d2130;transition:filter .15s,transform .15s}
-#pkm-kanto-panel .acts button:hover{filter:brightness(1.05);transform:translateY(-1px)}
-#pkm-kanto-panel .acts button.ghost{background:#fffaf5!important;border:1px solid #e2d5cb;color:#8c3640}
-#pkm-kanto-panel .acts button:disabled{opacity:.45;cursor:not-allowed}
-#pkm-kanto-panel .vc .vl{color:#8a7b77}
-#pkm-kanto-panel .seg{background:#f2ece5}
-#pkm-kanto-panel .seg button{color:#756864}
-#pkm-kanto-panel .seg button.on{background:#b52739;color:#fff;box-shadow:0 1px 0 #7e1927}
-#pkm-kanto-panel .seg button.eff{background:#fffaf5;color:#a42c3d;box-shadow:inset 0 0 0 1.5px #e5b7b0}
-#pkm-kanto-panel .vc .hear{background:#fff1c2;color:#8a5a00}
-#pkm-kanto-panel .pk-snd{background:#f7f2ea;color:#55494a;border:1px solid #eee3d9}
-#pkm-kanto-panel .pk-snd .l{color:#8a7b77}
-#pkm-kanto-panel .pk-snd input[type=range]{accent-color:#b52739}
-#pkm-kanto-panel .pk-snd details.adv summary{color:#a42c3d}
-#pkm-kanto-panel .pk-snd details.adv input[type=text]{border-color:#e2d5cb;background:#fffdfa;color:#382f31}
-#pkm-kanto-panel .pk-note,.pk-note{color:#887d78}
-#pkm-kanto-panel .pb-foot{color:#887d78;background:#f6f0e9;border-top:1px solid #e9e0d8;padding:7px 12px 8px;font-size:9px;min-height:30px}
-#pkm-kanto-panel .toast{background:rgba(73,34,38,.94);border:1px solid #d8b16a;color:#fffaf1}
-#pkm-kanto-panel .stx summary{color:#a42c3d}
-#pkm-kanto-panel .stx .sg span{background:#f7f2ea;color:#382f31}
-#pkm-kanto-panel .stx .sg .up{background:#fff0ee;color:#c62828}#pkm-kanto-panel .stx .sg .down{background:#eef4ff;color:#1e5bc6}
-#pkm-kanto-panel .stx .bd2 i{background:#eadfd4}
-#pkm-kanto-panel .stx .bd2 u{background:linear-gradient(90deg,#e6a55d,#d94b56)}
-#pkm-kanto-panel .pb-warn{background:#fff4d6;color:#7a5b00;border:1px solid #efdca5}
-@media(max-width:680px){
- #pkm-kanto-panel .pb-head{min-height:56px;border-radius:16px 16px 0 0}
- #pkm-kanto-panel .pb-body{padding:7px 8px;background:#f7f2ea}
- #pkm-kanto-panel .party{gap:6px}
- #pkm-kanto-panel .slot{min-height:82px;grid-template-columns:46px minmax(0,1fr);padding:6px}
- #pkm-kanto-panel .slot img{width:44px;height:44px}
- #pkm-kanto-panel .pb-right.show{border:1px solid #d8b16a}
- #pkm-kanto-panel .pb-foot{gap:3px 8px;flex-wrap:wrap}
+/* 2026-11-01: the real live-data team panel now uses the preview's exact layout/components. */
+#pkm-kanto-panel{display:flex;flex-direction:column;background:linear-gradient(145deg,#fffdf8,#f6f0e8)!important;color:#3b3434!important;border:1px solid #d4b77a!important;border-radius:21px!important;overflow:hidden!important;box-shadow:0 32px 100px rgba(0,0,0,.68),0 0 0 1px rgba(212,183,122,.27)!important;font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif!important}
+#pkm-kanto-panel.show{display:flex!important;animation:pkm-preview-panel-in .24s cubic-bezier(.22,1,.36,1)}
+@keyframes pkm-preview-panel-in{from{opacity:.75;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
+#pkm-kanto-panel .panel-head{flex:none;min-height:66px;padding:11px 16px;display:flex;align-items:center;gap:11px;background:linear-gradient(105deg,#7e1927 0%,#b52739 48%,#e24b57 100%)!important;border-bottom:3px solid #d8b16a;color:#fff;box-shadow:0 4px 14px rgba(111,28,41,.23);touch-action:none}
+#pkm-kanto-panel .drag-grip{width:26px;height:26px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.36);border-radius:8px;color:#ffe4e2;cursor:grab;user-select:none;font-size:14px;touch-action:none}
+#pkm-kanto-panel .drag-grip:active{cursor:grabbing}
+#pkm-kanto-panel .head-ball{width:31px;height:31px;border-radius:50%;border:2px solid #421e25;background:linear-gradient(to bottom,#ed4858 0 44%,#30272a 44% 55%,#faf5ee 55%);position:relative;box-shadow:0 2px 7px rgba(108,28,42,.33);flex:none}
+#pkm-kanto-panel .head-ball:after{content:"";position:absolute;left:50%;top:50%;width:9px;height:9px;transform:translate(-50%,-50%);border:2px solid #30272a;border-radius:50%;background:#fff}
+#pkm-kanto-panel .title{flex:1;min-width:0}
+#pkm-kanto-panel .title b{display:block;font-size:14px;letter-spacing:.04em;color:#fff}
+#pkm-kanto-panel .title small{display:block;font-size:9px;color:#ffe1df}
+#pkm-kanto-panel .header-actions{display:flex;gap:6px}
+#pkm-kanto-panel .head-action,#pkm-kanto-panel .close-btn{min-width:30px;height:30px;border:1px solid rgba(255,255,255,.28)!important;border-radius:8px;background:rgba(255,255,255,.1)!important;color:#fff!important;display:grid;place-items:center;font-size:10px;padding:0 8px;box-shadow:none!important}
+#pkm-kanto-panel .head-action:hover,#pkm-kanto-panel .close-btn:hover{background:rgba(255,255,255,.23)!important}
+#pkm-kanto-panel .close-btn{width:30px;font-size:18px}
+#pkm-kanto-panel .head-action:disabled{opacity:.36;cursor:not-allowed}
+#pkm-kanto-panel .head-action.reset-action{padding:0;min-width:30px}
+#pkm-kanto-panel .reset-action svg{display:block;width:17px;height:17px}
+#pkm-kanto-panel .tabbar{flex:none;height:45px;background:#f2ece5;border-bottom:1px solid #e3d9cf;display:flex;align-items:stretch;padding:0 14px;gap:4px}
+#pkm-kanto-panel .tab{position:relative;min-width:84px;border:0;background:transparent;color:#7e7471;font-size:11px;font-weight:750;padding:0 12px;border-radius:0;box-shadow:none}
+#pkm-kanto-panel .tab.active{color:#b92438;background:transparent}
+#pkm-kanto-panel .tab.active:after{content:"";position:absolute;left:12px;right:12px;bottom:0;height:3px;border-radius:3px 3px 0 0;background:#d83145}
+#pkm-kanto-panel .tab-count{margin-left:5px;padding:2px 5px;border-radius:9px;background:#e4d9d3;color:#756864;font-size:9px}
+#pkm-kanto-panel .tab.active .tab-count{background:#f5d5d5;color:#a52035}
+#pkm-kanto-panel .panel-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(310px,1.05fr) minmax(300px,.95fr);overflow:hidden;background:#f7f2ea}
+#pkm-kanto-panel .list-pane{min-width:0;min-height:0;overflow:auto;padding:12px;background:#f7f2ea;border-right:1px solid #e7ddd3;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+#pkm-kanto-panel .pane-top{display:flex;align-items:center;justify-content:space-between;margin:0 2px 9px}
+#pkm-kanto-panel .pane-top strong{font-size:10px;color:#675d5a}
+#pkm-kanto-panel .pane-top span{font-size:9px;color:#938782}
+#pkm-kanto-panel .party-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;align-content:start}
+#pkm-kanto-panel .slot-card{position:relative;min-height:104px;padding:9px;border:1px solid #e5d9ce;border-radius:13px;background:linear-gradient(145deg,#fff,#fcfaf6);box-shadow:0 3px 9px rgba(123,85,67,.05);display:grid;grid-template-columns:54px minmax(0,1fr);gap:7px;align-items:center;cursor:pointer;transition:.24s cubic-bezier(.22,1,.36,1)}
+#pkm-kanto-panel .slot-card:hover{border-color:#d97880;transform:translateY(-2px);box-shadow:0 8px 18px rgba(123,85,67,.1)}
+#pkm-kanto-panel .slot-card.selected{border-color:#ce3648;box-shadow:0 0 0 2px rgba(211,59,75,.1);background:#fff9f7}
+#pkm-kanto-panel .slot-card.faint{background:linear-gradient(145deg,#fff7f5,#f6e5e2)}
+#pkm-kanto-panel .slot-card.empty{min-height:86px;border-style:dashed;background:rgba(255,255,255,.4);cursor:default;display:grid;place-items:center;color:#b5a9a3;font-size:10px;box-shadow:none}
+#pkm-kanto-panel .slot-card img{width:52px;height:52px;object-fit:contain;image-rendering:auto}
+#pkm-kanto-panel .mon-meta{min-width:0;overflow:hidden}
+#pkm-kanto-panel .mon-title{display:flex;align-items:center;gap:4px;flex-wrap:wrap;padding-right:34px}
+#pkm-kanto-panel .mon-title b{font-size:11px;color:#342f31;overflow-wrap:anywhere}
+#pkm-kanto-panel .tag{padding:2px 5px;border-radius:5px;background:#f3e5de;color:#886057;font-size:8px;white-space:nowrap}
+#pkm-kanto-panel .tag.lead{background:#fbe2a8;color:#805916}
+#pkm-kanto-panel .tag.follow{background:#d9efe7;color:#34785f}
+#pkm-kanto-panel .tag.faint{background:#e4e0df;color:#666}
+#pkm-kanto-panel .level-line{margin-top:4px;font-size:9px;color:#777071;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#pkm-kanto-panel .level-line .pk-item{width:16px;height:16px;vertical-align:middle;margin:0 2px;image-rendering:pixelated}
+#pkm-kanto-panel .hp-row{display:flex;align-items:center;gap:6px;margin-top:5px}
+#pkm-kanto-panel .hp-bar{height:5px;flex:1;border-radius:5px;background:#e5e1dc;overflow:hidden}
+#pkm-kanto-panel .hp-bar i{display:block;height:100%;border-radius:5px;background:#71bd85}
+#pkm-kanto-panel .hp-bar i.mid{background:#e4ae4c}
+#pkm-kanto-panel .hp-bar i.low{background:#dc5c61}
+#pkm-kanto-panel .hp-text{font-size:8px;color:#817a77;white-space:nowrap}
+#pkm-kanto-panel .status-line{margin-top:3px;color:#b85657;font-size:8px;min-height:10px}
+#pkm-kanto-panel .slot-menu{position:absolute;right:6px;top:5px;display:flex;gap:3px}
+#pkm-kanto-panel .tiny-action{border:1px solid #e9d6d3;border-radius:6px;background:#fff9f6;color:#9f3340;font-size:8px;padding:4px 5px;box-shadow:none}
+#pkm-kanto-panel .tiny-action:hover{background:#f8e6e4}
+#pkm-kanto-panel .tiny-action:disabled{opacity:.7;cursor:default}
+#pkm-kanto-panel .pk-note{font-size:9px;color:#938782;margin:8px 2px 2px;line-height:1.5}
+#pkm-kanto-panel .storage-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;align-content:start}
+#pkm-kanto-panel .box-cell{aspect-ratio:1/1;min-width:0;position:relative;border:1px solid #e7ddd3;border-radius:10px;background:#fffdfa;display:grid;place-items:center;cursor:pointer;transition:border-color .15s,background .15s}
+#pkm-kanto-panel .box-cell:hover{border-color:#d97880;background:#fff}
+#pkm-kanto-panel .box-cell.selected{border:2px solid #cf3548;background:#fff4f2}
+#pkm-kanto-panel .box-cell.empty{background:#f0eae4;opacity:.67;cursor:default}
+#pkm-kanto-panel .box-cell img{width:78%;height:78%;object-fit:contain;image-rendering:auto}
+#pkm-kanto-panel .box-cell small{position:absolute;right:4px;bottom:3px;font-size:8px;color:#817672}
+#pkm-kanto-panel .box-follow{position:absolute;top:2px;left:3px;font-size:7px;color:#34785f;background:#d9efe7;border-radius:5px;padding:0 3px}
+#pkm-kanto-panel .pages{display:flex;align-items:center;justify-content:center;gap:11px;margin:10px 0 2px;color:#776d69;font-size:9px;flex-wrap:wrap}
+#pkm-kanto-panel .pages button{border:1px solid #e2d5cb;border-radius:7px;background:#fffaf5;color:#8c3640;padding:5px 8px;font-size:9px;box-shadow:none}
+#pkm-kanto-panel .pages button:disabled{opacity:.4;cursor:not-allowed}
+#pkm-kanto-panel .detail-pane{overflow:auto;min-width:0;min-height:0;background:#fffdfa;padding:13px 14px 18px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+#pkm-kanto-panel .detail-hero{position:relative;display:flex;align-items:center;gap:10px;padding:12px;border-radius:15px;background:linear-gradient(115deg,#fff4ef,#f3e7d9);border:1px solid #ead5c8;box-shadow:inset 0 1px rgba(255,255,255,.85),0 5px 14px rgba(133,84,70,.04);flex-wrap:wrap}
+#pkm-kanto-panel .detail-hero>img{width:66px;height:66px;object-fit:contain;image-rendering:auto}
+#pkm-kanto-panel .detail-name{flex:1;min-width:0}
+#pkm-kanto-panel .detail-name b{display:block;color:#382f31;font-size:15px;overflow-wrap:anywhere}
+#pkm-kanto-panel .detail-name small{display:block;margin-top:3px;color:#8a7b77;font-size:9px;overflow-wrap:anywhere}
+#pkm-kanto-panel .detail-flags{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}
+#pkm-kanto-panel .detail-hp{flex:0 0 100%;width:100%;padding:0 4px}
+#pkm-kanto-panel .detail-hp .hp{display:flex;align-items:center;gap:5px;margin-top:2px;font-size:9px;color:#706563}
+#pkm-kanto-panel .detail-hp .hp i{height:6px;flex:1;background:#e5e1dc;border-radius:5px;overflow:hidden}
+#pkm-kanto-panel .detail-hp .hp i b{display:block;height:100%;background:#71bd85}
+#pkm-kanto-panel .detail-hp .hp i b.mid{background:#e4ae4c}#pkm-kanto-panel .detail-hp .hp i b.low{background:#dc5c61}
+#pkm-kanto-panel .detail-hp .hpn{font-size:8px;color:#817a77}
+#pkm-kanto-panel .detail-section{margin-top:11px}
+#pkm-kanto-panel .section-title{display:flex;align-items:center;gap:6px;margin:0 0 6px;color:#a42c3d;font-size:9px;font-weight:850;letter-spacing:.06em}
+#pkm-kanto-panel .section-title:before{content:"";width:3px;height:10px;border-radius:3px;background:#d73b4c;flex:none}
+#pkm-kanto-panel .facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
+#pkm-kanto-panel .fact{border:1px solid #eee7e1;border-radius:8px;padding:6px 7px;background:#fff;font-size:9px;color:#403a3b;min-width:0;overflow-wrap:anywhere}
+#pkm-kanto-panel .fact span{display:block;color:#958884;font-size:8px;margin-bottom:2px}
+#pkm-kanto-panel .fact.wide{grid-column:1/-1}
+#pkm-kanto-panel .expbar{height:7px;background:#eee8e2;border-radius:7px;overflow:hidden}
+#pkm-kanto-panel .expbar i{height:100%;display:block;background:linear-gradient(90deg,#d93449,#ef7880);border-radius:7px}
+#pkm-kanto-panel .expnote{display:block;margin-top:4px;color:#8e8380;font-size:8px}
+#pkm-kanto-panel .moves{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
+#pkm-kanto-panel .move{padding:6px 7px;border-radius:7px;background:#ede8e4;color:#4c4140;font-size:9px;display:flex;justify-content:space-between;gap:4px;min-width:0}
+#pkm-kanto-panel .move span{overflow-wrap:anywhere}
+#pkm-kanto-panel .move small{font-size:8px;color:#8a7e7b;white-space:nowrap}
+#pkm-kanto-panel .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+#pkm-kanto-panel .stat{padding:5px 4px;border-radius:6px;background:#f5f1ec;font-size:8px;text-align:center;color:#514a49}
+#pkm-kanto-panel .stat b{display:block;color:#a13b47;font-size:8px}
+#pkm-kanto-panel .stat small{color:#968984;font-size:7px}
+#pkm-kanto-panel .actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:11px}
+#pkm-kanto-panel .action{border:1px solid #d9c4bd;border-radius:8px;background:#fff8f4;color:#973343;padding:7px 9px;font-size:9px;box-shadow:none;white-space:nowrap}
+#pkm-kanto-panel .action.primary{background:#d73749;color:#fff;border-color:#d73749}
+#pkm-kanto-panel .action:disabled{opacity:.45;cursor:not-allowed}
+#pkm-kanto-panel .dt-back{display:none;position:absolute;right:9px;top:9px;z-index:2;border:1px solid #e9d6d3;background:#fff9f6;color:#9f3340;border-radius:7px;padding:5px 8px;font-size:9px}
+#pkm-kanto-panel .voice-box{border:1px solid #eee3dc;border-radius:10px;padding:8px;background:#fffaf6}
+#pkm-kanto-panel .vc{display:flex;align-items:center;flex-wrap:wrap;gap:4px 6px;margin:5px 0 3px;font-size:9px}
+#pkm-kanto-panel .vc .vl{color:#857773;font-size:8px}
+#pkm-kanto-panel .vc .seg{display:flex;gap:3px;flex:1}
+#pkm-kanto-panel .vc .seg button{border:1px solid #e4d8d0;background:#fff;color:#716562;border-radius:6px;padding:5px 6px;font-size:8px;box-shadow:none}
+#pkm-kanto-panel .vc .seg button.on{background:#fae3e3;color:#9e2739;border-color:#dc7180}
+#pkm-kanto-panel .vc .hear{padding:3px 7px;font-size:9px}
+#pkm-kanto-panel .vc .vs{font-style:normal;color:#938580;font-size:8px}
+#pkm-kanto-panel .pk-snd{display:flex;flex-direction:column;gap:7px;margin-top:10px;padding:8px;border:1px solid #eee3dc;border-radius:10px;background:#fffaf6;color:#55494a;font-size:9px}
+#pkm-kanto-panel .pk-snd .r{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px}
+#pkm-kanto-panel .pk-snd .l{min-width:7em;color:#857773;font-size:8px}
+#pkm-kanto-panel .pk-snd input[type=range]{flex:1;min-width:70px;accent-color:#d73448}
+#pkm-kanto-panel .pk-snd input[type=text]{min-width:0;flex:1;border:1px solid #e4d8d0;border-radius:6px;background:#fff;padding:6px;font-size:8px;color:#554c49}
+#pkm-kanto-panel .pk-snd button{border:1px solid #e4d8d0;border-radius:6px;background:#fff;color:#716562;padding:4px 6px;font-size:8px;box-shadow:none}
+#pkm-kanto-panel .pk-snd button.on{background:#fae3e3;border-color:#dc7180;color:#9e2739}
+#pkm-kanto-panel .pk-snd .warn{color:#9b6c15;font-size:8px}
+#pkm-kanto-panel .pk-snd details.adv summary{cursor:pointer;color:#a42c3d;font-weight:700}
+#pkm-kanto-panel .pk-snd details.adv small{display:block;color:#938580;font-size:8px;line-height:1.5;overflow-wrap:anywhere}
+#pkm-kanto-panel .pk-note{margin-top:6px;color:#938580;font-size:8px;line-height:1.5}
+#pkm-kanto-panel .panel-foot{flex:none;height:34px;border-top:1px solid #e9e0d8;background:#f6f0e9;padding:0 13px;display:flex;align-items:center;justify-content:space-between;color:#887d78;font-size:8px}
+#pkm-kanto-panel .toast{position:absolute;left:50%;bottom:48px;transform:translateX(-50%);background:rgba(78,56,54,.94);color:#fff;padding:7px 14px;border-radius:20px;font-size:9px;pointer-events:none;opacity:0;transition:.2s;z-index:9}
+#pkm-kanto-panel .toast.on{opacity:1}
+#pkm-kanto-panel .dt-top .dt-ball{display:none}
+#pkm-kanto-panel .detail-hero .dt-back{display:none}
+#pkm-kanto-panel .detail-hp .pk-spr{display:none}
+#pkm-kanto-panel .stx{margin-top:5px;font-size:9px}
+#pkm-kanto-panel .stx summary{cursor:pointer;color:#a42c3d;font-weight:700;font-size:9px}
+#pkm-kanto-panel .stx .sg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;margin:5px 0}
+#pkm-kanto-panel .stx .sg span{background:#f5f1ec;border-radius:6px;padding:5px 4px;color:#514a49;font-size:8px}
+#pkm-kanto-panel .stx .sg b{color:#a13b47;font-size:8px}
+#pkm-kanto-panel .stx .sg em{display:block;font-style:normal;font-size:7px;color:#968984}
+#pkm-kanto-panel .stx .bd2{display:grid;grid-template-columns:1fr 1fr;gap:3px 8px;font-size:8px}
+#pkm-kanto-panel .stx .bd2 span{display:flex;align-items:center;gap:4px}
+#pkm-kanto-panel .stx .bd2 b{color:#857773;min-width:2em;font-size:8px}
+#pkm-kanto-panel .stx .bd2 i{flex:1;height:6px;border-radius:4px;background:#eadfd4;overflow:hidden}
+#pkm-kanto-panel .stx .bd2 u{display:block;height:100%;background:linear-gradient(90deg,#e6a55d,#d94b56)}
+#pkm-kanto-panel .held-img{width:16px!important;height:16px!important;object-fit:contain!important;vertical-align:middle;margin:0 2px!important;image-rendering:pixelated!important}
+#pkm-kanto-panel .pb-warn{margin:0 8px 6px;background:#fff4d6;color:#7a5b00;border-radius:8px;padding:6px 8px;font-size:8px}
+@media(max-width:740px){
+ #pkm-kanto-panel .panel-head{min-height:55px;padding:8px 9px}
+ #pkm-kanto-panel .header-actions{gap:4px}
+ #pkm-kanto-panel .head-action{min-width:30px;padding:0 6px}
+ #pkm-kanto-panel .tabbar{height:40px;padding:0 7px}
+ #pkm-kanto-panel .tab{min-width:76px}
+ #pkm-kanto-panel .panel-body{grid-template-columns:1fr;grid-template-rows:minmax(190px,.9fr) minmax(0,1.1fr)}
+ #pkm-kanto-panel .list-pane{border-right:0;border-bottom:1px solid #e7ddd3;padding:8px;min-height:0}
+ #pkm-kanto-panel .party-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+ #pkm-kanto-panel .slot-card{min-height:82px;grid-template-columns:43px minmax(0,1fr);padding:5px}
+ #pkm-kanto-panel .slot-card img{width:42px;height:42px}
+ #pkm-kanto-panel .slot-menu{right:4px;top:4px}
+ #pkm-kanto-panel .tiny-action{font-size:7px;padding:3px 4px}
+ #pkm-kanto-panel .detail-pane{padding:9px 10px 13px}
+ #pkm-kanto-panel .detail-hero>img{width:52px;height:52px}
+ #pkm-kanto-panel .detail-name b{font-size:13px}
+ #pkm-kanto-panel .facts{gap:4px}
+ #pkm-kanto-panel .fact{padding:5px 6px}
+ #pkm-kanto-panel .storage-grid{grid-template-columns:repeat(6,minmax(0,1fr));gap:4px}
+ #pkm-kanto-panel .box-cell{border-radius:7px}
+ #pkm-kanto-panel .panel-foot{height:auto;min-height:29px;flex-wrap:wrap;gap:2px 8px;padding:6px 10px}
+ #pkm-kanto-panel .dt-back{display:block}
+ #pkm-kanto-panel .detail-hero .dt-back{display:block}
+ #pkm-kanto-panel .head-action:not([data-op="mute"]){display:none}
+ #pkm-kanto-panel .head-action.reset-action{display:none}
+ #pkm-kanto-panel .detail-pane{width:auto!important}
 }
+/* Keep both preview panes visible in the host's compact mode as well. */
+#pkm-kanto-panel.pkm-panel-compact .pb-body{display:grid!important;grid-template-columns:1fr!important;grid-template-rows:minmax(190px,.9fr) minmax(0,1.1fr)!important;gap:0!important;padding:0 8px 8px!important;background:#f7f2ea!important}
+#pkm-kanto-panel.pkm-panel-compact .pb-right,#pkm-kanto-panel.pkm-panel-compact .pb-right.show{display:block!important;position:relative!important;inset:auto!important;width:auto!important;min-width:0!important;min-height:0!important;z-index:auto!important;box-shadow:none!important}
+#pkm-kanto-panel.pkm-panel-compact .party-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+#pkm-kanto-panel.pkm-panel-compact .storage-grid{grid-template-columns:repeat(6,minmax(0,1fr))!important;grid-auto-rows:minmax(50px,1fr)}
+#pkm-kanto-panel.pkm-panel-compact .dt-back{display:block!important}
 
 `;
 function ensureHostStyle() {
@@ -7050,8 +7122,8 @@ function placePanel() {
   const bb = y + h - Math.max(edge, safe('scrollPaddingBottom'));
   const aw = Math.max(1, rr - l), ah = Math.max(1, bb - t);
   // 窄屏也留出边缘空间，避免变成无法移动的全屏遮罩。
-  const pw = Math.min(compact ? aw * 0.96 : 760, aw);
-  let ph = Math.min(compact ? ah * 0.90 : 560, ah);
+  const pw = Math.min(compact ? aw * 0.96 : 960, aw);
+  let ph = Math.min(compact ? ah * 0.90 : 740, ah);
   let left = l + (aw - pw) / 2, top = t + (ah - ph) / 2;
   const ball = PD.getElementById('pkm-kanto-ball');
   if (!compact && ball) {
@@ -7283,34 +7355,37 @@ function panelStatusText(s, hpInfo = panelHpInfo(s)) {
 }
 function panelPartyMarkup(pkm) {
   const party = pkm.party.slots.map((s, i) => ({ s, i })).filter(x => hasMon(x.s));
-  const count = party.length;
   const cards = party.map(({ s, i }) => {
-    const hp = panelHpInfo(s), gender = panelGenderClass(s.gender), follows = !!(isFollowing(pkm,s.uid));
-    const item = s.item ? `<span class="held" title="${esc(s.item)}">${itemIcon(s.item).replace('class="pk-item"', 'class="pk-item held-img"')}</span>` : '';
-    const state = panelStatusText(s, hp);
-    return `<div class="slot ${s.isLead ? 'lead' : ''} ${hp.faint ? 'faint' : ''} ${panelSelection?.scope === 'party' && panelSelection.index === i ? 'sel' : ''}" role="button" tabindex="0" data-select="party" data-i="${i}" title="${esc(monName(s))} Lv.${esc(s.lv ?? '?')}">
-      ${s.isLead ? '<span class="lead-tag">首发</span>' : ''}${follows ? '<span class="fo">跟随中</span>' : ''}
-      ${spriteImg(s.species || s.name, { shiny: s.shiny })}
-      <div><div class="n"><span>${esc(monName(s))}</span><span class="g ${gender}">${genderMark(s.gender)}</span></div>
-      <div class="lvl">Lv.${esc(s.lv ?? '?')}${item ? ' ' + item : ''}</div>${panelHpMarkup(s)}</div>
-      ${state !== '—' ? `<span class="stt"${hp.faint ? ' style="background:#555"' : ''}>${esc(state)}</span>` : ''}
-    </div>`;
+    const hp = panelHpInfo(s), gender = panelGenderClass(s.gender), follows = !!isFollowing(pkm, s.uid);
+    const state = panelStatusText(s, hp), selected = panelSelection?.scope === 'party' && panelSelection.index === i;
+    const item = s.item ? ` · ${itemIcon(s.item).replace('class="pk-item"', 'class="pk-item held-img"')} ${esc(s.item)}` : '';
+    const hpWidth = Math.round(hp.ratio * 100);
+    return `<article class="slot-card ${selected ? 'selected' : ''} ${hp.faint ? 'faint' : ''}" role="button" tabindex="0" data-select="party" data-i="${i}" title="${esc(monName(s))} Lv.${esc(s.lv ?? '?')}">
+      <div class="slot-menu"><button type="button" class="tiny-action" data-op="lead" data-i="${i}" ${s.isLead ? 'disabled title="当前首发"' : 'title="设为首发"'}>${s.isLead ? '首发' : '设首发'}</button></div>
+      ${spriteImg(s.species || s.name, { shiny: s.shiny }, 'pk-spr party-sprite')}
+      <div class="mon-meta"><div class="mon-title"><b>${esc(monName(s))}</b>${s.isLead ? '<span class="tag lead">首发</span>' : ''}${follows ? '<span class="tag follow">跟随</span>' : ''}${hp.faint ? '<span class="tag faint">濒死</span>' : ''}</div>
+      <div class="level-line">Lv.${esc(s.lv ?? '?')} · ${genderMark(s.gender) || '性别未记录'}${item}</div>
+      <div class="hp-row"><span class="hp-bar"><i class="${hp.color}" style="width:${hpWidth}%"></i></span><span class="hp-text">HP ${esc(hp.label)}</span></div>
+      <div class="status-line">${esc(state === '—' ? '状态正常' : state)}</div></div>
+    </article>`;
   }).join('');
-  return `<div class="party">${cards}${count < 6 ? '<div class="slot empty">空位</div>' : ''}</div><div class="pk-note">呼吸恢复：每经过 1 游戏小时，队伍中未濒死的宝可梦恢复 1 HP；濒死须用伤药或到宝可梦中心复苏。</div>`;
+  const emptyCount = Math.max(0, 6 - party.length);
+  const empties = Array.from({length:emptyCount},()=>'<div class="slot-card empty" aria-label="队伍空位">空位</div>').join('');
+  return `<div class="party-grid party">${cards}${empties}</div><div class="pk-note">队伍 ${party.length}/6 · 呼吸恢复按原规则生效；点击伙伴可查看完整资料。</div>`;
 }
 function panelStorageMarkup(pkm) {
   const box = pkm.party.box || [];
   const pages = Math.max(1, Math.ceil((box.length + 1) / 30));
   panelBoxPage = Math.min(Math.max(0, panelBoxPage), pages - 1);
   const start = panelBoxPage * 30;
-  const cells = Array.from({ length: 30 }, (_, k) => {
-    const i = start + k, s = box[i];
-    if (!hasMon(s)) return '<div class="bx e"></div>';
-    const selected = panelSelection?.scope === 'box' && panelSelection.index === i;
-    const follows = !!(isFollowing(pkm,s.uid));
-    return `<div class="bx ${selected ? 'sel' : ''}" data-select="box" data-i="${i}" role="button" tabindex="0" title="${esc(monName(s))} Lv.${esc(s.lv ?? '?')}">${follows ? '<span class="fo">跟随</span>' : ''}${spriteImg(s.species || s.name, { shiny: s.shiny })}<small>${esc(s.lv ?? '?')}</small></div>`;
+  const cells = Array.from({length:30},(_,k)=>{
+    const i=start+k,s=box[i];
+    if(!hasMon(s)) return '<div class="box-cell bx empty e" aria-label="空仓位"></div>';
+    const selected=panelSelection?.scope==='box'&&panelSelection.index===i;
+    const follows=!!isFollowing(pkm,s.uid);
+    return `<div class="box-cell bx ${selected?'selected sel':''}" data-select="box" data-i="${i}" role="button" tabindex="0" title="${esc(monName(s))} Lv.${esc(s.lv??'?')}">${follows?'<span class="box-follow fo">跟随</span>':''}${spriteImg(s.species||s.name,{shiny:s.shiny},'pk-spr')}<small>Lv.${esc(s.lv??'?')}</small></div>`;
   }).join('');
-  return `<div class="box-top"><button type="button" data-page="-1" aria-label="上一页">◀</button><div class="bn">仓库 ${panelBoxPage + 1} <small>（${box.length} 只）</small></div><button type="button" data-page="1" aria-label="下一页">▶</button></div><div class="boxgrid">${cells}</div>`;
+  return `<div class="storage-grid boxgrid">${cells}</div><div class="pages"><button type="button" data-page="-1" ${pages===1?'disabled':''} aria-label="上一页">上一页</button><span>第 ${panelBoxPage+1} / ${pages} 页 · 仓库 ${box.length} 只 · 每页 30 格</span><button type="button" data-page="1" ${pages===1?'disabled':''} aria-label="下一页">下一页</button></div>`;
 }
 function panelAudioSettings() {
   let muted = false; try { muted = P.localStorage?.getItem('pkmKantoMute') === '1'; } catch (_) {}
@@ -7327,97 +7402,69 @@ function panelAudioSettings() {
 }
 function expPanelMarkup(mon){
   const lv=Math.max(1,Math.min(100,Math.floor(Number(mon.lv)||5)));
-  if(lv>=100)return '<div class="exp"><b style="width:100%"></b></div><small class="muted">Lv.100 · 已达最高等级</small>';
+  if(lv>=100)return '<div class="expbar"><i style="width:100%"></i></div><small class="expnote">Lv.100 · 已达最高等级</small>';
   const total=mon.exp!=null&&Number.isFinite(Number(mon.exp))?Number(mon.exp):lv**3;
   const start=lv**3,next=(lv+1)**3,earned=Math.max(0,total-start),need=next-start,pct=Math.max(0,Math.min(100,earned/need*100));
-  return `<div class="exp"><b style="width:${pct.toFixed(1)}%"></b></div><small class="muted">经验 ${Math.floor(earned)} / ${need} · 升级还需 ${Math.max(0,Math.ceil(next-total))}</small>`;
+  return `<div class="expbar"><i style="width:${pct.toFixed(1)}%"></i></div><small class="expnote">经验 ${Math.floor(earned)} / ${need} · 升级还需 ${Math.max(0,Math.ceil(next-total))}</small>`;
 }
 function panelDetailMarkup(pkm) {
-  const selection = panelSelection;
-  const empty = `<div class="dt-empty">🔴<br>选择一只宝可梦<br>查看它的详细资料</div>`;
-  if (!selection) return empty + panelAudioSettings();
-  const list = selection.scope === 'party' ? pkm.party.slots : pkm.party.box;
-  const s = list?.[selection.index];
-  if (!hasMon(s)) { panelSelection = null; return empty + panelAudioSettings(); }
-  const where = selection.scope === 'party' ? 'party' : 'box';
-  const hp = panelHpInfo(s), status = panelStatusText(s, hp);
-  const species = zhSpecies(speciesId(s.species || s.name)) || s.species || s.name || '—';
-  const gender = genderMark(s.gender) || '—';
-  const itemHtml = s.item ? `<span title="${esc(s.item)}">${itemIcon(s.item).replace('class="pk-item"', 'class="pk-item held-img"')} ${esc(s.item)}</span>` : '无';
-  const hpLabel = hp.max ? `${Math.round(hp.hp ?? hp.max)}/${hp.max}` : (s.hp == null ? '—/—' : `${esc(s.hp)}/—`);
-  const moves = (s.moves || []).filter(Boolean);
-  const moveMarkup = moves.length ? moves.map(m => {
-    const id = moveIdOf(m), label = id ? zhMove(id) : m, pp = ppText(s, m);
-    return `<div style="background:linear-gradient(135deg,#7188a8,#4c6486)"><span>${esc(label)}</span><small>${pp ? `PP ${esc(pp)}` : 'PP —'}</small></div>`;
-  }).join('') : '<div class="mv-empty">未记录招式</div>';
-  const pCount = pkm.party.slots.filter(hasMon).length;
-  const voice = voiceRow(s, where, selection.index);
-  const acts = where === 'party'
-    ? `${s.isLead ? '' : `<button type="button" data-op="lead" data-i="${selection.index}">设为首发</button>`}<button type="button" data-op="follow" data-i="${selection.index}" data-w="party">${isFollowing(pkm,s.uid) ? '收回球里' : '出球跟随'}</button>${pCount > 1 ? `<button type="button" class="ghost" data-op="tobox" data-i="${selection.index}">存进电脑</button>` : ''}`
-    : `<button type="button" data-op="toparty" data-i="${selection.index}" ${pCount >= 6 ? 'disabled title="队伍已满 6 只"' : ''}>加入队伍</button><button type="button" data-op="follow" data-i="${selection.index}" data-w="box">${isFollowing(pkm,s.uid) ? '收回' : '跟随'}</button>`;
-  const nature = s.nature ? (natureZh(s.nature) || zhNature(s.nature) || s.nature) : '未记录';
-  const ability = s.ability ? (zhAbility(s.ability) || s.ability) : '未记录';
-  const location = s.met ? s.met : '未记录';
-  const speciesSub = String(monName(s)) === String(species) ? '' : species;
-  const subtitle = [speciesSub, `Lv.${s.lv ?? '?'}`].filter(Boolean).join(' · ');
-  return `<div class="dt-top"><button type="button" class="dt-back" data-op="back">返回</button><div class="dt-ball">${esc(s.ball || '球种未记录')}</div>
-    ${spriteImg(s.species || s.name, { shiny: s.shiny }, 'pk-spr dt-sprite')}<div class="dt-name">${esc(monName(s))}<small>${esc(subtitle)}</small></div>
-    <div class="dt-flags"><span>${esc(hpLabel)} HP</span><span>${esc(gender)}</span>${s.shiny ? '<span class="gold">✨ 异色</span>' : ''}${s.isLead ? '<span class="gold">首发</span>' : ''}</div>
-    <div style="padding:0 12px 8px">${panelHpMarkup(s)}</div></div>
-    <div class="dt-sec"><h5>资料</h5><div class="kv"><div><span>宝可梦</span>${esc(species)}</div><div><span>等级</span>Lv.${esc(s.lv ?? '?')}</div><div><span>HP</span>${esc(hpLabel)}</div><div><span>状态</span>${esc(status)}</div><div><span>性别</span>${esc(gender)}</div><div><span>位置</span>${where === 'party' ? `队伍第${selection.index + 1}格` : `仓库第${selection.index + 1}格`}</div><div><span>携带物品</span>${itemHtml}</div><div><span>精灵球</span>${esc(s.ball || '未记录')}</div><div class="wide"><span>相遇记录</span>${esc(location)}</div></div></div>
-    <div class="dt-sec"><h5>经验</h5>${expPanelMarkup(s)}</div>
-    <div class="dt-sec"><h5>招式</h5><div class="mv">${moveMarkup}</div></div>
-    <div class="dt-sec"><h5>能力与个体资料</h5><div class="kv"><div><span>特性</span>${esc(ability)}</div><div><span>性格</span>${esc(nature)}</div><div class="wide"><span>能力值说明</span>按等级、种族值、个体值和性格计算；新伙伴或治疗后的空 HP 按满血显示</div></div>${statBlock(s)}</div>
-    <div class="dt-sec"><h5>配音</h5>${voice}</div>
+  const selection=panelSelection;
+  const empty='<div class="detail-hero"><div class="detail-name"><b>选择一只宝可梦</b><small>点击队伍或仓库里的伙伴查看详细资料</small></div></div>';
+  if(!selection)return empty+panelAudioSettings();
+  const list=selection.scope==='party'?pkm.party.slots:pkm.party.box,s=list?.[selection.index];
+  if(!hasMon(s)){panelSelection=null;return empty+panelAudioSettings();}
+  const where=selection.scope==='party'?'party':'box',hp=panelHpInfo(s),status=panelStatusText(s,hp);
+  const species=zhSpecies(speciesId(s.species||s.name))||s.species||s.name||'—',gender=genderMark(s.gender)||'—';
+  const itemHtml=s.item?`<span title="${esc(s.item)}">${itemIcon(s.item).replace('class="pk-item"','class="pk-item held-img"')} ${esc(s.item)}</span>`:'无';
+  const hpLabel=hp.label,moves=(s.moves||[]).filter(Boolean);
+  const moveMarkup=moves.length?moves.map(m=>{const id=moveIdOf(m),label=id?zhMove(id):m,pp=ppText(s,m);return `<div class="move"><span>${esc(label)}</span><small>${pp?`PP ${esc(pp)}`:'PP —'}</small></div>`;}).join(''):'<div class="move"><span>未记录招式</span><small>—</small></div>';
+  const pCount=pkm.party.slots.filter(hasMon).length,voice=voiceRow(s,where,selection.index);
+  const acts=where==='party'
+    ? `${s.isLead?'':`<button type="button" class="action" data-op="lead" data-i="${selection.index}">设为首发</button>`}<button type="button" class="action primary" data-op="follow" data-i="${selection.index}" data-w="party">${isFollowing(pkm,s.uid)?'收回随行':'出球跟随'}</button>${pCount>1?`<button type="button" class="action" data-op="tobox" data-i="${selection.index}">存进电脑</button>`:''}`
+    : `<button type="button" class="action primary" data-op="toparty" data-i="${selection.index}" ${pCount>=6?'disabled title="队伍已满 6 只"':''}>加入队伍</button><button type="button" class="action" data-op="follow" data-i="${selection.index}" data-w="box">${isFollowing(pkm,s.uid)?'收回':'跟随（先入队）'}</button>`;
+  const nature=s.nature?(natureZh(s.nature)||zhNature(s.nature)||s.nature):'未记录';
+  const ability=s.ability?(zhAbility(s.ability)||s.ability):'未记录';
+  const location=s.met||'未记录',speciesSub=String(monName(s))===String(species)?'':species;
+  const subtitle=[speciesSub,`Lv.${s.lv??'?'}`].filter(Boolean).join(' · ');
+  return `<div class="detail-hero"><button type="button" class="dt-back" data-op="back">返回</button>${spriteImg(s.species||s.name,{shiny:s.shiny},'pk-spr dt-sprite')}<div class="detail-name"><b>${esc(monName(s))}</b><small>${esc(subtitle)} · ${esc(s.ball||'球种未记录')}</small><div class="detail-flags"><span class="tag">HP ${esc(hpLabel)}</span><span class="tag">${esc(gender)}</span>${s.shiny?'<span class="tag lead">✨ 异色</span>':''}${s.isLead?'<span class="tag lead">首发</span>':''}${isFollowing(pkm,s.uid)?'<span class="tag follow">跟随中</span>':''}</div></div><div class="detail-hp">${panelHpMarkup(s)}</div></div>
+    <section class="detail-section"><h5 class="section-title">基础资料</h5><div class="facts"><div class="fact"><span>宝可梦</span>${esc(species)}</div><div class="fact"><span>等级</span>Lv.${esc(s.lv??'?')}</div><div class="fact"><span>HP / 状态</span>${esc(hpLabel)} · ${esc(status)}</div><div class="fact"><span>性别 / 位置</span>${esc(gender)} · ${where==='party'?'队伍':'仓库'}第${selection.index+1}格</div><div class="fact"><span>特性 / 性格</span>${esc(ability)} · ${esc(nature)}</div><div class="fact"><span>携带物品</span>${itemHtml}</div><div class="fact wide"><span>相遇记录</span>${esc(location)}</div><div class="fact wide"><span>精灵球</span>${esc(s.ball||'未记录')}</div></div></section>
+    <section class="detail-section"><h5 class="section-title">经验</h5>${expPanelMarkup(s)}</section>
+    <section class="detail-section"><h5 class="section-title">招式</h5><div class="moves">${moveMarkup}</div></section>
+    <section class="detail-section"><h5 class="section-title">能力与个体资料</h5><div class="facts"><div class="fact"><span>特性</span>${esc(ability)}</div><div class="fact"><span>性格</span>${esc(nature)}</div><div class="fact wide"><span>说明</span>能力值按等级、种族值、个体值和性格计算；空 HP 按满血显示。</div></div>${statBlock(s)}</section>
+    <section class="detail-section"><h5 class="section-title">配音</h5><div class="voice-box">${voice}</div></section>
     ${panelAudioSettings()}
-    <div class="acts">${acts}</div>`;
+    <div class="actions">${acts}</div>`;
 }
 function panelSelect(scope, index) {
   panelSelection = { scope, index };
   renderPanel();
 }
 function renderPanel() {
-  let el = PD.getElementById('pkm-kanto-panel');
-  if (!el) {
-    el = PD.createElement('div'); el.id = 'pkm-kanto-panel'; el.className = 'pkb show'; PD.documentElement.appendChild(el); // outside transformed/zoomed host body
-    el.addEventListener('click', onPanelClick);
-    installPanelDrag(el);
-    el.addEventListener('keydown', e => {
-      if (e.key !== 'Enter' && e.key !== ' ') return;
-      const pick = e.target.closest?.('[data-select]'); if (!pick) return;
-      e.preventDefault(); panelSelect(pick.dataset.select, Number(pick.dataset.i));
-    });
-    el.addEventListener('input', onPanelInput); el.addEventListener('change', onPanelChange);
+  let el=PD.getElementById('pkm-kanto-panel');
+  if(!el){
+    el=PD.createElement('div');el.id='pkm-kanto-panel';el.className='pkb show';el.setAttribute('role','dialog');el.setAttribute('aria-modal','true');el.setAttribute('aria-label','宝可梦队伍栏');PD.documentElement.appendChild(el);
+    el.addEventListener('click',onPanelClick);installPanelDrag(el);
+    el.addEventListener('keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;const pick=e.target.closest?.('[data-select]');if(!pick)return;e.preventDefault();panelSelect(pick.dataset.select,Number(pick.dataset.i));});
+    el.addEventListener('input',onPanelInput);el.addEventListener('change',onPanelChange);
   }
   el.classList.add('show');
-  const pkm = readPkm();
-  const count = pkm.party.slots.filter(hasMon).length;
-  if (panelSelection) {
-    const source = panelSelection.scope === 'party' ? pkm.party.slots : pkm.party.box;
-    if (!hasMon(source?.[panelSelection.index])) panelSelection = null;
-  }
-  const viewKey=JSON.stringify([panelTab,panelBoxPage,panelSelection]);
-  const keepScroll=el.dataset.viewKey===viewKey;
+  const pkm=readPkm(),count=pkm.party.slots.filter(hasMon).length;
+  if(panelSelection){const source=panelSelection.scope==='party'?pkm.party.slots:pkm.party.box;if(!hasMon(source?.[panelSelection.index]))panelSelection=null;}
+  const viewKey=JSON.stringify([panelTab,panelBoxPage,panelSelection]),keepScroll=el.dataset.viewKey===viewKey;
   const scrolls=keepScroll?['.pb-right','.party','.boxgrid'].map(q=>[q,el.querySelector(q)?.scrollTop||0]):[];
-  const pageScroll=PD.scrollingElement?{x:PD.scrollingElement.scrollLeft,y:PD.scrollingElement.scrollTop}:null;
-  el.dataset.viewKey=viewKey;
-  let muted = false; try { muted = P.localStorage?.getItem('pkmKantoMute') === '1'; } catch (_) {}
-  const resetIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-6.6 8-13A8 8 0 1 0 4 9c0 6.4 8 13 8 13Z" fill="#ff557c"/><circle cx="12" cy="9" r="2.5" fill="#fff"/></svg>';
-  const soundIcon = muted
-    ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3Z" fill="currentColor"/><path d="m16 9 5 6m0-6-5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
-    : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3Z" fill="currentColor"/><path d="M16 8a6 6 0 0 1 0 8M18.5 5.5a9.5 9.5 0 0 1 0 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
-  const closeIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>';
-  el.innerHTML = `<div class="pb-head"><div class="pb-drag-grip" title="按住拖动队伍栏" aria-label="拖动队伍栏">⠿</div><h3><i></i>宝可梦</h3><div class="pb-tools"><div class="pb-tabs"><button type="button" data-tab="party" class="${panelTab === 'party' ? 'on' : ''}">队伍 ${count}/6</button><button type="button" data-tab="box" class="${panelTab === 'box' ? 'on' : ''}">仓库</button></div>
-    <div class="pb-icons">${isCenterLocation(centerLocation(pkm))?'<button type="button" class="pb-x" data-op="center-heal" title="宝可梦中心：恢复全队 HP、状态与 PP" aria-label="宝可梦中心治疗全队">✚</button>':''}<button type="button" class="pb-x" data-op="resetpos" title="把精灵球放回右下角" aria-label="复位精灵球">${resetIcon}</button><button type="button" class="pb-x" data-op="mute" title="跟随宝可梦的叫声" aria-label="切换叫声">${soundIcon}</button><button type="button" class="pb-x" data-op="close" aria-label="关闭">${closeIcon}</button></div></div></div>
-    <div class="pb-body"><div class="pb-left">${panelTab === 'party' ? panelPartyMarkup(pkm) : panelStorageMarkup(pkm)}</div><div class="pb-right ${panelSelection ? 'show' : ''}">${panelDetailMarkup(pkm)}</div></div>
-    <div class="pb-foot"><span>点击宝可梦查看详情</span><span class="pf-r">队伍 ${count}/6 · 仓库 ${pkm.party.box.length}</span></div><div class="toast"></div>`;
+  const pageScroll=PD.scrollingElement?{x:PD.scrollingElement.scrollLeft,y:PD.scrollingElement.scrollTop}:null;el.dataset.viewKey=viewKey;
+  let muted=false;try{muted=P.localStorage?.getItem('pkmKantoMute')==='1';}catch(_){}
+  const resetIcon='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-6.6 8-13A8 8 0 1 0 4 9c0 6.4 8 13 8 13Z" fill="#ff557c"/><circle cx="12" cy="9" r="2.5" fill="#fff"/></svg>';
+  const soundIcon=muted?'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3Z" fill="currentColor"/><path d="m16 9 5 6m0-6-5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>':'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3Z" fill="currentColor"/><path d="M16 8a6 6 0 0 1 0 8M18.5 5.5a9.5 9.5 0 0 1 0 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+  const closeIcon='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>';
+  el.innerHTML=`<header class="panel-head pb-head"><span class="drag-grip pb-drag-grip" title="拖动面板" aria-label="拖动队伍栏">⠿</span><span class="head-ball" aria-hidden="true"></span><div class="title"><b>宝可梦队伍</b><small>队伍、仓库与伙伴资料</small></div><div class="header-actions"><button type="button" class="head-action pb-x" data-op="center-heal" ${isCenterLocation(centerLocation(pkm))?'':'disabled'} title="仅在宝可梦中心治疗全队">治疗</button><button type="button" class="head-action pb-x reset-action" data-op="resetpos" title="把精灵球放回右下角">${resetIcon}</button><button type="button" class="head-action pb-x" data-op="mute" title="切换跟随叫声">${muted?'声音：关':'声音：开'}</button></div><button type="button" class="close-btn pb-x" data-op="close" aria-label="关闭队伍栏">×</button></header>
+  <nav class="tabbar"><button type="button" class="tab ${panelTab==='party'?'active on':''}" data-tab="party">队伍 <span class="tab-count">${count}/6</span></button><button type="button" class="tab ${panelTab==='box'?'active on':''}" data-tab="box">电脑仓库 <span class="tab-count">${pkm.party.box.length}</span></button></nav>
+  <div class="panel-body pb-body"><section class="list-pane pb-left"><div class="pane-top"><strong>${panelTab==='party'?'队伍伙伴':'电脑仓库'}</strong><span>${panelTab==='party'?'选择宝可梦查看详情':`第 ${panelBoxPage+1} 页 · 每页 30 格`}</span></div>${panelTab==='party'?panelPartyMarkup(pkm):panelStorageMarkup(pkm)}</section><section class="detail-pane pb-right ${panelSelection?'show':''}">${panelDetailMarkup(pkm)}</section></div>
+  <footer class="panel-foot pb-foot"><span>点击伙伴查看详细资料</span><span>队伍 ${count}/6 · 仓库 ${pkm.party.box.length} 只</span></footer><div class="toast"></div>`;
   placePanel();
   const restoreScroll=()=>{if(!keepScroll||!el.isConnected||el.dataset.viewKey!==viewKey)return;for(const[q,y]of scrolls){const n=el.querySelector(q);if(n)n.scrollTop=y;}};
-  restoreScroll();
-  if(keepScroll&&pageScroll&&PD.scrollingElement){PD.scrollingElement.scrollTop=pageScroll.y;PD.scrollingElement.scrollLeft=pageScroll.x;}
-  P.requestAnimationFrame(restoreScroll);
-  const mons = panelTab === 'party' ? pkm.party.slots.filter(hasMon) : pkm.party.box.filter(hasMon);
-  probePanel(mons);
+  restoreScroll();if(keepScroll&&pageScroll&&PD.scrollingElement){PD.scrollingElement.scrollTop=pageScroll.y;PD.scrollingElement.scrollLeft=pageScroll.x;}P.requestAnimationFrame(restoreScroll);
+  const mons=panelTab==='party'?pkm.party.slots.filter(hasMon):pkm.party.box.filter(hasMon);probePanel(mons);
 }
 // 叫声音量：拖动滑块实时记下，松手后用跟随（或首发）的宝可梦试听一声
 function onPanelInput(e) {
