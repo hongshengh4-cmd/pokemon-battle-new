@@ -8,6 +8,7 @@ installSpriteRecovery(document);
   const $ = id => document.getElementById(id);
   const normId = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   let battle = null, moveCache = {}, selectedMechanic = null, animating = false;
+  let doubleActionSlot = 0, doubleActions = [null, null], pendingDoubleTarget = null;
   let menuView = 'home', commandMessage = '', encounterId = '', collectionLimit = 48, announcedBattle = null;
   let worldStorage = null; try { worldStorage = window.localStorage; } catch (_) {}
   let worldStore = new PKMWorldSave.Store(new URLSearchParams(location.search).has('fxpreview') ? memoryStorage() : worldStorage);
@@ -15,7 +16,7 @@ installSpriteRecovery(document);
   const EMBED = new URLSearchParams(location.search).has('embed');
   if (EMBED) document.documentElement.classList.add('embed');
   let dataReady = false, pendingHostConfig = null, hostTag = null, hostMode = false;
-  const APP_VERSION = '1.3.40p';
+  const APP_VERSION = '1.3.41d';
   let formatTag = '', formatRule = ''; // v1.3.8：角色卡发来的赛制（例：3v3、3只 vs 1只），显示在行动菜单的标签上
   let typeLabel = ''; // v1.3.9：角色卡发来的对战类型（道馆战 / 训练家对战 / 劲敌对战 / 火箭队……），标签第一段
   // 宿主模式：球袋来自角色卡变量（MVU），只存在本页内存里，不读写本机存档。
@@ -158,7 +159,7 @@ installSpriteRecovery(document);
     const box = img?.parentElement;
     if (!box || !img.naturalWidth || !img.naturalHeight || !img.clientHeight) return;
     const mapped = SPRITES[img.dataset.species];
-    const back = box.id === 'p-sprite';
+    const back = box.id === 'p-sprite' || box.closest('.fighter')?.dataset.side === '0';
     const feet = SPRITE_FEET[url] ?? mapped?.[back ? 'backFeet' : 'frontFeet'] ?? .94;
     const feetX = SPRITE_FEETX[url] ?? mapped?.[back ? 'backFeetX' : 'frontFeetX'] ?? .5;
     const style = getComputedStyle(img);
@@ -274,9 +275,27 @@ installSpriteRecovery(document);
   }
   function snapshotBattle() {
     if (!battle) return null;
-    return { weather: battle.weather, field: { ...battle.field }, active: battle.active.slice(), winner: battle.winner, teams: battle.teams.map(team => team.map(snapPokemon)) };
+    return { weather: battle.weather, field: { ...battle.field }, active: battle.active.slice(), activeSlots: battle.activeSlots.map(x => x.slice()), winner: battle.winner, teams: battle.teams.map(team => team.map(snapPokemon)) };
   }
-  const spriteEl = side => $(side === 0 ? 'p-sprite' : 'e-sprite');
+  function ensureDoubleFighters() {
+    for (const side of [0, 1]) {
+      const selector = side === 0 ? '.fighter.player' : '.fighter.enemy';
+      const first = document.querySelector(selector);
+      if (!first || first.dataset.doubleReady) continue;
+      first.dataset.side = String(side); first.dataset.slot = '0'; first.dataset.doubleReady = '1';
+      first.querySelector('.sprite')?.setAttribute('data-role', 'sprite');
+      const second = first.cloneNode(true);
+      second.dataset.side = String(side); second.dataset.slot = '1'; second.dataset.doubleReady = '1'; second.classList.add('double-extra');
+      second.querySelector('.sprite')?.setAttribute('data-role', 'sprite');
+      second.querySelector('.mechanic-slot')?.remove();
+      second.querySelector('.teamrow')?.remove();
+      second.querySelectorAll('[id]').forEach(el => { el.id = el.id === 'mechanics' ? 'mechanics-slot-2' : `${el.id}-2`; });
+      first.after(second);
+    }
+  }
+  ensureDoubleFighters();
+  const fighterEl = (side, slot = 0) => document.querySelector(`.fighter[data-side="${side}"][data-slot="${slot}"]`);
+  const spriteEl = (side, slot = 0) => fighterEl(side, slot)?.querySelector('[data-role="sprite"]');
   function addClassTemp(el, className, ttl = 900) {
     if (!el) return;
     el.classList.remove(className);
@@ -693,8 +712,8 @@ installSpriteRecovery(document);
     addClassTemp(img, 'fx-cast', 540);
   }
   // 退场：精灵闪烁着沉降消失（参考角色卡的节奏，自研实现），随后保持隐藏直到被换下
-  function playRecall(side) {
-    const img = spriteEl(side)?.querySelector('img');
+  function playRecall(side, slot = 0) {
+    const img = spriteEl(side, slot)?.querySelector('img');
     if (!img) return;
     img.classList.remove('fx-gone', 'fx-blip');
     void img.offsetWidth;
@@ -702,8 +721,8 @@ installSpriteRecovery(document);
     setTimeout(() => { img.classList.remove('fx-blip'); img.classList.add('fx-gone'); }, 730);
   }
   // 登场：我方自下而上弹簧升起、敌方自上而下坠落站稳（参考角色卡的节奏，自研实现）
-  function playSendOut(side) {
-    const img = spriteEl(side)?.querySelector('img');
+  function playSendOut(side, slot = 0) {
+    const img = spriteEl(side, slot)?.querySelector('img');
     if (!img) return;
     const cls = side === 0 ? 'fx-enter-rise' : 'fx-enter-drop';
     img.classList.remove('fx-gone', 'fx-enter-rise', 'fx-enter-drop');
@@ -711,8 +730,54 @@ installSpriteRecovery(document);
     img.classList.add(cls);
     setTimeout(() => img.classList.remove(cls), side === 0 ? 600 : 700);
   }
+  function playDoubleAnimations(before, chosen, logStart) {
+    const afterSnap = snapshotBattle(); if (!before || !afterSnap) return 1300;
+    const duration = 1250, actions = chosen?.actions || [], turnLogs = battle.log.slice(logStart || 0);
+    const animateBox = (side, slot, cls, ms = 700) => {
+      const img = spriteEl(side, slot)?.querySelector('img'); if (img) addClassTemp(img, cls, ms);
+    };
+    for (const side of [0, 1]) for (let slot = 0; slot < 2; slot++) {
+      const oldIndex = before.activeSlots?.[side]?.[slot], nextIndex = afterSnap.activeSlots?.[side]?.[slot];
+      if (oldIndex == null || oldIndex < 0) continue;
+      const oldMon = before.teams[side]?.[oldIndex], nextMon = nextIndex == null ? null : afterSnap.teams[side]?.[nextIndex];
+      if (oldIndex !== nextIndex) {
+        // After render the sprite box already contains the entrant; recalling it would hide the new sprite.
+        setTimeout(() => playSendOut(side, slot), 230);
+      } else if (oldMon && nextMon) {
+        if (!oldMon.fainted && nextMon.fainted) setTimeout(() => playRecall(side, slot), 150);
+        else if (nextMon.hp < oldMon.hp) setTimeout(() => animateBox(side, slot, 'fx-hit'), 260);
+        else if (nextMon.hp > oldMon.hp) setTimeout(() => animateBox(side, slot, 'fx-heal'), 260);
+        const img = spriteEl(side, slot)?.querySelector('img');
+        if (img && nextMon.isMega && !oldMon.isMega) { setTimeout(() => addClassTemp(img, 'evo-burst', 380), 80); setTimeout(() => addClassTemp(img, 'evo-finish', 800), 390); }
+        if (img && nextMon.dynamaxed && !oldMon.dynamaxed) setTimeout(() => addClassTemp(img, 'dynamax-burst', 900), 80);
+        if (img && nextMon.terastallized && !oldMon.terastallized) setTimeout(() => addClassTemp(img, 'tera-burst', 900), 80);
+        if (nextMon.status && nextMon.status !== oldMon.status) addFxAt(side, slot, 'fx-status', PKMBattle.STATUS_NAMES[nextMon.status] || '异常', 1200);
+      }
+    }
+    for (let slot = 0; slot < 2; slot++) {
+      const oldIndex = before.activeSlots?.[1]?.[slot], enemy = oldIndex == null ? null : before.teams[1]?.[oldIndex];
+      if (enemy && turnLogs.some(line => line.includes(`${enemy.rawName} 使用了`))) setTimeout(() => animateBox(1, slot, 'fx-attack', 650), 150 + slot * 90);
+    }
+    actions.forEach((action, slot) => {
+      if (action?.kind !== 'move') return;
+      const at = 120 + slot * 110;
+      setTimeout(() => {
+        animateBox(0, slot, action.mechanic === 'z' ? 'z-charge' : action.category === 'Physical' ? 'fx-attack' : 'fx-cast', action.mechanic === 'z' ? 1050 : 650);
+        const targetSide = action.target?.side ?? 1, targetSlot = action.target?.slot ?? 0;
+        if (targetSide === 0 && targetSlot === slot) return;
+        setTimeout(() => animateBox(targetSide, targetSlot, 'fx-hit', 700), 300);
+      }, at);
+    });
+    return duration;
+  }
+  function addFxAt(side, slot, className, text = '', ttl = 1100) {
+    const box = spriteEl(side, slot); if (!box) return;
+    const fx = document.createElement('div'); fx.className = `fx ${className}`; if (text) fx.textContent = text;
+    box.appendChild(fx); setTimeout(() => fx.remove(), ttl);
+  }
   function playTurnAnimations(before, chosen, logStart) {
     if (!before || !battle) return;
+    if (battle.double) return playDoubleAnimations(before, chosen, logStart);
     const afterSnap = snapshotBattle();
     if (!afterSnap) return;
     const logs = battle.log.slice(logStart || 0);
@@ -875,18 +940,20 @@ installSpriteRecovery(document);
     const view = menuView;
     for (const [id, value] of [['command-home','home'],['command-fight-panel','fight'],['command-switch-panel','switch'],['command-balls-panel','balls'],['command-end','end']]) $(id).hidden = view !== value;
     $('command-title').textContent = animating ? '行动进行中…' : ended ? (battle.outcome === 'captured' ? '收服成功！' : '本场战斗已结束')
-      : battle.pendingSwitch !== null ? '请选择下一只出战宝可梦' : ({home: `${displayPokemonName(battle.cur(0))}，要做什么？`, fight: `${displayPokemonName(battle.cur(0))} · 选择招式`, switch: '选择出战宝可梦', balls: '选择精灵球'}[view]);
+      : battle.pendingSwitch !== null ? '请选择下一只出战宝可梦' : ({home: `${displayPokemonName(battle.cur(0))}，要做什么？`, fight: `${displayPokemonName(battle.cur(0, battle.double ? doubleActionSlot : 0))} · 选择招式`, switch: battle.double && battle.pendingSwitch === null ? `为${displayPokemonName(battle.cur(0, doubleActionSlot))}选择替补` : '选择出战宝可梦', balls: '选择精灵球'}[view]);
     const isWild = battle.encounterType === 'wild';
-    $('encounter-tag').textContent = `${typeLabel || (isWild ? '野生遭遇' : '训练家对战')}${formatTag ? ' · ' + formatTag : ''} · 第 ${battle.turnCount + (ended ? 0 : 1)} 回合`;
+    $('encounter-tag').textContent = `${typeLabel || (isWild ? '野生遭遇' : '训练家对战')}${formatTag ? ' · ' + formatTag : ''}${battle.double ? ' · 双打' : ''} · 第 ${battle.turnCount + (ended ? 0 : 1)} 回合`;
     $('encounter-tag').title = formatRule || '';
     $('encounter-tag').classList.toggle('wild', isWild);
     $('command-back').hidden = view === 'home' || view === 'end' || battle.pendingSwitch !== null;
     $('command-back').disabled = animating;
     for (const id of ['command-fight','command-switch','command-balls']) $(id).disabled = animating || ended;
     $('capture-availability').textContent = isWild ? '投出精灵球 / 捕获伙伴' : '训练家的宝可梦不可捕获';
-    $('command-balls').classList.toggle('capture-unavailable', !isWild);
-    const mst = animating || ended ? null : mechanicState(battle.cur(0));
-    const fightHint = mst?.state === 'armed' ? `已装备${mst.name}：选择招式后发动${mst.short}；再点道具可取消。` : mst?.state === 'ready' ? `点击血条框左侧的${mst.name}可${mst.short}；选中招式后才开始行动。` : '返回不消耗回合；选中招式后才开始行动。';
+    $('command-balls').classList.toggle('capture-unavailable', !isWild || battle.double);
+    $('command-balls').disabled = $('command-balls').disabled || !!battle.double;
+    const current = battle.cur(0, battle.double ? doubleActionSlot : 0) || battle.cur(0);
+    const mst = animating || ended ? null : mechanicState(current);
+    const fightHint = pendingDoubleTarget ? '请选择本次招式的目标；可以点上方出战位切换行动者。' : battle.double ? `双打：请为${displayPokemonName(current)}选择行动${doubleActions.some(Boolean) ? '；再为另一只选择行动' : ''}。${mst?.state === 'armed' ? `已装备${mst.name}。` : ''}` : mst?.state === 'armed' ? `已装备${mst.name}：选择招式后发动${mst.short}；再点道具可取消。` : mst?.state === 'ready' ? `点击血条框左侧的${mst.name}可${mst.short}；选中招式后才开始行动。` : '返回不消耗回合；选中招式后才开始行动。';
     $('command-status').textContent = commandMessage || (animating ? '请等待当前演出结束。' : view === 'home' ? '先选择行动，再决定招式、队友或精灵球。' : view === 'fight' ? fightHint : '');
     if (ended && hostMode) $('command-end-text').textContent = battle.outcome === 'captured'
       ? `收服了${displayPokemonName(battle.cur(1))}！结果已回传角色卡，手机返回／电脑按 Esc 退出后继续。`
@@ -1108,38 +1175,42 @@ installSpriteRecovery(document);
   }
   function render() {
     if (!battle) return;
-    const me = battle.cur(0), foe = battle.cur(1);
-    const fill = (p, prefix) => {
-      $(prefix + '-name').textContent = displayPokemonName(p) + (p.status ? `（${PKMBattle.STATUS_NAMES[p.status] || p.status}）` : '');
-      const ab = PKMMechanics.abilityInfo(p.ability);
-      const it = p.item ? PKMMechanics.itemInfo(p.item) : null;
+    if (battle.double && (!battle.cur(0, doubleActionSlot) || battle.cur(0, doubleActionSlot).fainted)) {
+      const nextSlot = [0, 1].find(slot => battle.cur(0, slot) && !battle.cur(0, slot).fainted);
+      if (nextSlot !== undefined) doubleActionSlot = nextSlot;
+    }
+    const activePlayer = battle.cur(0, battle.double ? doubleActionSlot : 0) || battle.cur(0);
+    const me = activePlayer, foe = battle.cur(1);
+    const arena = document.querySelector('.arena');
+    arena.classList.toggle('is-doubles', !!battle.double);
+    const fill = (fighter, p, side, slot) => {
+      const info = fighter?.querySelector('.fighter-info');
+      if (!fighter || !p || p.fainted) { if (fighter) fighter.hidden = true; return; }
+      fighter.hidden = false;
+      const name = info.querySelector('.name'), sub = info.querySelector('.sub');
+      const hp = info.querySelector('.hpfill'), hpText = info.querySelector('.hptext');
+      name.textContent = displayPokemonName(p) + (p.status ? `（${PKMBattle.STATUS_NAMES[p.status] || p.status}）` : '');
+      const ab = PKMMechanics.abilityInfo(p.ability), it = p.item ? PKMMechanics.itemInfo(p.item) : null;
       const badges = [];
-      if (p.captured) badges.push('已收服');
-      if (p.isMega) badges.push('超级进化');
+      if (p.captured) badges.push('已收服'); if (p.isMega) badges.push('超级进化');
       if (p.terastallized) badges.push(`太晶·${zhType(p.teraType)}`);
       if (p.dynamaxed) badges.push(`${p.dynamaxForm === 'gmax' ? '超极巨' : '极巨'}·${p.dynamaxTurns}回合`);
       const speciesText = p.hasNickname ? ` · ${zhSpecies(p.speciesId, p.speciesName)}` : '';
-      $(prefix + '-sub').textContent = `等级 ${p.level} · ${p.types.map(zhType).join('/')} · 特性 ${ab?.name || zhAbility(p.ability)}${speciesText}${badges.length ? ' · ' + badges.join(' · ') : ''}${p.choiceLockedMove ? ' · 锁定中' : ''}`;
-      $(prefix + '-sub').title = `等级 ${p.level} · ${p.types.map(zhType).join('/')} · ${zhSpecies(p.speciesId, p.speciesName)} · 特性 ${ab?.name || zhAbility(p.ability)}${it ? ' · 道具 ' + displayItemName(it) : ''}`;
-      const ratio = p.hp / p.maxHp;
-      const bar = $(prefix + '-hp');
-      bar.style.width = (ratio * 100).toFixed(1) + '%';
-      bar.className = hpClass(ratio);
-      $(prefix + '-hptext').textContent = `体力 ${p.hp} / ${p.maxHp}`;
+      sub.textContent = `等级 ${p.level} · ${p.types.map(zhType).join('/')} · 特性 ${ab?.name || zhAbility(p.ability)}${speciesText}${badges.length ? ' · ' + badges.join(' · ') : ''}${p.choiceLockedMove ? ' · 锁定中' : ''}`;
+      sub.title = `等级 ${p.level} · ${p.types.map(zhType).join('/')} · ${zhSpecies(p.speciesId, p.speciesName)} · 特性 ${ab?.name || zhAbility(p.ability)}${it ? ' · 道具 ' + displayItemName(it) : ''}`;
+      const ratio = p.hp / p.maxHp; hp.style.width = (ratio * 100).toFixed(1) + '%'; hp.className = hpClass(ratio);
+      hpText.textContent = `体力 ${p.hp} / ${p.maxHp}`;
+      const sprite = fighter.querySelector('[data-role="sprite"]');
+      setSprite(sprite, p, side === 0);
+      sprite.classList.toggle('is-captured', side === 1 && battle.outcome === 'captured');
     };
-    fill(me, 'p'); fill(foe, 'e');
-    setSprite($('p-sprite'), me, true);
-    setSprite($('e-sprite'), foe, false);
-    $('e-sprite').classList.toggle('is-captured', battle.outcome === 'captured');
+    for (const side of [0, 1]) for (let slot = 0; slot < 2; slot++) fill(fighterEl(side, slot), battle.cur(side, slot), side, slot);
     const teamRow = (side, el) => {
       el.innerHTML = '';
       battle.teams[side].forEach((p, i) => {
         const s = document.createElement('span');
-        s.className = 'pip' + (i === battle.active[side] ? ' active' : '') + (p.fainted ? ' fainted' : '');
-        s.textContent = '';
-        s.title = `${displayPokemonName(p)}，体力 ${p.hp}/${p.maxHp}`;
-        s.setAttribute('aria-label', s.title);
-        el.appendChild(s);
+        s.className = 'pip' + (battle.activeSlots[side].includes(i) ? ' active' : '') + (p.fainted ? ' fainted' : '');
+        s.title = `${displayPokemonName(p)}，体力 ${p.hp}/${p.maxHp}`; s.setAttribute('aria-label', s.title); el.appendChild(s);
       });
     };
     teamRow(0, $('p-team')); teamRow(1, $('e-team'));
@@ -1170,7 +1241,7 @@ installSpriteRecovery(document);
 
     const moves = $('moves');
     moves.innerHTML = '';
-    const foeNow = battle.cur(1);
+    const foeNow = battle.cur(1, 0);
     me.moves.forEach((m, i) => {
       const shown = PKMBattle.transformMove(me, m, selectedMechanic);
       const b = document.createElement('button');
@@ -1179,7 +1250,7 @@ installSpriteRecovery(document);
       b.disabled = over || animating || battle.pendingSwitch !== null || m.ppLeft <= 0 || (me.choiceLockedMove && me.choiceLockedMove !== m.id) || me.volatile.disableMove === m.id || (selectedMechanic === 'z' && m.type !== me.zType);
       b.innerHTML = `${displayMoveName(shown, m)}<small>${zhType(shown.type)} · ${zhCat(shown.category)}${shown.basePower ? ' · 威力 ' + shown.basePower : ''} · 招式点数 ${m.ppLeft}/${m.pp}</small>`;
       const mech = selectedMechanic;
-      const useIt = () => act({ kind: 'move', index: i, mechanic: mech });
+      const useIt = () => chooseBattleAction({ kind: 'move', index: i, mechanic: mech });
       b.onclick = () => { if (Date.now() < suppressMoveClickUntil) return; useIt(); };
       // v1.3.5：长按招式 / 点 ⓘ 查看详细说明
       const ctxFn = () => ({ move: shown, base: m, user: me, foe: foeNow, name: displayMoveName(shown, m), foeName: foeNow ? displayPokemonName(foeNow) : '', usable: !b.disabled, onUse: useIt });
@@ -1191,7 +1262,7 @@ installSpriteRecovery(document);
       b.type = 'button'; b.className = 'move-btn type-normal';
       b.disabled = animating;
       b.innerHTML = `挣扎<small>招式点数已经用完 · 威力 50 · 会受到反作用力伤害</small>`;
-      const useIt = () => act({ kind: 'move', index: 0, struggle: true });
+      const useIt = () => chooseBattleAction({ kind: 'move', index: 0, struggle: true });
       b.onclick = () => { if (Date.now() < suppressMoveClickUntil) return; useIt(); };
       const sm = { id: 'struggle', ...(PKMBattle._moves?.struggle || { name: 'Struggle', type: 'Normal', category: 'Physical', basePower: 50, accuracy: true, pp: 1, priority: 0, target: 'normal' }), ppLeft: 1, pp: 1 };
       moves.appendChild(moveCell(b, () => ({ move: sm, base: sm, user: me, foe: foeNow, name: '挣扎', foeName: foeNow ? displayPokemonName(foeNow) : '', usable: !b.disabled, onUse: useIt })));
@@ -1203,18 +1274,18 @@ installSpriteRecovery(document);
       b.type = 'button';
       b.className = 'switch-btn';
       const title = document.createElement('strong'); title.textContent = displayPokemonName(p);
-      const detail = document.createElement('small'); detail.textContent = i === battle.active[0] ? `出战中 · ${p.hp}/${p.maxHp}` : p.fainted ? '失去战斗能力' : `等级 ${p.level} · 体力 ${p.hp}/${p.maxHp}`;
-      const dot = document.createElement('span'); dot.className = 'party-dot' + (p.fainted ? ' down' : i === battle.active[0] ? ' active' : '');
+      const detail = document.createElement('small'); detail.textContent = battle.activeSlots[0].includes(i) ? `出战中 · ${p.hp}/${p.maxHp}` : p.fainted ? '失去战斗能力' : `等级 ${p.level} · 体力 ${p.hp}/${p.maxHp}`;
+      const dot = document.createElement('span'); dot.className = 'party-dot' + (p.fainted ? ' down' : battle.activeSlots[0].includes(i) ? ' active' : '');
       const label = document.createElement('span'); label.append(title,detail); b.append(dot,label);
       b.title = `换上${displayPokemonName(p)}，体力 ${p.hp}/${p.maxHp}`;
-      b.disabled = over || animating || i === battle.active[0] || p.fainted;
+      b.disabled = over || animating || battle.activeSlots[0].includes(i) || p.fainted;
       b.onclick = () => {
         if (animating) return;
         if (battle.pendingSwitch !== null) {
           const before = snapshotBattle(), logStart = battle.log.length;
           if (battle.forceSwitch(i)) { animating = true; commandMessage = ''; menuView = 'fight'; after(); requestAnimationFrame(() => unlockAfterAnimations(before, { kind: 'switch' }, logStart)); }
         }
-        else act({ kind: 'switch', index: i });
+        else chooseBattleAction({ kind: 'switch', index: i });
       };
       sw.appendChild(b);
     });
@@ -1226,7 +1297,65 @@ installSpriteRecovery(document);
       res.classList.remove('hidden');
       res.textContent = '请选择下一只宝可梦出战';
     } else res.classList.add('hidden');
+    renderDoubleControls();
     renderBalls(); renderCommands();
+  }
+
+  function renderDoubleControls() {
+    const actors = $('double-actors'), targets = $('double-targets');
+    if (!actors || !targets) return;
+    const active = !!battle?.double && menuView === 'fight' && !animating && battle.pendingSwitch === null;
+    actors.hidden = !active; targets.hidden = !active || !pendingDoubleTarget;
+    actors.replaceChildren(); targets.replaceChildren();
+    if (!active) return;
+    for (let slot = 0; slot < 2; slot++) {
+      const p = battle.cur(0, slot); if (!p || p.fainted) continue; const b = document.createElement('button');
+      b.type = 'button'; b.className = 'double-actor' + (slot === doubleActionSlot ? ' selected' : '') + (doubleActions[slot] ? ' chosen' : '');
+      b.disabled = false;
+      b.textContent = `${slot + 1}号位：${p ? displayPokemonName(p) : '空位'}${doubleActions[slot] ? ' ✓' : ''}`;
+      b.onclick = () => { doubleActionSlot = slot; selectedMechanic = null; pendingDoubleTarget = null; render(); };
+      actors.appendChild(b);
+    }
+    if (pendingDoubleTarget) {
+      const move = pendingDoubleTarget.move;
+      const options = move.target === 'adjacentAlly'
+        ? [0, 1].filter(slot => slot !== pendingDoubleTarget.slot).map(slot => ({ side: 0, slot }))
+        : move.target === 'adjacentAllyOrSelf' ? [0, 1].map(slot => ({ side: 0, slot }))
+        : move.target === 'any' ? [0, 1].flatMap(side => [0, 1].map(slot => ({ side, slot })))
+        : [0, 1].map(slot => ({ side: 1, slot }));
+      const title = document.createElement('strong'); title.className = 'double-target-title'; title.textContent = '选择目标'; targets.appendChild(title);
+      for (const option of options) {
+        const p = battle.cur(option.side, option.slot); if (!p || p.fainted) continue;
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'double-target';
+        b.textContent = `${option.side === 0 ? '我方' : '敌方'}${option.slot + 1}号位 · ${displayPokemonName(p)}`;
+        b.onclick = () => { const pending = pendingDoubleTarget; pending.action.target = option; queueDoubleAction(pending.slot, pending.action); };
+        targets.appendChild(b);
+      }
+    }
+  }
+
+  function chooseBattleAction(action) {
+    if (!battle?.double) { act(action); return; }
+    if (battle.pendingSwitch !== null || animating || battle.winner !== null) return;
+    const slot = doubleActionSlot;
+    if (action.kind === 'move') {
+      const user = battle.cur(0, slot), base = action.struggle ? { target: 'normal' } : user?.moves[action.index];
+      if (!base) return;
+      const shown = action.struggle ? { ...base, target: 'normal' } : PKMBattle.transformMove(user, base, action.mechanic || selectedMechanic);
+      const targetKind = shown.target || base.target || 'normal';
+      if (['normal', 'adjacentFoe', 'any', 'adjacentAlly', 'adjacentAllyOrSelf'].includes(targetKind)) {
+        pendingDoubleTarget = { slot, action, move: { ...shown, target: targetKind } }; menuView = 'fight'; render(); return;
+      }
+    }
+    queueDoubleAction(slot, action);
+  }
+  function queueDoubleAction(slot, action) {
+    doubleActions[slot] = { ...action, slot };
+    pendingDoubleTarget = null;
+    const livingSlots = [0, 1].filter(i => battle.cur(0, i) && !battle.cur(0, i).fainted);
+    const next = livingSlots.find(i => !doubleActions[i]);
+    if (next !== undefined) { selectedMechanic = null; doubleActionSlot = next; menuView = 'fight'; render(); return; }
+    act({ kind: 'double', actions: [doubleActions[0] || { kind: 'pass', slot: 0 }, doubleActions[1] || { kind: 'pass', slot: 1 }] });
   }
 
   // ---------- v1.3.5：招式详细说明（长按招式 / 点 ⓘ / 右键） ----------
@@ -1310,7 +1439,17 @@ installSpriteRecovery(document);
     postHost('PKM_BATTLE_RESULT', payload);
   }
   function after() { render(); announceResult(); }
+  function actDouble(actions) {
+    if (!battle || !battle.double || animating || battle.winner !== null || battle.pendingSwitch !== null) return;
+    animating = true; commandMessage = ''; renderCommands();
+    const ref = battle, before = snapshotBattle(), logStart = battle.log.length;
+    battle.turn({ kind: 'double', actions });
+    selectedMechanic = null; doubleActionSlot = 0; doubleActions = [null, null]; pendingDoubleTarget = null;
+    menuView = battle.pendingSwitch !== null ? 'switch' : 'fight'; after();
+    requestAnimationFrame(() => unlockAfterAnimations(before, { kind: 'double', actions }, logStart));
+  }
   function act(a) {
+    if (a?.kind === 'double') { actDouble(a.actions || []); return; }
     if (!battle || animating || battle.winner !== null || battle.pendingSwitch !== null) return;
     animating = true; commandMessage = ''; renderCommands();
     const battleRef = battle;
@@ -1454,13 +1593,37 @@ installSpriteRecovery(document);
     return PKMTeam.chooseAutoMoves(speciesId, level || 50);
   }
 
+  function battleModeFromConfig(cfg) {
+    if (!cfg || cfg.encounter?.type === 'wild') return false;
+    const truthyDouble = cfg.double === true || cfg.doubles === true || cfg.rules?.double === true || cfg.rules?.doubles === true;
+    if (truthyDouble) return true;
+    const structured = [cfg.battleMode, cfg.battleFormat, cfg.mode, cfg.formatType, cfg.format,
+      cfg.rules?.battleMode, cfg.rules?.battleFormat, cfg.rules?.formatMode, cfg.rules?.format, cfg.rules?.mode]
+      .filter(v => typeof v === 'string').map(v => v.trim().toLowerCase());
+    if (structured.some(v => /^(double|doubles|doublebattle|double-battle|双打)$/.test(v))) return true;
+    if (cfg.single === true || cfg.rules?.single === true || cfg.double === false || cfg.doubles === false || cfg.rules?.double === false || cfg.rules?.doubles === false
+      || structured.some(v => /^(single|singles|singlebattle|single-battle|单打)$/.test(v))) return false;
+    const ruleText = [cfg.rule, cfg.rules?.rule, cfg.rules?.text, cfg.rules?.description, cfg.rules?.battleRule,
+      cfg.battleRule, cfg.formatDescription, cfg.description, cfg.intro, cfg.title, cfg.rules?.tag, cfg.rules?.label]
+      .filter(v => typeof v === 'string').join(' ');
+    const deniedDouble = /(?:不采用|不是|禁止|并非|不按)\s*(?:双打|double)/i.test(ruleText);
+    const deniedSingle = /(?:不采用|不是|禁止|并非|不按)\s*(?:单打|single)/i.test(ruleText);
+    const strongDouble = /双打|\bdoubles?\b|\bdouble\s*(?:battle|format)\b|(?:双方各|每方|每队).{0,16}(?:两|二|2)只.{0,16}(?:同时|同场|出战|出场)|(?:两|二|2)只.{0,12}(?:同时上场|同时出战|同场出战)/i.test(ruleText);
+    const saysSingle = /单打|\bsingles?\b|\bsingle\s*(?:battle|format)\b|\b1\s*(?:v|vs)\s*1\b|单打轮换/i.test(ruleText);
+    const bare2v2 = /(?:^|[^\d])(?:2|两|二)\s*(?:v|vs|对|比)\s*(?:2|两|二)(?:$|[^\d])/i.test(ruleText);
+    if (strongDouble && !deniedDouble) return true;
+    if (saysSingle && !deniedSingle) return false;
+    if (bare2v2 && !/单打|轮换|single|rotation/i.test(ruleText) && !deniedDouble) return true;
+    return false; // no stated doubles rule => preserve the existing singles default
+  }
   function startBattle(cfg) {
     if (animating) return;
     if (cfg && cfg.host) { hostTag = cfg.host.tag || null; useHostStore(cfg.host.balls); }
     menuView = 'home'; commandMessage = ''; announcedBattle = null;
     encounterId = globalThis.crypto?.randomUUID?.() || `encounter-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    selectedMechanic = null;
+    selectedMechanic = null; doubleActionSlot = 0; doubleActions = [null, null]; pendingDoubleTarget = null;
     animating = false;
+    let doubleMode = battleModeFromConfig(cfg);
     let playerTeam, enemyTeam, difficulty = $('sel-diff').value, weather = null;
     formatTag = cfg ? String(cfg.rules?.tag || '').slice(0, 28) : ''; formatRule = cfg ? String(cfg.rules?.rule || '').slice(0, 160) : '';
     typeLabel = cfg ? String(cfg.rules?.typeLabel || '').slice(0, 8) : '';
@@ -1488,6 +1651,7 @@ installSpriteRecovery(document);
       enemyTeam = resolveSide(cfg.p2, $('sel-enemy').value);
       const limit = (v, fallback) => Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 6 ? Number(v) : fallback;
       const wild = cfg.encounter?.type === 'wild';
+      if (wild) doubleMode = false;
       const size = limit(cfg.rules?.teamSize, 6);
       playerTeam = playerTeam.slice(0, wild ? 6 : limit(cfg.rules?.playerLimit, size));
       enemyTeam = enemyTeam.slice(0, wild ? 1 : limit(cfg.rules?.enemyLimit, size));
@@ -1497,7 +1661,8 @@ installSpriteRecovery(document);
       weather = environment.weather || null;
       const wt = environment.weatherTurns;
       if (cfg.encounter?.type === 'wild' && enemyTeam.length !== 1) throw new Error('当前野生遭遇仅支持一只野生宝可梦。');
-      battle = new PKMBattle.Battle(playerTeam, enemyTeam, { difficulty, weather, weatherTurns: typeof wt !== 'undefined' ? wt : 0,
+      if (doubleMode && (playerTeam.filter(p => !p.fainted).length < 2 || enemyTeam.filter(p => !p.fainted).length < 2)) throw new Error('双打模式需要双方各至少两只尚未失去战斗能力的宝可梦。');
+      battle = new PKMBattle.Battle(playerTeam, enemyTeam, { double: doubleMode, difficulty, weather, weatherTurns: typeof wt !== 'undefined' ? wt : 0,
         encounterType: cfg.encounter?.type, balls: worldStore.state.balls, seed: cfg.seed, captureContext:cfg.host?.captureContext||{} });
       if (environment.terrain) battle.setTerrain(environment.terrain, environment.terrainTurns);
       if (cfg.ui?.openBalls && battle.encounterType === 'wild') menuView = 'balls';
@@ -1514,13 +1679,18 @@ installSpriteRecovery(document);
         const id = pool[Math.floor(Math.random()*pool.length)], level = 30 + Math.floor(Math.random()*16);
         enemyTeam = [PKMBattle.createPokemon(id, level, autoMoves(id, level))];
       }
-      battle = new PKMBattle.Battle(playerTeam, enemyTeam, { difficulty, encounterType: isWild ? 'wild' : 'trainer', balls: worldStore.state.balls });
+      if (isWild) doubleMode = false;
+      if (doubleMode && (playerTeam.filter(p => !p.fainted).length < 2 || enemyTeam.filter(p => !p.fainted).length < 2)) { alert('双打模式需要双方各至少两只宝可梦。'); return; }
+      battle = new PKMBattle.Battle(playerTeam, enemyTeam, { double: doubleMode, difficulty, encounterType: isWild ? 'wild' : 'trainer', balls: worldStore.state.balls });
     }
     // v1.3.9：敌方信息框的小标签：野生 / 对手名字（角色卡发来的），单机模式按野生 / 敌方
     const sideEl = $('e-side-label');
     if (sideEl) sideEl.textContent = String((cfg && cfg.rules?.sideLabel) || (battle.encounterType === 'wild' ? '野生' : '敌方')).slice(0, 6);
     after();
-    if (!window.PKMPreview) requestAnimationFrame(() => { playSendOut(1); setTimeout(() => playSendOut(0), 150); });
+    if (!window.PKMPreview) requestAnimationFrame(() => {
+      if (battle.double) { [0, 1].forEach(slot => { setTimeout(() => playSendOut(1, slot), slot * 180); setTimeout(() => playSendOut(0, slot), 300 + slot * 180); }); }
+      else { playSendOut(1); setTimeout(() => playSendOut(0), 150); }
+    });
   }
 
 

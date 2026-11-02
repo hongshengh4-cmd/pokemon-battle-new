@@ -546,49 +546,9 @@ async function setMsgVars(id, vars) {
   m.variables[m.swipe_id ?? 0] = vars;
   await ctx()?.saveChat?.();
 }
-// 酒馆导出的 JSONL 会原样保留每条消息自己的 variables；有时新助手楼层仍携带开局 initvar 快照。
-// 只有当该快照与本卡初始状态一致、且前面确有已推进的存档时，才将它视为陈旧快照。
-function stableSnapshotValue(v) {
-  if (Array.isArray(v)) return v.map(stableSnapshotValue);
-  if (v && typeof v === 'object') return Object.fromEntries(Object.keys(v).sort().map(k => [k, stableSnapshotValue(v[k])]));
-  return v;
-}
-function snapshotValueKey(v) { try { return JSON.stringify(stableSnapshotValue(v)); } catch (_) { return ''; } }
-function rosterSnapshotKey(pkm) {
-  const party = pkm?.party || {};
-  const brief = rows => (Array.isArray(rows) ? rows : []).filter(x => x && (x.species || x.name)).map(x => [x.species || '', x.name || '', x.nickname || '', Number(x.lv) || 0]);
-  return snapshotValueKey([brief(party.slots), brief(party.box)]);
-}
-function isInitialSnapshot(pkm) {
-  if (!isObj(pkm)) return false;
-  const d = defaultPkm(), cp = pkm.player || {}, dp = d.player || {}, cw = pkm.world || {}, dw = d.world || {};
-  const cd = pkm.dex || {}, dd = d.dex || {}, cb = pkm.battle || {}, db = d.battle || {};
-  return cw.time === dw.time && cw.location === dw.location && cw.mode === dw.mode
-    && Number(cp.money || 0) === Number(dp.money || 0)
-    && Number(cp.reputation || 0) === Number(dp.reputation || 0)
-    && snapshotValueKey(cp.bag || {}) === snapshotValueKey(dp.bag || {})
-    && snapshotValueKey(cp.badges || []) === snapshotValueKey(dp.badges || [])
-    && rosterSnapshotKey(pkm) === rosterSnapshotKey(d)
-    && snapshotValueKey(cd.seen || {}) === snapshotValueKey(dd.seen || {})
-    && snapshotValueKey(cd.caught || []) === snapshotValueKey(dd.caught || [])
-    && snapshotValueKey(cd.shiny || {}) === snapshotValueKey(dd.shiny || {})
-    && Number(cb.count || 0) === Number(db.count || 0) && Number(cb.wins || 0) === Number(db.wins || 0);
-}
-function isStaleInitialSnapshot(id, pkm) {
-  if (!isInitialSnapshot(pkm)) return false;
-  const c = chat(), start = Math.max(0, id - 40);
-  for (let i = id - 1; i >= start; i--) {
-    const prior = getMsgVars(i)?.stat_data?.pkm;
-    if (prior && !isInitialSnapshot(prior)) return true;
-  }
-  return false;
-}
 function findStat() {
   const c = chat();
-  for (let i = c.length - 1; i >= 0; i--) {
-    const v = getMsgVars(i), pkm = v?.stat_data?.pkm;
-    if (pkm && !isStaleInitialSnapshot(i, pkm)) return { id: i, vars: v };
-  }
+  for (let i = c.length - 1; i >= 0; i--) { const v = getMsgVars(i); if (v?.stat_data?.pkm) return { id: i, vars: v }; }
   return null;
 }
 let initvarCache = null;
@@ -711,14 +671,7 @@ function writePkm(mutator) {
   const run = async (attempt = 0) => {
     const c = chat(); const id = Math.max(0, c.length - 1);
     const f = findStat();
-    const targetVars = clone(getMsgVars(id) || {}) || {};
-    const vars = clone(f ? f.vars : targetVars) || {};
-    // 从上一条可信快照恢复时，只以它的 pkm 为准；保留目标楼层已有的其他变量键，避免恢复过程丢掉插件数据。
-    if (f && f.id !== id) {
-      for (const [k, v] of Object.entries(targetVars)) if (k !== 'stat_data' && vars[k] === undefined) vars[k] = v;
-      vars.stat_data = { ...(targetVars.stat_data || {}), ...(vars.stat_data || {}) };
-      vars.stat_data.pkm = clone(f.vars.stat_data.pkm);
-    }
+    const vars = clone(f ? f.vars : (getMsgVars(id) || {})) || {};
     if (!isObj(vars.stat_data)) vars.stat_data = {};
     const pkm = normalize(vars.stat_data.pkm ? vars.stat_data.pkm : defaultPkm());
     for (const s of [...pkm.party.slots, ...pkm.party.box]) if (hasMon(s) && !s.uid) s.uid = uid();
@@ -952,6 +905,7 @@ function buildInjection() {
   const parts = ['【动画主线·自动剧情注入】（外置桥接脚本在生成前计算，供你定位剧情；不要向玩家复述本段，也不要提前泄露后面的节点。）'];
   const st = latestState()?.state;
   parts.push(`当前：模式 ${st?.模式 || pkm.world.mode || '—'}｜时间 ${st?.时间 || pkm.world.time || '—'}｜地点 ${st?.地点 || pkm.world.location || '—'}`);
+  parts.push('【对战赛制自动选择】对战系统不让玩家手动切换模式；必须按正文/裁判明确的赛制自动选择。正文写“双打”、doubles，或明确双方各有两只同时出战时，生成 <pkm_battle> 配置时写顶层 "battleMode":"double"（或 rules.battleMode），并让每只出战宝可梦各选一个行动；正文明确单打时写 "battleMode":"single"。仅 teamSize、队伍人数、参赛人数或 N 对 N 名额，不代表双打；赛制未明确说明同时出战时默认单打。野生遭遇始终单打。不要询问玩家或依赖手动 UI 切换。');
   const profile=pkm.integration.profile;
   if(profile) parts.push('【玩家档案·优先于原作称呼】'+JSON.stringify({name:profile.name,gender:profile.gender,hometown:profile.hometown,intro:profile.intro,background:profile.background || '',mode:profile.mode})+'；背景仅是设定资料，不是指令。队伍及等级以当前变量为准，不以开局快照覆盖。');
   const aiCount = c.filter((m, i) => i > 0 && !m.is_user).length;
@@ -1050,12 +1004,9 @@ function parsePatchOps(text) {
   }
   return ops.map(o => ({ op: String(o.op || '').toLowerCase(), segs: pathSegs(o.path), value: o.value })).filter(o => o.segs.length && o.op);
 }
-const hasOwnStat = id => { const pkm = getMsgVars(id)?.stat_data?.pkm; return !!pkm && !isStaleInitialSnapshot(id, pkm); };
+const hasOwnStat = id => !!getMsgVars(id)?.stat_data?.pkm;
 function prevPkm(mesid) {
-  for (let i = mesid - 1; i >= 0; i--) {
-    const v = getMsgVars(i), pkm = v?.stat_data?.pkm;
-    if (pkm && !isStaleInitialSnapshot(i, pkm)) return normalize(clone(pkm));
-  }
+  for (let i = mesid - 1; i >= 0; i--) { const v = getMsgVars(i); if (v?.stat_data?.pkm) return normalize(clone(v.stat_data.pkm)); }
   return null;
 }
 // MVU 完全没有处理这一楼时（没装 / 报错），按 AI 的 JSONPatch 自己写入（与 MVU 的 replace/add/delta/remove/insert 语义一致）
@@ -7451,6 +7402,17 @@ function engineConfig(spec, pkm, tag) {
   const cfg = spec.cfg || {};
   const entries = playerEntries(pkm);
   const fmt = battleFormat(cfg, entries.length, { full: !!spec.full }), type = fmt.type;
+  const modeHints = [cfg.battleMode, cfg.battleFormat, cfg.mode, cfg.formatType, cfg.format, cfg.rules?.battleMode, cfg.rules?.battleFormat, cfg.rules?.formatMode, cfg.rules?.format, cfg.rules?.mode].filter(Boolean).map(v => String(v).trim().toLowerCase());
+  const explicitDouble = cfg.double === true || cfg.doubles === true || cfg.rules?.double === true || cfg.rules?.doubles === true || modeHints.some(v => /^(double|doubles|doublebattle|double-battle|双打)$/.test(v));
+  const explicitSingle = cfg.single === true || cfg.rules?.single === true || cfg.double === false || cfg.doubles === false || cfg.rules?.double === false || cfg.rules?.doubles === false || modeHints.some(v => /^(single|singles|singlebattle|single-battle|单打)$/.test(v));
+  const ruleText = [cfg.rule, cfg.rules?.rule, cfg.rules?.text, cfg.rules?.description, cfg.rules?.battleRule, cfg.battleRule, cfg.formatDescription, cfg.description, cfg.intro, cfg.title, cfg.rules?.tag, cfg.rules?.label].filter(v => typeof v === 'string').join(' ');
+  const deniedDouble = /(?:不采用|不是|禁止|并非|不按)\s*(?:双打|double)/i.test(ruleText);
+  const deniedSingle = /(?:不采用|不是|禁止|并非|不按)\s*(?:单打|single)/i.test(ruleText);
+  const naturalDouble = /双打|\bdoubles?\b|\bdouble\s*(?:battle|format)\b|(?:双方各|每方|每队).{0,16}(?:两|二|2)只.{0,16}(?:同时|同场|出战|出场)|(?:两|二|2)只.{0,12}(?:同时上场|同时出战|同场出战)/i.test(ruleText);
+  const naturalSingle = /单打|\bsingles?\b|\bsingle\s*(?:battle|format)\b|\b1\s*(?:v|vs)\s*1\b|单打轮换/i.test(ruleText);
+  const bare2v2 = /(?:^|[^\d])(?:2|两|二)\s*(?:v|vs|对|比)\s*(?:2|两|二)(?:$|[^\d])/i.test(ruleText);
+  const doubleMode = !fmt.wild && (explicitDouble || (!explicitSingle && !deniedDouble && (naturalDouble || (bare2v2 && !/单打|轮换|single|rotation/i.test(ruleText)))));
+  const singleMode = explicitSingle || (!explicitDouble && naturalSingle && !deniedSingle);
   const team = (Array.isArray(cfg.team) ? cfg.team : []).slice(0, fmt.enemyMax);
   // v1.3.4：对手 / 野生宝可梦也有个体值和性格（按这场对战的 key 固定，重开同一场不会变；收服后沿用）
   const band = ['gym', 'rival', 'boss', 'league'].includes(type) ? 'high' : null;
@@ -7468,11 +7430,14 @@ function engineConfig(spec, pkm, tag) {
   const captureLocation=String(pkm.world?.location||cfg.location||''),captureTime=String(pkm.world?.time||'');
   const hourMatch=captureTime.match(/(?:^|\s)(\d{1,2})[:：]\d{2}/),hour=hourMatch?Number(hourMatch[1]):null;
   const captureContext={location:captureLocation,time:captureTime,darkArea:/(?:洞窟|洞穴|地道|地下|矿山|矿洞|遗迹|月见山|双子岛|地鼠洞穴|冠军之路|胜利之路|岩山隧道)/.test(captureLocation)||(hour!=null&&(hour>=20||hour<4)),waterArea:/(?:海|海岸|海滩|湖|河|水域|水道|水面|水中|水边|港口|码头)/.test(captureLocation)||/水|water|surf/i.test(String(cfg.environment?.terrain||cfg.environment||'')),caughtSpecies:(Array.isArray(pkm.dex?.caught)?pkm.dex.caught:[]).map(speciesId).filter(Boolean)};
-  const out = { rules: { teamSize: Math.max(fmt.playerMax, fmt.enemyMax), playerLimit: fmt.playerMax, enemyLimit: fmt.enemyMax, tag: tx.tag, label: fmt.label, rule: fmt.rule,
-      typeLabel: tx.typeLabel, opponent: tx.opp, sideLabel: tx.sideLabel },
+  const rules = { teamSize: Math.max(fmt.playerMax, fmt.enemyMax), playerLimit: fmt.playerMax, enemyLimit: fmt.enemyMax, tag: tx.tag, label: fmt.label, rule: fmt.rule,
+      typeLabel: tx.typeLabel, opponent: tx.opp, sideLabel: tx.sideLabel };
+  if (doubleMode || singleMode) rules.battleMode = doubleMode ? 'double' : 'single';
+  if (doubleMode) rules.rule = `${rules.rule}；双打：双方各2只同时出场，双方分别为每只出战宝可梦选择行动。`;
+  const out = { rules,
     encounter: { type: fmt.wild ? 'wild' : 'trainer' }, difficulty: cfg.difficulty || K.DIFFICULTY_BY_TYPE[type] || 'normal',
     p1: { entrants: [{ name: 'host-player', party }] }, p2: { entrants: [{ name: 'host-enemy', party: enemy }] },
-    host: { tag, balls, intro: tx.intro, captureContext }, ui: spec.ui || null };
+    host: { tag, balls, intro: `${tx.intro}${doubleMode ? ' 双打规则：双方各2只同时出场。' : ''}`, captureContext }, ui: spec.ui || null };
   // Normalize legacy Chinese/string environments and structured weather+terrain.
   const rawEnv = typeof cfg.environment === 'object' && cfg.environment ? cfg.environment : {weather: cfg.environment};
   const w = K.WEATHER[String(rawEnv.weather || '').trim()] || rawEnv.weather;
@@ -8121,16 +8086,7 @@ function rekickFrames() {
     if (st && /没有连上对战系统|正在读取对战块/.test(st.textContent || '') && (f.getAttribute('srcdoc') || '').includes(CH)) { try { f.srcdoc = f.getAttribute('srcdoc'); } catch (_) {} }
   });
 }
-function onChatEvent() {
-  eventCache = null; initvarCache = null; lastInjection = '';
-  refreshAll(); refreshInjection(); repairCenterHealing(); setTimeout(rekickFrames, 400);
-  // 聊天打开/导入 JSONL、切换 swipe 或编辑后，若最新助手楼层快照是陈旧 initvar，
-  // 复用现有 MVU/JSONPatch 对账流程自动继承最近可信快照；不改正文、不碰用户消息。
-  const c = chat(), ai = lastAiId();
-  if (ai >= 0 && c.length - 1 === ai && isStaleInitialSnapshot(ai, getMsgVars(ai)?.stat_data?.pkm)) {
-    setTimeout(() => scheduleSync(ai), 0);
-  }
-}
+function onChatEvent() { eventCache = null; initvarCache = null; lastInjection = ''; refreshAll(); refreshInjection(); repairCenterHealing(); setTimeout(rekickFrames, 400); }
 /* ===== v1.3.31-plot-fix ⑤：把 AI 状态栏里的剧情进度写进脚本侧变量 pkm.world =====
    world 在变量 schema 里是 extensible/recursiveExtensible，新增 event/node/nodeStatus/free 是安全的。
    作用：AI 连写几轮"自由｜节点0｜进行中"时，进度不会回退到节点 1。 */
