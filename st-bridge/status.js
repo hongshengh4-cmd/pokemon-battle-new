@@ -355,7 +355,7 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
     template.innerHTML = `<div class="pkdex ${UI.folded ? 'folded' : ''}">
   <div class="dx-head"><div class="lens"><i></i></div><div class="leds"><b></b><b></b><b></b></div>
    <div class="dx-title"><h3>宝可梦图鉴</h3><p>📍 ${esc(w.location || '—')} · 🕒 ${esc(w.time || '—')}</p></div>
-   <div class="dx-count"><span>遇见<b>${nSeen}</b></span><span>捕获<b>${nCaught}</b></span><span class="shc" title="异色记录">${SPK}<b>${nShiny}</b></span></div>
+   <div class="dx-count"><span>遇见<b>${nSeen}</b></span><span title="收服或进化后录入的宝可梦种类数">录入<b>${nCaught}</b></span><span class="shc" title="异色记录">${SPK}<b>${nShiny}</b></span></div>
    <button class="dx-fold" title="折叠/展开">${UI.folded ? '▸' : '▾'}</button></div>
   <div class="dx-shell">
    <div class="dx-tabs"><button data-t="tr">训练家</button><button data-t="dex">图鉴</button><button data-t="bag">背包</button><button data-t="aff">好感</button><button data-t="map">地图</button><button data-t="near">附近</button></div>
@@ -398,7 +398,7 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
       const P = $('[data-p=dex]');
       if (!P.dataset.built) {
         P.dataset.built = 1;
-        P.innerHTML = `<div class="dex-bar"><input placeholder="搜索编号或名字（未遇见的搜不到名字哦）"><div class="seg"><button data-f="all">全部</button><button data-f="seen">已遇见</button><button data-f="own">已捕获</button><button data-f="shiny">异色</button></div></div>
+        P.innerHTML = `<div class="dex-bar"><input placeholder="搜索编号或名字（未遇见的搜不到名字哦）"><div class="seg"><button data-f="all">全部</button><button data-f="seen">已遇见</button><button data-f="own">已录入</button><button data-f="shiny">异色</button></div></div>
     <div class="dex-wrap"><div class="dex-grid"></div><div class="dex-info"></div></div>`;
         const inp = P.querySelector('input'); inp.value = UI.q;
         inp.oninput = e => { UI.q = e.target.value.trim(); grid(); };
@@ -424,12 +424,12 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
         I.innerHTML = `<div class="di-top"><span>No.${pad3(d.n)}</span><button class="di-close">✕</button></div><div class="di-pic unseen">${pkImg(d, false, '', true)}</div><div class="di-name">？？？</div><div class="di-lock">还没有遇见过这只宝可梦。<br>在旅途中遇到它，图鉴就会自动点亮。</div>`;
       } else {
         const tot = d.bs.reduce((a, b) => a + b, 0);
-        I.innerHTML = `<div class="di-top"><span>No.${pad3(d.n)}</span><span style="color:${o ? '#e3350d' : '#3b8be0'}">${o ? itemImg('精灵球', 'mini') + ' 已捕获' : '◉ 已遇见'}</span><button class="di-close">✕</button></div>
+        I.innerHTML = `<div class="di-top"><span>No.${pad3(d.n)}</span><span style="color:${o ? '#e3350d' : '#3b8be0'}">${o ? itemImg('精灵球', 'mini') + ' 已录入' : '◉ 已遇见'}</span><button class="di-close">✕</button></div>
     <div class="di-pic">${pkImg(d, !!(UI.shv && sh))}</div>${sh ? `<div class="di-sw"><button data-v="0" class="${UI.shv ? '' : 'on'}">普通</button><button data-v="1" class="${UI.shv ? 'on' : ''}">${SPK} 异色</button></div>` : ''}<div class="di-name">${esc(d.zh)}</div><div class="di-types">${tyHtml(d.t)}</div>
     <div class="di-meta"><div><span>身高</span>${d.h} m</div><div><span>体重</span>${d.w} kg</div><div style="grid-column:1/-1"><span>特性</span>${d.ab.map(esc).join(' / ')}</div></div>
-    ${o ? d.bs.map((v, i) => `<div class="stat"><span>${SN[i]}</span><b>${v}</b><i><b style="width:${Math.min(100, v / 1.6)}%;background:${statColor(v)}"></b></i></div>`).join('') + `<div class="stat"><span>合计</span><b>${tot}</b><i></i></div>` : '<div class="di-lock" style="padding:2px 0 0">捕获后可查看种族值</div>'}
+    ${o ? d.bs.map((v, i) => `<div class="stat"><span>${SN[i]}</span><b>${v}</b><i><b style="width:${Math.min(100, v / 1.6)}%;background:${statColor(v)}"></b></i></div>`).join('') + `<div class="stat"><span>合计</span><b>${tot}</b><i></i></div>` : '<div class="di-lock" style="padding:2px 0 0">录入后可查看种族值</div>'}
     ${s[0] || s[1] || s[2] ? `<div class="di-met">📖 首次遇见：<b>${esc(s[0] || '—')}</b><br>📍 ${esc(s[1] || '—')}<br>🕒 ${esc(s[2] || '—')}</div>` : ''}
-    ${sh ? `<div class="di-shiny">${SPK} <b>异色记录</b>（${sh[3] ? '已捕获' : '仅目击，让它跑掉了'}）<br>📖 ${esc(sh[0] || '—')} · 📍 ${esc(sh[1] || '—')}<br>🕒 ${esc(sh[2] || '—')}</div>` : ''}`;
+    ${sh ? `<div class="di-shiny">${SPK} <b>异色记录</b>（${sh[3] ? '已录入' : '仅目击，让它跑掉了'}）<br>📖 ${esc(sh[0] || '—')} · 📍 ${esc(sh[1] || '—')}<br>🕒 ${esc(sh[2] || '—')}</div>` : ''}`;
         I.querySelectorAll('.di-sw button').forEach(b => b.onclick = () => { UI.shv = b.dataset.v === '1'; info(true); });
       }
       const back=I.querySelector('.di-close');back.textContent='‹ 返回图鉴';back.setAttribute('aria-label','返回图鉴列表');
@@ -443,7 +443,7 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
     <div class="tc-id">TRAINER CARD · ID No.${esc(p.id)}</div><div class="tc-name">${esc(p.name)} ${p.gender ? `<span style="font-size:15px;color:${p.gender === 'f' ? '#e0457b' : '#3b7be0'}">${p.gender === 'f' ? '♀' : '♂'}</span>` : ''}</div>
     <span class="tc-title">${esc(p.title)}</span>
     <div class="tc-rows"><div><span>持有金钱</span><b class="money">₽ ${p.money.toLocaleString()}</b>${S.pendingMoney ? `<small style="display:block;margin-top:3px;color:#9a6b00">回复变更未同步：${S.pendingMoney.delta > 0 ? '+' : '−'}₽ ${Math.abs(S.pendingMoney.delta).toLocaleString()}；预计 ₽ ${S.pendingMoney.expected.toLocaleString()}</small>` : ''}</div><div><span>出身</span><b>${esc(p.hometown)}</b></div>
-     <div><span>宝可梦图鉴</span><b>${nSeen}</b> 遇见 / <b>${nCaught}</b> 捕获</div><div><span>对战战绩</span><b>${S.battle.wins}</b> 胜 / ${S.battle.count} 战</div></div>
+     <div><span>宝可梦图鉴</span><b>${nSeen}</b> 遇见 / <b>${nCaught}</b> 录入</div><div><span>对战战绩</span><b>${S.battle.wins}</b> 胜 / ${S.battle.count} 战</div></div>
     <div class="rep"><div class="rep-top"><span>声望 · ${esc(r[1])}</span><span>${p.rep}${nx ? ' / ' + nx[0] : ''}</span></div><div class="rep-bar"><b style="width:${pct}%"></b></div>
      <div style="font-size:11px;color:#7b869c;margin-top:3px">${nx ? `再获得 ${nx[0] - p.rep} 声望晋升为「${nx[1]}」` : '已是最高声望'}</div></div>
    </div></div>
