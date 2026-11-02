@@ -546,9 +546,49 @@ async function setMsgVars(id, vars) {
   m.variables[m.swipe_id ?? 0] = vars;
   await ctx()?.saveChat?.();
 }
+// 酒馆导出的 JSONL 会原样保留每条消息自己的 variables；有时新助手楼层仍携带开局 initvar 快照。
+// 只有当该快照与本卡初始状态一致、且前面确有已推进的存档时，才将它视为陈旧快照。
+function stableSnapshotValue(v) {
+  if (Array.isArray(v)) return v.map(stableSnapshotValue);
+  if (v && typeof v === 'object') return Object.fromEntries(Object.keys(v).sort().map(k => [k, stableSnapshotValue(v[k])]));
+  return v;
+}
+function snapshotValueKey(v) { try { return JSON.stringify(stableSnapshotValue(v)); } catch (_) { return ''; } }
+function rosterSnapshotKey(pkm) {
+  const party = pkm?.party || {};
+  const brief = rows => (Array.isArray(rows) ? rows : []).filter(x => x && (x.species || x.name)).map(x => [x.species || '', x.name || '', x.nickname || '', Number(x.lv) || 0]);
+  return snapshotValueKey([brief(party.slots), brief(party.box)]);
+}
+function isInitialSnapshot(pkm) {
+  if (!isObj(pkm)) return false;
+  const d = defaultPkm(), cp = pkm.player || {}, dp = d.player || {}, cw = pkm.world || {}, dw = d.world || {};
+  const cd = pkm.dex || {}, dd = d.dex || {}, cb = pkm.battle || {}, db = d.battle || {};
+  return cw.time === dw.time && cw.location === dw.location && cw.mode === dw.mode
+    && Number(cp.money || 0) === Number(dp.money || 0)
+    && Number(cp.reputation || 0) === Number(dp.reputation || 0)
+    && snapshotValueKey(cp.bag || {}) === snapshotValueKey(dp.bag || {})
+    && snapshotValueKey(cp.badges || []) === snapshotValueKey(dp.badges || [])
+    && rosterSnapshotKey(pkm) === rosterSnapshotKey(d)
+    && snapshotValueKey(cd.seen || {}) === snapshotValueKey(dd.seen || {})
+    && snapshotValueKey(cd.caught || []) === snapshotValueKey(dd.caught || [])
+    && snapshotValueKey(cd.shiny || {}) === snapshotValueKey(dd.shiny || {})
+    && Number(cb.count || 0) === Number(db.count || 0) && Number(cb.wins || 0) === Number(db.wins || 0);
+}
+function isStaleInitialSnapshot(id, pkm) {
+  if (!isInitialSnapshot(pkm)) return false;
+  const c = chat(), start = Math.max(0, id - 40);
+  for (let i = id - 1; i >= start; i--) {
+    const prior = getMsgVars(i)?.stat_data?.pkm;
+    if (prior && !isInitialSnapshot(prior)) return true;
+  }
+  return false;
+}
 function findStat() {
   const c = chat();
-  for (let i = c.length - 1; i >= 0; i--) { const v = getMsgVars(i); if (v?.stat_data?.pkm) return { id: i, vars: v }; }
+  for (let i = c.length - 1; i >= 0; i--) {
+    const v = getMsgVars(i), pkm = v?.stat_data?.pkm;
+    if (pkm && !isStaleInitialSnapshot(i, pkm)) return { id: i, vars: v };
+  }
   return null;
 }
 let initvarCache = null;
@@ -671,7 +711,14 @@ function writePkm(mutator) {
   const run = async (attempt = 0) => {
     const c = chat(); const id = Math.max(0, c.length - 1);
     const f = findStat();
-    const vars = clone(f ? f.vars : (getMsgVars(id) || {})) || {};
+    const targetVars = clone(getMsgVars(id) || {}) || {};
+    const vars = clone(f ? f.vars : targetVars) || {};
+    // 从上一条可信快照恢复时，只以它的 pkm 为准；保留目标楼层已有的其他变量键，避免恢复过程丢掉插件数据。
+    if (f && f.id !== id) {
+      for (const [k, v] of Object.entries(targetVars)) if (k !== 'stat_data' && vars[k] === undefined) vars[k] = v;
+      vars.stat_data = { ...(targetVars.stat_data || {}), ...(vars.stat_data || {}) };
+      vars.stat_data.pkm = clone(f.vars.stat_data.pkm);
+    }
     if (!isObj(vars.stat_data)) vars.stat_data = {};
     const pkm = normalize(vars.stat_data.pkm ? vars.stat_data.pkm : defaultPkm());
     for (const s of [...pkm.party.slots, ...pkm.party.box]) if (hasMon(s) && !s.uid) s.uid = uid();
@@ -1003,9 +1050,12 @@ function parsePatchOps(text) {
   }
   return ops.map(o => ({ op: String(o.op || '').toLowerCase(), segs: pathSegs(o.path), value: o.value })).filter(o => o.segs.length && o.op);
 }
-const hasOwnStat = id => !!getMsgVars(id)?.stat_data?.pkm;
+const hasOwnStat = id => { const pkm = getMsgVars(id)?.stat_data?.pkm; return !!pkm && !isStaleInitialSnapshot(id, pkm); };
 function prevPkm(mesid) {
-  for (let i = mesid - 1; i >= 0; i--) { const v = getMsgVars(i); if (v?.stat_data?.pkm) return normalize(clone(v.stat_data.pkm)); }
+  for (let i = mesid - 1; i >= 0; i--) {
+    const v = getMsgVars(i), pkm = v?.stat_data?.pkm;
+    if (pkm && !isStaleInitialSnapshot(i, pkm)) return normalize(clone(pkm));
+  }
   return null;
 }
 // MVU 完全没有处理这一楼时（没装 / 报错），按 AI 的 JSONPatch 自己写入（与 MVU 的 replace/add/delta/remove/insert 语义一致）
@@ -8071,7 +8121,16 @@ function rekickFrames() {
     if (st && /没有连上对战系统|正在读取对战块/.test(st.textContent || '') && (f.getAttribute('srcdoc') || '').includes(CH)) { try { f.srcdoc = f.getAttribute('srcdoc'); } catch (_) {} }
   });
 }
-function onChatEvent() { eventCache = null; initvarCache = null; lastInjection = ''; refreshAll(); refreshInjection(); repairCenterHealing(); setTimeout(rekickFrames, 400); }
+function onChatEvent() {
+  eventCache = null; initvarCache = null; lastInjection = '';
+  refreshAll(); refreshInjection(); repairCenterHealing(); setTimeout(rekickFrames, 400);
+  // 聊天打开/导入 JSONL、切换 swipe 或编辑后，若最新助手楼层快照是陈旧 initvar，
+  // 复用现有 MVU/JSONPatch 对账流程自动继承最近可信快照；不改正文、不碰用户消息。
+  const c = chat(), ai = lastAiId();
+  if (ai >= 0 && c.length - 1 === ai && isStaleInitialSnapshot(ai, getMsgVars(ai)?.stat_data?.pkm)) {
+    setTimeout(() => scheduleSync(ai), 0);
+  }
+}
 /* ===== v1.3.31-plot-fix ⑤：把 AI 状态栏里的剧情进度写进脚本侧变量 pkm.world =====
    world 在变量 schema 里是 extensible/recursiveExtensible，新增 event/node/nodeStatus/free 是安全的。
    作用：AI 连写几轮"自由｜节点0｜进行中"时，进度不会回退到节点 1。 */

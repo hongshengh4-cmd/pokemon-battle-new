@@ -130,12 +130,48 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
     const opt = { type: 'message', message_id: i };
     try { const m = M(); if (m) { const d = m.getMvuData(opt); if (d && d.stat_data && d.stat_data.pkm) return d; } } catch (e) {}
     try { const gv = TH('getVariables'); const v = gv && gv(opt); if (v && v.stat_data && v.stat_data.pkm) return v; } catch (e) {}
-    return null;
+    const msg = (ctx().chat || [])[i]; return msg?.variables?.[msg.swipe_id ?? 0] || null;
   }
-  // 从第 upto-1 楼往前找第一条带变量的楼层
+  let initialPkmCache, initialPkmCacheKey;
+  function initialPkm() {
+    const c = ctx(), key = String(c?.characterId ?? c?.name2 ?? '');
+    if (initialPkmCache !== undefined && initialPkmCacheKey === key) return initialPkmCache;
+    initialPkmCacheKey = key; initialPkmCache = undefined;
+    try {
+      const ch = c?.characters?.[c?.characterId], entries = ch?.data?.character_book?.entries || [];
+      const e = entries.find(x => /\[initvar\]/i.test(x.comment || ''));
+      if (e) { initialPkmCache = JSON.parse(e.content).pkm; return initialPkmCache; }
+    } catch (_) {}
+    initialPkmCache = { player:{money:3000,reputation:0,badges:[],bag:{精灵球:10,伤药:5}}, party:{slots:[],box:[]}, dex:{seen:{},caught:[],shiny:{}}, world:{location:'真新镇·大木研究所',time:'第1年 5月22日 07:00',mode:'同行模式'}, battle:{count:0,wins:0} };
+    return initialPkmCache;
+  }
+  function stableKey(v) {
+    const sort = x => Array.isArray(x) ? x.map(sort) : x && typeof x === 'object' ? Object.fromEntries(Object.keys(x).sort().map(k => [k, sort(x[k])])) : x;
+    try { return JSON.stringify(sort(v)); } catch (_) { return ''; }
+  }
+  function initialSnapshot(p) {
+    if (!p || typeof p !== 'object') return false;
+    const d=initialPkm(), cp=p.player||{}, dp=d.player||{}, cw=p.world||{}, dw=d.world||{}, cd=p.dex||{}, dd=d.dex||{}, cb=p.battle||{}, db=d.battle||{};
+    const roster=x=>(x?.party?.slots||[]).filter(m=>m&&(m.species||m.name)).map(m=>[m.species||'',m.name||'',m.nickname||'',Number(m.lv)||0]);
+    const box=x=>(x?.party?.box||[]).filter(m=>m&&(m.species||m.name)).map(m=>[m.species||'',m.name||'',m.nickname||'',Number(m.lv)||0]);
+    return cw.time===dw.time && cw.location===dw.location && cw.mode===dw.mode
+      && Number(cp.money||0)===Number(dp.money||0) && Number(cp.reputation||0)===Number(dp.reputation||0)
+      && stableKey(cp.bag||{})===stableKey(dp.bag||{}) && stableKey(cp.badges||[])===stableKey(dp.badges||[])
+      && stableKey([roster(p),box(p)])===stableKey([roster(d),box(d)])
+      && stableKey(cd.seen||{})===stableKey(dd.seen||{}) && stableKey(cd.caught||[])===stableKey(dd.caught||[])
+      && stableKey(cd.shiny||{})===stableKey(dd.shiny||{})
+      && Number(cb.count||0)===Number(db.count||0) && Number(cb.wins||0)===Number(db.wins||0);
+  }
+  function staleInitialAt(i,p) {
+    if (!initialSnapshot(p)) return false;
+    const chat=ctx().chat||[], start=Math.max(0,i-40);
+    for(let j=i-1;j>=start;j--){const prior=readAt(j)?.stat_data?.pkm;if(prior&&!initialSnapshot(prior))return true;}
+    return false;
+  }
+  // 从第 upto-1 楼往前找最近的可信变量楼层；跳过被旧 initvar 覆盖的默认快照。
   function varMid(upto) {
     const n = upto == null ? (ctx().chat || []).length : upto;
-    for (let i = n - 1; i >= 0 && i >= n - 40; i--) if (readAt(i)) return i;
+    for (let i = n - 1; i >= 0 && i >= n - 40; i--) { const d=readAt(i), p=d?.stat_data?.pkm; if (p && !staleInitialAt(i,p)) return i; }
     return null;
   }
   function stateOf(mes) {
