@@ -2,14 +2,16 @@
 (function (root) {
   'use strict';
   const KEY = 'pkm-world-save-v1';
-  const INITIAL_BALLS = { pokeball: 20, greatball: 10, ultraball: 5 };
+  const INITIAL_BALLS = { pokeball:20,greatball:10,ultraball:5,masterball:0,safariball:0,quickball:0,duskball:0,timerball:0,repeatball:0,netball:0,nestball:0,diveball:0,luxuryball:0,healball:0 };
   const clone = value => JSON.parse(JSON.stringify(value));
   const newSave = () => ({ version: 1, balls: { ...INITIAL_BALLS }, box: [] });
   function validate(raw) {
     if (!raw || raw.version !== 1 || !raw.balls || !Array.isArray(raw.box) || raw.box.length > 1000) throw new Error('不是有效的世界存档（版本1，仓库最多1000只）。');
     const balls = {};
     for (const key of Object.keys(INITIAL_BALLS)) {
-      const n = raw.balls[key];
+      // Version-1 saves created before extra ball types existed omit those keys;
+      // preserve their existing stock and migrate only the new entries to zero.
+      const n = Object.hasOwn(raw.balls,key) ? raw.balls[key] : 0;
       if (!Number.isInteger(n) || n < 0 || n > 9999) throw new Error('精灵球数量不合法。');
       balls[key] = n;
     }

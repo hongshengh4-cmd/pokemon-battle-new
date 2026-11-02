@@ -44,13 +44,14 @@
 
   function calcStats(species, level, opts = {}) {
     const ivs = Object.assign({ hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 }, opts.ivs || {});
+    const evs = Object.assign({ hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 }, opts.evs || {});
     const nature = (opts.nature || '').toLowerCase();
     const [up, down] = NATURES[nature] || [null, null];
     const out = {};
     for (const k of STAT_KEYS) {
-      const base = species.baseStats[k];
-      if (k === 'hp') { out.hp = Math.floor(((2 * base + ivs[k]) * level) / 100) + level + 10; continue; }
-      let v = Math.floor(((2 * base + ivs[k]) * level) / 100) + 5;
+      const base = species.baseStats[k], evQuarter=Math.floor(Math.max(0,Math.min(252,Number(evs[k])||0))/4);
+      if (k === 'hp') { out.hp = Math.floor(((2 * base + ivs[k] + evQuarter) * level) / 100) + level + 10; continue; }
+      let v = Math.floor(((2 * base + ivs[k] + evQuarter) * level) / 100) + 5;
       if (up === k) v = Math.floor(v * 1.1);
       if (down === k) v = Math.floor(v * 0.9);
       out[k] = v;
@@ -232,7 +233,7 @@
     return {
       speciesId: id, originalSpeciesId: id, name: opts.nickname || species.name, speciesName: species.name, hasNickname: !!opts.nickname,
       types: species.types.slice(), originalTypes: species.types.slice(), level, stats, maxHp: stats.hp, hp: stats.hp,
-      ivs: Object.assign({ hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 }, opts.ivs || {}), nature: opts.nature || '',
+      ivs: Object.assign({ hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 }, opts.ivs || {}), evs: Object.assign({ hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 }, opts.evs || {}), nature: opts.nature || '',
       moves, status: null, statusTurns: 0, toxicCounter: 1, sleepTurns: 0,
       stages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, accuracy: 0, evasion: 0 },
       volatile: {}, ability: opts.ability ? normId(opts.ability) : (normId(species.abilities?.[0] ?? '') || null), item,
@@ -374,10 +375,13 @@
       this.weatherTurns = opts.weatherTurns || 0;
       this.field = { terrain: null, terrainTurns: 0, trickRoom: 0, gravity: 0, sides: [newSideField(), newSideField()] };
       this.turnCount = 0;
+      this.moveCount = 0;
+      this.captureContext = opts.captureContext || {};
       this.log = [];
       this.winner = null; // 0 | 1 | null
       this.encounterType = opts.encounterType === 'wild' && teamB.length === 1 ? 'wild' : 'trainer';
-      this.ballStock = Object.fromEntries(['pokeball', 'greatball', 'ultraball'].map(id => [id,
+      const ballIds=Object.keys(root.PKMCapture?.BALLS||{pokeball:1,greatball:1,ultraball:1,masterball:1,safariball:1,quickball:1,duskball:1,timerball:1,repeatball:1,netball:1,nestball:1,diveball:1,luxuryball:1,healball:1});
+      this.ballStock = Object.fromEntries(ballIds.map(id => [id,
         Number.isInteger(opts.balls?.[id]) && opts.balls[id] >= 0 ? opts.balls[id] : 0]));
       this.outcome = null; this.capture = null; this.lastCapture = null;
       this.pendingSwitch = null; // side index that must switch (player-facing)
@@ -488,7 +492,7 @@
       const form = DEX[p.megaForm], hpRatio = p.hp / p.maxHp;
       p.speciesId = p.megaForm; p.speciesName = form.name; if (!p.hasNickname) p.name = form.name;
       p.types = form.types.slice(); p.originalTypes = form.types.slice();
-      p.stats = calcStats(form, p.level, { ivs: p.ivs, nature: p.nature });
+p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature });
       p.maxHp = p.stats.hp; p.hp = Math.max(1, Math.round(p.maxHp * hpRatio));
       p.ability = normId(form.abilities?.[0] || p.ability);
       p.isMega = true; this.mechanicUsed[side].mega = true;
@@ -504,7 +508,7 @@
       if (p.dynamaxForm === 'gmax' && DEX[`${p.originalSpeciesId}gmax`]) {
         const form = DEX[`${p.originalSpeciesId}gmax`];
         p.speciesId = `${p.originalSpeciesId}gmax`; p.speciesName = form.name; if (!p.hasNickname) p.name = form.name;
-        p.types = form.types.slice(); p.stats = calcStats(form, p.level, { ivs: p.ivs, nature: p.nature });
+        p.types = form.types.slice(); p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature });
       }
       p.maxHp = (p.normalMaxHp || p.maxHp) * 2;
       p.hp += p.normalMaxHp;
@@ -863,6 +867,7 @@
       const protectMove = ['protect', 'maxguard'].includes(move.volatileStatus);
       if (!protectMove) user._protectStreak = 0;
       if (!this.canMove(user, baseMove)) { if (protectMove) user._protectStreak = 0; return; }
+      this.moveCount++;
       if (baseMove.id === 'struggle') { this._struggled = true; this.say(`${user.name} 已经没有可以使用的招式了！`); }
       if (baseMove.ppLeft > 0 && baseMove.id !== 'struggle') baseMove.ppLeft--;
       if (wantsZ) { this.mechanicUsed[side].z = true; this.say(`💥 ${user.name} 发动了Ｚ招式！`); }

@@ -1,0 +1,1940 @@
+{
+  "source": "52poke MediaWiki API",
+  "sourceUrl": "https://wiki.52poke.com/api.php",
+  "selectionRule": "每个物种/形态优先选第9→1世代最新可用等级招式表；用52poke表头类型及形态代码选对应形态；保留不同游戏表分开、不做并集；仅当罗马数字VIII表类型唯一匹配洗翠形态时采用《传说 阿尔宙斯》等级表；已知纯外观/战斗形态继承本体招式表。",
+  "speciesIdsInDex": 1518,
+  "speciesWithLearnsets": 1234,
+  "coveragePercent": 81.29,
+  "nationalDexEntries": 1025,
+  "nationalDexEntriesWithLearnsets": 1025,
+  "nationalDexCoveragePercent": 100.0,
+  "missingNationalDexNumbers": [],
+  "sourceGenerationCounts": {
+    "1": 0,
+    "2": 0,
+    "3": 0,
+    "4": 0,
+    "5": 0,
+    "6": 1,
+    "7": 54,
+    "8": 286,
+    "9": 893
+  },
+  "remainingAfterEachGeneration": {
+    "9": 744,
+    "8": 489,
+    "7": 438,
+    "6": 437,
+    "5": 437,
+    "4": 437,
+    "3": 437,
+    "2": 437,
+    "1": 437
+  },
+  "inheritedCosmeticForms": {
+    "excadrillmega": "excadrill",
+    "baxcaliburmega": "baxcalibur",
+    "golurkmega": "golurk",
+    "toxtricitylowkey": "toxtricity",
+    "gyaradosmega": "gyarados",
+    "feraligatrmega": "feraligatr",
+    "venusaurgmax": "venusaur",
+    "cinderacegmax": "cinderace",
+    "necrozmaultra": "necrozma",
+    "machampgmax": "machamp",
+    "malamarmega": "malamar",
+    "pikachurockstar": "pikachu",
+    "wishiwashischool": "wishiwashi",
+    "togedemarutotem": "togedemaru",
+    "araquanidtotem": "araquanid",
+    "dianciemega": "diancie",
+    "pyroarmega": "pyroar",
+    "eeveestarter": "eevee",
+    "scizormega": "scizor",
+    "gumshoostotem": "gumshoos",
+    "chesnaughtmega": "chesnaught",
+    "cameruptmega": "camerupt",
+    "latiosmega": "latios",
+    "victreebelmega": "victreebel",
+    "aerodactylmega": "aerodactyl",
+    "heatranmega": "heatran",
+    "pikachugmax": "pikachu",
+    "garbodorgmax": "garbodor",
+    "sandacondagmax": "sandaconda",
+    "ampharosmega": "ampharos",
+    "crabominablemega": "crabominable",
+    "eiscuenoice": "eiscue",
+    "centiskorchgmax": "centiskorch",
+    "blazikenmega": "blaziken",
+    "chandeluremega": "chandelure",
+    "lycanrocdusk": "lycanroc",
+    "abomasnowmega": "abomasnow",
+    "pidgeotmega": "pidgeot",
+    "urshifugmax": "urshifu",
+    "grimmsnarlgmax": "grimmsnarl",
+    "salamencemega": "salamence",
+    "raichumegax": "raichu",
+    "pikachucosplay": "pikachu",
+    "vikavolttotem": "vikavolt",
+    "lopunnymega": "lopunny",
+    "scolipedemega": "scolipede",
+    "metagrossmega": "metagross",
+    "kangaskhanmega": "kangaskhan",
+    "barbaraclemega": "barbaracle",
+    "clefablemega": "clefable",
+    "meowthgmax": "meowth",
+    "heracrossmega": "heracross",
+    "garchompmega": "garchomp",
+    "chimechomega": "chimecho",
+    "coalossalgmax": "coalossal",
+    "kinglergmax": "kingler",
+    "kommoototem": "kommoo",
+    "audinomega": "audino",
+    "sableyemega": "sableye",
+    "morpekohangry": "morpeko",
+    "gengarmega": "gengar",
+    "gengargmax": "gengar",
+    "blastoisegmax": "blastoise",
+    "pinsirmega": "pinsir",
+    "duraludongmax": "duraludon",
+    "froslassmega": "froslass",
+    "raticatealolatotem": "raticatealola",
+    "gardevoirmega": "gardevoir",
+    "appletungmax": "appletun",
+    "dragonitemega": "dragonite",
+    "alcremiegmax": "alcremie",
+    "medichammega": "medicham",
+    "drednawgmax": "drednaw",
+    "glimmoramega": "glimmora",
+    "pikachubelle": "pikachu",
+    "staraptormega": "staraptor",
+    "darmanitanzen": "darmanitan",
+    "mewtwomegay": "mewtwo",
+    "greninjaash": "greninja",
+    "orbeetlegmax": "orbeetle",
+    "hawluchamega": "hawlucha",
+    "houndoommega": "houndoom",
+    "rayquazamega": "rayquaza",
+    "melmetalgmax": "melmetal",
+    "venusaurmega": "venusaur",
+    "laprasgmax": "lapras",
+    "absolmega": "absol",
+    "scraftymega": "scrafty",
+    "pikachupopstar": "pikachu",
+    "sharpedomega": "sharpedo",
+    "charizardgmax": "charizard",
+    "mawilemega": "mawile",
+    "toxtricitylowkeygmax": "toxtricitylowkey",
+    "beedrillmega": "beedrill",
+    "snorlaxgmax": "snorlax",
+    "marowakalolatotem": "marowakalola",
+    "eelektrossmega": "eelektross",
+    "pikachustarter": "pikachu",
+    "ribombeetotem": "ribombee",
+    "corviknightgmax": "corviknight",
+    "floetteeternal": "floette",
+    "floettemega": "floette",
+    "pikachulibre": "pikachu",
+    "starmiemega": "starmie",
+    "skarmorymega": "skarmory",
+    "inteleongmax": "inteleon",
+    "greninjamega": "greninja",
+    "altariamega": "altaria",
+    "lucariomega": "lucario",
+    "necrozmadawnwings": "necrozma",
+    "raichumegay": "raichu",
+    "meganiummega": "meganium",
+    "charizardmegay": "charizard",
+    "alakazammega": "alakazam",
+    "butterfreegmax": "butterfree",
+    "darkraimega": "darkrai",
+    "scovillainmega": "scovillain",
+    "flapplegmax": "flapple",
+    "manectricmega": "manectric",
+    "lycanrocmidnight": "lycanroc",
+    "blastoisemega": "blastoise",
+    "charizardmegax": "charizard",
+    "magearnamega": "magearna",
+    "salazzletotem": "salazzle",
+    "emboarmega": "emboar",
+    "dragalgemega": "dragalge",
+    "aggronmega": "aggron",
+    "latiasmega": "latias",
+    "glaliemega": "glalie",
+    "slowbromega": "slowbro",
+    "rillaboomgmax": "rillaboom",
+    "mimikyutotem": "mimikyu",
+    "darmanitangalarzen": "darmanitan",
+    "zeraoramega": "zeraora",
+    "tyranitarmega": "tyranitar",
+    "sceptilemega": "sceptile",
+    "golisopodmega": "golisopod",
+    "toxtricitygmax": "toxtricity",
+    "gallademega": "gallade",
+    "falinksmega": "falinks",
+    "pikachuphd": "pikachu",
+    "lurantistotem": "lurantis",
+    "banettemega": "banette",
+    "mewtwomegax": "mewtwo",
+    "zygardemega": "zygarde",
+    "swampertmega": "swampert",
+    "hatterenegmax": "hatterene",
+    "delphoxmega": "delphox",
+    "copperajahgmax": "copperajah",
+    "eeveegmax": "eevee",
+    "rockruffdusk": "rockruff",
+    "steelixmega": "steelix",
+    "drampamega": "drampa"
+  },
+  "uncoveredSpecies": [
+    {
+      "id": "ababo",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "absolmegaz",
+      "name": "超级阿勃梭鲁Z",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "aegislashblade",
+      "name": "坚盾剑怪（刀剑形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "alcremiecaramelswirl",
+      "name": "霜奶仙（焦糖漩纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "alcremielemoncream",
+      "name": "霜奶仙（柠檬奶油）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "alcremiematchacream",
+      "name": "霜奶仙（抹茶奶油）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "alcremiemintcream",
+      "name": "霜奶仙（薄荷奶油）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "alcremierainbowswirl",
+      "name": "霜奶仙（彩虹漩纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "alcremierubycream",
+      "name": "霜奶仙（红宝石奶油）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "alcremierubyswirl",
+      "name": "霜奶仙（红宝石漩纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "arceusbug",
+      "name": "阿尔宙斯（虫）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "arceusdark",
+      "name": "阿尔宙斯（恶）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "arceusdragon",
+      "name": "阿尔宙斯（龙）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "arceuselectric",
+      "name": "阿尔宙斯（电）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "arceusfairy",
+      "name": "阿尔宙斯（妖精）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "arceusfighting",
+      "name": "阿尔宙斯（格斗）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "arceusfire",
+      "name": "阿尔宙斯（火）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "arceusflying",
+      "name": "阿尔宙斯（飞行）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "arceusghost",
+      "name": "阿尔宙斯（幽灵）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "arceusgrass",
+      "name": "阿尔宙斯（草）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "arceusground",
+      "name": "阿尔宙斯（地面）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "arceusice",
+      "name": "阿尔宙斯（骑白马的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "arceuspoison",
+      "name": "阿尔宙斯（毒）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "arceuspsychic",
+      "name": "阿尔宙斯（超能力）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "arceusrock",
+      "name": "阿尔宙斯（岩石）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "arceussteel",
+      "name": "阿尔宙斯（钢）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "arceuswater",
+      "name": "阿尔宙斯（水）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "argalis",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "arghonaut",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "astrolotl",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "aurumoth",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "basculegionf",
+      "name": "幽尾玄鱼（雌性）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "basculinbluestriped",
+      "name": "野蛮鲈鱼（蓝条纹的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "basculinwhitestriped",
+      "name": "野蛮鲈鱼（白条纹的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "brattler",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "breezi",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "burmysandy",
+      "name": "结草儿（沙土蓑衣）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "burmytrash",
+      "name": "结草儿（垃圾蓑衣）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "caimanoe",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "calyrexice",
+      "name": "蕾冠王（骑白马的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "calyrexshadow",
+      "name": "蕾冠王（骑黑马的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "caribolt",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "castformrainy",
+      "name": "飘浮泡泡（雨天形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "castformsnowy",
+      "name": "飘浮泡泡（雪天形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "castformsunny",
+      "name": "飘浮泡泡（太阳形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "cawdet",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "cawmodore",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "cherrimsunshine",
+      "name": "樱花儿（晴天形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "chromera",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "chuggalong",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "chuggon",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "colossoil",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "coribalis",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "cramorantgorging",
+      "name": "古月鸟（满口吃下）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "cramorantgulping",
+      "name": "古月鸟（一口吃下）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "cresceidon",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "crucibelle",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "crucibellemega",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "cupra",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "cyclohm",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "deerlingautumn",
+      "name": "四季鹿（秋天的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "deerlingsummer",
+      "name": "四季鹿（夏天的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "deerlingwinter",
+      "name": "四季鹿（冬天的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "deoxysattack",
+      "name": "代欧奇希斯（攻击形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "deoxysdefense",
+      "name": "代欧奇希斯（防御形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "deoxysspeed",
+      "name": "代欧奇希斯（速度形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "dialgaorigin",
+      "name": "帝牙卢卡（起源形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "dorsoil",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "draggalong",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "dudunsparcethreesegment",
+      "name": "土龙节节（三节的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "duohm",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "electrelk",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "embirch",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "enamorustherian",
+      "name": "眷恋云（灵兽形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "equilibra",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "eternatuseternamax",
+      "name": "无极巨那无极汰那",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "fawnifer",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "fidgit",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "flarelm",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "floatoy",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "flox",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "garchompmegaz",
+      "name": "超级烈咬陆鲨Z",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "gastrodoneast",
+      "name": "海兔兽（东海）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "genesectburn",
+      "name": "盖诺赛克特（火焰卡带）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "genesectchill",
+      "name": "盖诺赛克特（冰冻卡带）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "genesectdouse",
+      "name": "盖诺赛克特（水流卡带）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "genesectshock",
+      "name": "盖诺赛克特（闪电卡带）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "gimmighoulroaming",
+      "name": "索财灵（徒步形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "giratinaorigin",
+      "name": "骑拉帝纳（起源形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "gourgeistlarge",
+      "name": "南瓜怪人（大尺寸）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "gourgeistsmall",
+      "name": "南瓜怪人（小尺寸）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "gourgeistsuper",
+      "name": "南瓜怪人（特大尺寸）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "greninjabond",
+      "name": "甲贺忍蛙（牵绊形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "groudonprimal",
+      "name": "原始回归固拉多",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "hemogoblin",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "hoopaunbound",
+      "name": "胡帕（解放形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "indeedeef",
+      "name": "爱管侍（雌性）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "jumbao",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "justyke",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "keldeoresolute",
+      "name": "凯路迪欧（觉悟的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "kerfluffle",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "kitsunoh",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "krilowatt",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "kyogreprimal",
+      "name": "原始回归盖欧卡",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "kyuremblack",
+      "name": "暗黑酋雷姆",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "kyuremwhite",
+      "name": "焰白酋雷姆",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "landorustherian",
+      "name": "土地云（灵兽形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "lucariomegaz",
+      "name": "超级路卡利欧Z",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "magearnaoriginal",
+      "name": "玛机雅娜（原始的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "magearnaoriginalmega",
+      "name": "超级玛机雅娜（原始的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "malaconda",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "mausholdfour",
+      "name": "一家鼠（四只家庭）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "meloettapirouette",
+      "name": "美洛耶塔（舞步形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "meowsticf",
+      "name": "超能妙喵（雌性）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "meowsticfmega",
+      "name": "超级超能妙喵（雌性）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "meowsticmmega",
+      "name": "超级超能妙喵（雄性）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "miasmaw",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "miasmite",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "mimikyubusted",
+      "name": "谜拟丘（现形的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "mimikyubustedtotem",
+      "name": "谜拟丘（现形的样子·霸主宝可梦）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "miniorblue",
+      "name": "小陨星（蓝色核心）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "miniorgreen",
+      "name": "小陨星（绿色核心）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "miniorindigo",
+      "name": "小陨星（靛蓝色核心）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "miniormeteor",
+      "name": "小陨星（流星的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "miniororange",
+      "name": "小陨星（橙色核心）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "miniorviolet",
+      "name": "小陨星（紫色核心）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "minioryellow",
+      "name": "小陨星（黄色核心）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "missingno",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "mollux",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "monohm",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "mumbao",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "naviathan",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "necrozmaduskmane",
+      "name": "奈克洛兹玛（黄昏之鬃）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "necturine",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "necturna",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "nohface",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "obliteryx",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "ogerponcornerstone",
+      "name": "厄诡椪（础石之面）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "ogerponcornerstonetera",
+      "name": "厄诡椪（础石之面·太晶化）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "ogerponhearthflame",
+      "name": "厄诡椪（火灶之面）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "ogerponhearthflametera",
+      "name": "厄诡椪（火灶之面·太晶化）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "ogerpontealtera",
+      "name": "厄诡椪（碧绿之面·太晶化）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "ogerponwellspring",
+      "name": "厄诡椪（水井之面）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "ogerponwellspringtera",
+      "name": "厄诡椪（水井之面·太晶化）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "oinkolognef",
+      "name": "飘香豚（雌性）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "oricoriopau",
+      "name": "花舞鸟（呼啦呼啦风格）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "oricoriopompom",
+      "name": "花舞鸟（啪滋啪滋风格）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "oricoriosensu",
+      "name": "花舞鸟（轻柔轻柔风格）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pajantom",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "palafinhero",
+      "name": "海豚侠（平凡的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "palkiaorigin",
+      "name": "帕路奇亚（起源形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pichuspikyeared",
+      "name": "刺耳皮丘",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pikachuhoenn",
+      "name": "皮卡丘（丰缘帽）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pikachukalos",
+      "name": "皮卡丘（卡洛斯帽）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pikachuoriginal",
+      "name": "皮卡丘（原始的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pikachupartner",
+      "name": "皮卡丘（搭档）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pikachusinnoh",
+      "name": "皮卡丘（神奥帽）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pikachuunova",
+      "name": "皮卡丘（合众帽）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pikachuworld",
+      "name": "皮卡丘（世界帽）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "plasmanta",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pluffle",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pokestarblackbelt",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pokestarblackdoor",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pokestarbrycenman",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pokestarf00",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pokestarf002",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pokestargiant",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pokestarhumanoid",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pokestarmonster",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pokestarmt",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pokestarmt2",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pokestarsmeargle",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pokestarspirit",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pokestartransport",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pokestarufo",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pokestarufo2",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pokestarufopropu2",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pokestarwhitedoor",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "poltchageistartisan",
+      "name": "斯魔茶（野生的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "polteageistantique",
+      "name": "怖思壶（真品）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "privatyke",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "protowatt",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pumpkaboolarge",
+      "name": "南瓜精（大尺寸）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pumpkaboosmall",
+      "name": "南瓜精（小尺寸）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pumpkaboosuper",
+      "name": "南瓜精（特大尺寸）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "pyroak",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "ramnarok",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "ramnarokradiant",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "rebble",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "revenankh",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "rotomfan",
+      "name": "洛托姆（旋转形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "rotomfrost",
+      "name": "洛托姆（结冰形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "rotomheat",
+      "name": "洛托姆（加热形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "rotommow",
+      "name": "洛托姆（切割形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "rotomwash",
+      "name": "洛托姆（清洗形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "saharaja",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "saharascal",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "scattervein",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "scraptor",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "scratchet",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "shayminsky",
+      "name": "谢米（天空形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "shelloseast",
+      "name": "无壳海兔（东海）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "shox",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "silvallybug",
+      "name": "银伴战兽（虫形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "silvallydark",
+      "name": "银伴战兽（恶形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "silvallydragon",
+      "name": "银伴战兽（龙形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "silvallyelectric",
+      "name": "银伴战兽（电形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "silvallyfairy",
+      "name": "银伴战兽（妖精形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "silvallyfighting",
+      "name": "银伴战兽（格斗形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "silvallyfire",
+      "name": "银伴战兽（火形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "silvallyflying",
+      "name": "银伴战兽（飞行形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "silvallyghost",
+      "name": "银伴战兽（幽灵形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "silvallygrass",
+      "name": "银伴战兽（草形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "silvallyground",
+      "name": "银伴战兽（地面形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "silvallyice",
+      "name": "银伴战兽（骑白马的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "silvallypoison",
+      "name": "银伴战兽（毒形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "silvallypsychic",
+      "name": "银伴战兽（超能力形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "silvallyrock",
+      "name": "银伴战兽（岩石形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "silvallysteel",
+      "name": "银伴战兽（钢形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "silvallywater",
+      "name": "银伴战兽（水形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "sinistchamasterpiece",
+      "name": "来悲粗茶（杰出的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "sinisteaantique",
+      "name": "来悲茶（真品）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "smogecko",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "smoguana",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "smokomodo",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "snaelstrom",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "snugglow",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "solotl",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "squawkabillyblue",
+      "name": "怒鹦哥（蓝色核心）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "squawkabillywhite",
+      "name": "焰白怒鹦哥",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "squawkabillyyellow",
+      "name": "怒鹦哥（黄色核心）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "stratagem",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "swirlpool",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "syclant",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "syclar",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "tactite",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "tatsugiricurlymega",
+      "name": "超级米立龙（卷缩的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "tatsugiridroopy",
+      "name": "米立龙（低垂的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "tatsugiridroopymega",
+      "name": "超级米立龙（低垂的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "tatsugiristretchy",
+      "name": "米立龙（平挺的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "tatsugiristretchymega",
+      "name": "超级米立龙（平挺的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "taurospaldeaaqua",
+      "name": "帕底亚肯泰罗（水澜种）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "taurospaldeablaze",
+      "name": "帕底亚肯泰罗（火焰种）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "taurospaldeacombat",
+      "name": "帕底亚肯泰罗（斗育种）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "terapagosstellar",
+      "name": "太乐巴戈斯（星晶形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "terapagosterastal",
+      "name": "太乐巴戈斯（太晶形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "thundurustherian",
+      "name": "雷电云（灵兽形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "tomohawk",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "tornadustherian",
+      "name": "龙卷云（灵兽形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "urshifurapidstrike",
+      "name": "武道熊师（连击流）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "urshifurapidstrikegmax",
+      "name": "超极巨化武道熊师（连击流）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "venomicon",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "venomiconepilogue",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "vivillonarchipelago",
+      "name": "彩粉蝶（群岛花纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "vivilloncontinental",
+      "name": "彩粉蝶（大陆花纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "vivillonelegant",
+      "name": "彩粉蝶（高雅花纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "vivillonfancy",
+      "name": "彩粉蝶（幻彩花纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "vivillongarden",
+      "name": "彩粉蝶（庭院花纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "vivillonhighplains",
+      "name": "彩粉蝶（荒野花纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "vivillonicysnow",
+      "name": "彩粉蝶（冰雪花纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "vivillonjungle",
+      "name": "彩粉蝶（丛林花纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "vivillonmarine",
+      "name": "彩粉蝶（海洋花纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "vivillonmodern",
+      "name": "彩粉蝶（摩登花纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "vivillonmonsoon",
+      "name": "彩粉蝶（季风花纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "vivillonocean",
+      "name": "彩粉蝶（大洋花纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "vivillonpokeball",
+      "name": "彩粉蝶（精灵球花纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "vivillonpolar",
+      "name": "彩粉蝶（雪国花纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "vivillonriver",
+      "name": "彩粉蝶（大河花纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "vivillonsandstorm",
+      "name": "彩粉蝶（沙尘花纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "vivillonsavanna",
+      "name": "彩粉蝶（草原花纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "vivillonsun",
+      "name": "彩粉蝶（太阳花纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "vivillontundra",
+      "name": "彩粉蝶（冻原花纹）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "volkraken",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "volkritter",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "voodoll",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "voodoom",
+      "name": "未知宝可梦",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "wormadamsandy",
+      "name": "结草贵妇（沙土蓑衣）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "wormadamtrash",
+      "name": "结草贵妇（垃圾蓑衣）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "xerneasneutral",
+      "name": "哲尔尼亚斯（平静模式）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "zaciancrowned",
+      "name": "苍响（剑之王）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "zamazentacrowned",
+      "name": "藏玛然特（剑之王）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "zarudedada",
+      "name": "萨戮德（爸爸的样子）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "zygarde10",
+      "name": "基格尔德（10%形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    },
+    {
+      "id": "zygardecomplete",
+      "name": "基格尔德（完全体形态）",
+      "reason": "no_level_table_gen1_to_9_or_unresolved_form"
+    }
+  ],
+  "ambiguousFormSelections": {
+    "basculin": {
+      "name": "野蛮鲈鱼",
+      "generation": 8,
+      "form_codes": [
+        "5|水|水|8",
+        "5|水|水|VIII"
+      ]
+    },
+    "tangrowth": {
+      "name": "巨蔓藤",
+      "generation": 8,
+      "form_codes": [
+        "4|草|草|8",
+        "4|草|草|VIII"
+      ]
+    },
+    "roselia": {
+      "name": "毒蔷薇",
+      "generation": 8,
+      "form_codes": [
+        "3|草|毒|8",
+        "3|草|毒|VIII"
+      ]
+    },
+    "bidoof": {
+      "name": "大牙狸",
+      "generation": 8,
+      "form_codes": [
+        "4|一般|一般|8",
+        "4|一般|一般|VIII"
+      ]
+    },
+    "togetic": {
+      "name": "波克基古",
+      "generation": 8,
+      "form_codes": [
+        "2|妖精|飞行|8",
+        "2|妖精|飞行|VIII"
+      ]
+    },
+    "crobat": {
+      "name": "叉字蝠",
+      "generation": 8,
+      "form_codes": [
+        "2|毒|飞行|8",
+        "2|毒|飞行|VIII"
+      ]
+    },
+    "mothim": {
+      "name": "绅士蛾",
+      "generation": 8,
+      "form_codes": [
+        "4|虫|飞行|8",
+        "4|虫|飞行|VIII"
+      ]
+    },
+    "togepi": {
+      "name": "波克比",
+      "generation": 8,
+      "form_codes": [
+        "2|妖精|妖精|8",
+        "2|妖精|妖精|VIII"
+      ]
+    },
+    "mimejr": {
+      "name": "魔尼尼",
+      "generation": 8,
+      "form_codes": [
+        "4|超能力|妖精|8",
+        "4|超能力|妖精|VIII"
+      ]
+    },
+    "sealeo": {
+      "name": "海魔狮",
+      "generation": 8,
+      "form_codes": [
+        "3|冰|水|8",
+        "3|冰|水|VIII"
+      ]
+    },
+    "dustox": {
+      "name": "毒粉蛾",
+      "generation": 8,
+      "form_codes": [
+        "3|虫|毒|8",
+        "3|虫|毒|VIII"
+      ]
+    },
+    "roserade": {
+      "name": "罗丝雷朵",
+      "generation": 8,
+      "form_codes": [
+        "4|草|毒|8",
+        "4|草|毒|VIII"
+      ]
+    },
+    "beautifly": {
+      "name": "狩猎凤蝶",
+      "generation": 8,
+      "form_codes": [
+        "3|虫|飞行|8",
+        "3|虫|飞行|VIII"
+      ]
+    },
+    "buneary": {
+      "name": "卷卷耳",
+      "generation": 8,
+      "form_codes": [
+        "4|一般|一般|8",
+        "4|一般|一般|VIII"
+      ]
+    },
+    "glameow": {
+      "name": "魅力喵",
+      "generation": 8,
+      "form_codes": [
+        "4|一般|一般|8",
+        "4|一般|一般|VIII"
+      ]
+    },
+    "cascoon": {
+      "name": "盾甲茧",
+      "generation": 8,
+      "form_codes": [
+        "3|虫|虫|8",
+        "3|虫|虫|VIII"
+      ]
+    },
+    "mantyke": {
+      "name": "小球飞鱼",
+      "generation": 8,
+      "form_codes": [
+        "4|水|飞行|8",
+        "4|水|飞行|VIII"
+      ]
+    },
+    "octillery": {
+      "name": "章鱼桶",
+      "generation": 8,
+      "form_codes": [
+        "2|水|水|8",
+        "2|水|水|VIII"
+      ]
+    },
+    "skorupi": {
+      "name": "钳尾蝎",
+      "generation": 8,
+      "form_codes": [
+        "4|毒|虫|8",
+        "4|毒|虫|VIII"
+      ]
+    },
+    "cherrim": {
+      "name": "樱花儿",
+      "generation": 8,
+      "form_codes": [
+        "4|草|草|8",
+        "4|草|草|VIII"
+      ]
+    },
+    "burmy": {
+      "name": "结草儿",
+      "generation": 8,
+      "form_codes": [
+        "4|虫|虫|8",
+        "4|虫|虫|VIII"
+      ]
+    },
+    "walrein": {
+      "name": "帝牙海狮",
+      "generation": 8,
+      "form_codes": [
+        "3|冰|水|8",
+        "3|冰|水|VIII"
+      ]
+    },
+    "togekiss": {
+      "name": "波克基斯",
+      "generation": 8,
+      "form_codes": [
+        "4|妖精|飞行|8",
+        "4|妖精|飞行|VIII"
+      ]
+    },
+    "lickilicky": {
+      "name": "大舌舔",
+      "generation": 8,
+      "form_codes": [
+        "4|一般|一般|8",
+        "4|一般|一般|VIII"
+      ]
+    },
+    "drapion": {
+      "name": "龙王蝎",
+      "generation": 8,
+      "form_codes": [
+        "4|毒|恶|8",
+        "4|毒|恶|VIII"
+      ]
+    },
+    "spheal": {
+      "name": "海豹球",
+      "generation": 8,
+      "form_codes": [
+        "3|冰|水|8",
+        "3|冰|水|VIII"
+      ]
+    },
+    "bibarel": {
+      "name": "大尾狸",
+      "generation": 8,
+      "form_codes": [
+        "4|一般|水|8",
+        "4|一般|水|VIII"
+      ]
+    },
+    "wormadam": {
+      "name": "结草贵妇",
+      "generation": 8,
+      "form_codes": [
+        "4|虫|草|8",
+        "4|虫|地面|8",
+        "4|虫|钢|8",
+        "4|虫|草|VIII",
+        "4|虫|地面|VIII",
+        "4|虫|钢|VIII"
+      ]
+    },
+    "silcoon": {
+      "name": "甲壳茧",
+      "generation": 8,
+      "form_codes": [
+        "3|虫|虫|8",
+        "3|虫|虫|VIII"
+      ]
+    },
+    "steelix": {
+      "name": "大钢蛇",
+      "generation": 8,
+      "form_codes": [
+        "2|钢|地面|8",
+        "2|钢|地面|VIII"
+      ]
+    },
+    "mantine": {
+      "name": "巨翅飞鱼",
+      "generation": 8,
+      "form_codes": [
+        "2|水|飞行|8",
+        "2|水|飞行|VIII"
+      ]
+    },
+    "remoraid": {
+      "name": "铁炮鱼",
+      "generation": 8,
+      "form_codes": [
+        "2|水|水|8",
+        "2|水|水|VIII"
+      ]
+    },
+    "chatot": {
+      "name": "聒噪鸟",
+      "generation": 8,
+      "form_codes": [
+        "4|一般|飞行|8",
+        "4|一般|飞行|VIII"
+      ]
+    },
+    "carnivine": {
+      "name": "尖牙笼",
+      "generation": 8,
+      "form_codes": [
+        "4|草|草|8",
+        "4|草|草|VIII"
+      ]
+    },
+    "wurmple": {
+      "name": "刺尾虫",
+      "generation": 8,
+      "form_codes": [
+        "3|虫|虫|8",
+        "3|虫|虫|VIII"
+      ]
+    },
+    "cherubi": {
+      "name": "樱花宝",
+      "generation": 8,
+      "form_codes": [
+        "4|草|草|8",
+        "4|草|草|VIII"
+      ]
+    },
+    "purugly": {
+      "name": "东施喵",
+      "generation": 8,
+      "form_codes": [
+        "4|一般|一般|8",
+        "4|一般|一般|VIII"
+      ]
+    },
+    "lopunny": {
+      "name": "长耳兔",
+      "generation": 8,
+      "form_codes": [
+        "4|一般|一般|8",
+        "4|一般|一般|VIII"
+      ]
+    },
+    "unown": {
+      "name": "未知图腾",
+      "generation": 8,
+      "form_codes": [
+        "2|超能力|超能力|8",
+        "2|超能力|超能力|VIII"
+      ]
+    },
+    "budew": {
+      "name": "含羞苞",
+      "generation": 8,
+      "form_codes": [
+        "4|草|毒|8",
+        "4|草|毒|VIII"
+      ]
+    }
+  },
+  "unmappedMoves": [],
+  "requestErrors": [],
+  "dataset": "level-up-learnsets-52poke.json"
+}

@@ -15,7 +15,7 @@ installSpriteRecovery(document);
   const EMBED = new URLSearchParams(location.search).has('embed');
   if (EMBED) document.documentElement.classList.add('embed');
   let dataReady = false, pendingHostConfig = null, hostTag = null, hostMode = false;
-  const APP_VERSION = '1.3.31';
+  const APP_VERSION = '1.3.40p';
   let formatTag = '', formatRule = ''; // v1.3.8：角色卡发来的赛制（例：3v3、3只 vs 1只），显示在行动菜单的标签上
   let typeLabel = ''; // v1.3.9：角色卡发来的对战类型（道馆战 / 训练家对战 / 劲敌对战 / 火箭队……），标签第一段
   // 宿主模式：球袋来自角色卡变量（MVU），只存在本页内存里，不读写本机存档。
@@ -909,7 +909,7 @@ installSpriteRecovery(document);
       const title = document.createElement('strong'); title.textContent = ball.name;
       const desc = document.createElement('small'); desc.textContent = ball.description;
       const stock = document.createElement('b'); stock.textContent = `×${battle.ballStock[ball.id] || 0}`;
-      const odds = document.createElement('em'); odds.textContent = reason ? '不可捕获' : `约 ${Math.round(PKMCapture.chance(battle.cur(1), ball.id)*100)}% · 投出`;
+      const odds = document.createElement('em'); odds.textContent = reason ? '不可捕获' : `约 ${Math.round(PKMCapture.chance(battle.cur(1),ball.id,{...(battle.captureContext||{}),moveCount:battle.moveCount||0})*100)}% · 投出`;
       body.append(title,desc); button.append(mark,body,stock,odds);
       button.disabled = animating || !!reason || !!battle.captureReason(ball.id);
       button.title = reason || battle.captureReason(ball.id) || '确认使用一枚' + ball.name;
@@ -1498,7 +1498,7 @@ installSpriteRecovery(document);
       const wt = environment.weatherTurns;
       if (cfg.encounter?.type === 'wild' && enemyTeam.length !== 1) throw new Error('当前野生遭遇仅支持一只野生宝可梦。');
       battle = new PKMBattle.Battle(playerTeam, enemyTeam, { difficulty, weather, weatherTurns: typeof wt !== 'undefined' ? wt : 0,
-        encounterType: cfg.encounter?.type, balls: worldStore.state.balls, seed: cfg.seed });
+        encounterType: cfg.encounter?.type, balls: worldStore.state.balls, seed: cfg.seed, captureContext:cfg.host?.captureContext||{} });
       if (environment.terrain) battle.setTerrain(environment.terrain, environment.terrainTurns);
       if (cfg.ui?.openBalls && battle.encounterType === 'wild') menuView = 'balls';
       // v1.3.9：战斗记录第一行写明这场的类型和赛制（角色卡发来的）

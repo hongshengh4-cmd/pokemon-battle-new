@@ -1,7 +1,7 @@
 // 宝可梦·关都之旅 · 外置桥接数据（v1.3.2 起；v1.3.8 加赛制表；v1.3.9 加伙伴阵容表）
 // 地图坐标、附近野生遭遇表、初始伙伴、道具图标映射。全部为同人整理数据。
 
-export const VERSION = '1.3.31';
+export const VERSION = '1.3.40p';
 
 /* ---------- 关都地图（示意，坐标为 0~100 的画布比例） ---------- */
 export const MAP_NODES = [
@@ -116,8 +116,8 @@ export const CRIES = {
 };
 
 /* ---------- 精灵球与道具 ---------- */
-export const BALL_ZH = { pokeball: '精灵球', greatball: '超级球', ultraball: '高级球' };
-export const ZH_BALL = { 精灵球: 'pokeball', 超级球: 'greatball', 高级球: 'ultraball' };
+export const BALL_ZH = { pokeball:'精灵球',greatball:'超级球',ultraball:'高级球',masterball:'大师球',safariball:'狩猎球',quickball:'先机球',duskball:'黑暗球',timerball:'计时球',repeatball:'重复球',netball:'捕网球',nestball:'巢穴球',diveball:'潜水球',luxuryball:'豪华球',healball:'治愈球' };
+export const ZH_BALL = Object.fromEntries(Object.entries(BALL_ZH).map(([id,zh])=>[zh,id]));
 // 道具中文名 → PokeAPI 道具图文件名
 export const ITEM_ICONS = {
   精灵球: 'poke-ball', 超级球: 'great-ball', 高级球: 'ultra-ball', 大师球: 'master-ball', 狩猎球: 'safari-ball',
