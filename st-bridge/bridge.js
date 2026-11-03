@@ -728,7 +728,7 @@ function makeStarter(species, nickname, mode) {
 let eventCache = null;
 /* ===== v1.3.31-plot-fix ①：事件表优先读线上世界书（和脚本同版本发布），失败回退卡内嵌 ===== */
 let onlineEntries = null, onlineMeta = null;
-const worldReady = fetch(BASE + 'st-bridge/kanto-world.json?v=20261102-johto-story-v23')
+const worldReady = fetch(BASE + 'st-bridge/kanto-world.json?v=20261103-plot-chronology-v24')
   .then(r => (r.ok ? r.json() : null))
   .then(j => {
     if (j && Array.isArray(j.entries) && j.entries.length) {
@@ -787,13 +787,23 @@ function plotPosition() {
     if (m[3] === '完成' || m[3] === '跳过') done.add(m[1]);
     maxIdx = Math.max(maxIdx, index[m[1]]);
   }
-  const mode = latestState()?.state?.模式 || readPkm().world.mode || '同行模式';
-  const now = parseDate(latestState()?.state?.时间 || readPkm().world.time);
+  const pkmNow = readPkm() || {};
+  const w = pkmNow.world || {};
+  const mode = latestState()?.state?.模式 || w.mode || '同行模式';
+  const now = parseDate(latestState()?.state?.时间 || w.time);
   /* ⑤ 脚本侧进度兜底：聊天里读不到时，用 pkm.world.event（world 已声明 extensible） */
-  const w = readPkm().world || {};
   if (!last && w.event && index[w.event] !== undefined && !done.has(w.event)) {
     last = { id: w.event, node: Number(w.node) || 1, status: w.nodeStatus || '进行中' };
     maxIdx = Math.max(maxIdx, index[last.id]);
+  }
+  /* 存档兼容：旧回复可能已写到正辉灯塔，却仍误标‘自由’。利用已写入变量续接 EP013 节点2，不回滚既有聊天。 */
+  const locNow = String(latestState()?.state?.地点 || w.location || '');
+  const billMet = !!pkmNow.npcs?.records?.bill?.met;
+  const ep13Index = index.EP013;
+  if (ep13Index !== undefined && /灯塔/.test(locNow) && billMet && (!last || index[last.id] < ep13Index)) {
+    last = { id: 'EP013', node: 2, status: '进行中' };
+    maxIdx = Math.max(maxIdx, ep13Index);
+    freeTail = false;
   }
   let cur, node = 1, note = '', free = false;
   if (last && !done.has(last.id)) {
@@ -815,19 +825,26 @@ function plotPosition() {
     const anchor = list[index[PLOT_START_EVENT]];
     if (anchor) { note = (note ? note + ' ' : '') + `【开局锚点】未读到进度，按开局事件 ${anchor.id} 定位（原命中 ${cur.id}）。`; cur = anchor; node = 1; }
   }
-  let gap = '', gapDays = 0, suspect = false;
+  let gap = '', gapDays = 0, gapMinutes = 0, suspect = false, notBefore = false;
   if (now && cur.date) {
     gapDays = cur.date.day - now.day;
+    gapMinutes = gapDays * 1440 + (cur.date.h * 60 + cur.date.mi) - (now.h * 60 + now.mi);
+    const alreadyStarted = !!last && last.id === cur.id && !done.has(cur.id);
+    notBefore = gapMinutes > 0 && !alreadyStarted;
     if (gapDays > PLOT_DATE_SANITY) {
       suspect = true;
       gap = `准备好的事件 ${cur.id} 参考日期是 ${cur.date.text}，比正文时间晚 ${gapDays} 天（相邻事件间隔最多 14 天），判定为定位异常。`;
-    } else if (gapDays > 0) {
-      gap = mode.includes('沙盒') ? `事件参考日期还有 ${gapDays} 天，可以先写自由旅行与日常。` : `正文时间比事件参考日期早 ${gapDays} 天：先写赶路、训练和日常，必要时一两句带过几天，再自然进入事件。`;
+    } else if (notBefore) {
+      const remain = Math.ceil(gapMinutes / 1440);
+      gap = `主线事件 ${cur.id} 的最早日期为第${cur.date.y}年 ${cur.date.mo}月${cur.date.d}日 ${String(cur.date.h).padStart(2,'0')}:${String(cur.date.mi).padStart(2,'0')}；当前还早约 ${remain} 天。该日期是不可提前的下限，可因合理行程延后。`;
+      free = true;
+    } else if (freeTail) {
+      /* 到达日期后自动恢复下一事件，避免‘自由’状态无限压住主线。 */
+      free = false;
     }
   }
-  return { event: cur, node, total: cur.nodes.length, nodeText: cur.nodes[node - 1] || '', note, gap, gapDays, suspect, free, mode };
+  return { event: cur, node, total: cur.nodes.length, nodeText: cur.nodes[node - 1] || '', note, gap, gapDays, gapMinutes, suspect, notBefore, free, mode };
 }
-
 
 /* ======================================================================
  * 4. 生成前注入：剧情节点 + 变量摘要
@@ -925,8 +942,11 @@ function buildInjection() {
     if (pos.suspect) {
       /* ④ 日期自检没过：不注入任何事件内容，防止把很久以后的剧情塞进当前这一幕 */
       parts.push('【注入自检未通过】' + pos.gap);
-      parts.push('本轮按自由剧情写，状态栏写“剧情：自由｜节点0｜进行中”；不要使用任何尚未到来的事件、人物、地点与情节。');
-      if (cl) parts.push(cl);
+      parts.push('本轮保持自由剧情，状态栏写“剧情：自由｜节点0｜进行中”。可以按玩家明确目的地写真实路线、旅途与休整，但不得演出尚未到日期的主线节点、关键互动或结局；不得瞬移。达到事件最早日期后自动注入正确节点。');
+    } else if (pos.notBefore) {
+      parts.push(`【主线日期锁】下一事件 ${e.id}｜${e.title} 的最早触发时间为 ${e.date?.text || '角色卡日期'} ${String(e.date?.h ?? 9).padStart(2,'0')}:${String(e.date?.mi ?? 0).padStart(2,'0')}；当前剧情时间尚未到达。`);
+      parts.push('本轮只能写自由日常、训练与真实旅途；不可提前演出该主线节点、关键人物互动或结局。玩家指定目的地时，可以按路程合理前往并写足中途时间，但若提前抵达须停在主线事件发生之前。状态栏必须写“剧情：自由｜节点0｜进行中”。一旦状态栏时间到达最早触发时间，下一轮桥接会自动强制注入该事件的正确节点1，不得跳节点。');
+      if (pos.gap) parts.push('[不可提前] ' + pos.gap);
     } else if (pos.free) {
       parts.push(`【自由剧情】上一幕没有推进主线，脚本保持进度不动：${e.id}｜${e.title}（${e.stage}）节点 ${pos.node} / ${pos.total}。`);
       parts.push('本轮可以继续写日常、赶路、训练，不必强行推进主线；也可以自然转入这个事件。状态栏二选一（两种都能被脚本识别）：写了主线内容就写“剧情：' + e.id + '｜节点' + pos.node + '｜进行中”，仍是日常就写“剧情：自由｜节点0｜进行中”。不要写成“自由剧情”这类无法识别的格式。');
@@ -8721,7 +8741,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261102-all-items-v1", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261103-plot-chronology-v1", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
