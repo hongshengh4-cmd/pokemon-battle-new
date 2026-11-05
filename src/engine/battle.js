@@ -70,7 +70,7 @@
   const STAT_LABELS = { atk: '攻击', def: '防御', spa: '特攻', spd: '特防', spe: '速度', accuracy: '命中率', evasion: '闪避率' };
   const PINCH_ABILITIES = { Fire: 'blaze', Water: 'torrent', Grass: 'overgrow', Bug: 'swarm' };
   const STATUS_BY_ABILITY = { static: 'par', flamebody: 'brn', poisonpoint: 'psn' };
-  const newSideField = () => ({ stealthrock: false, spikes: 0, toxicspikes: 0, stickyweb: false, reflect: 0, lightscreen: 0, auroraveil: 0, tailwind: 0, wideguard: false, quickguard: false, matblock: false });
+  const newSideField = () => ({ stealthrock: false, spikes: 0, toxicspikes: 0, stickyweb: false, reflect: 0, lightscreen: 0, auroraveil: 0, tailwind: 0, safeguard: 0, wideguard: false, quickguard: false, matblock: false });
 
   function isGrounded(p) {
     if (!p) return false;
@@ -391,6 +391,7 @@
       const ballIds=Object.keys(root.PKMCapture?.BALLS||{pokeball:1,greatball:1,ultraball:1,masterball:1,safariball:1,quickball:1,duskball:1,timerball:1,repeatball:1,netball:1,nestball:1,diveball:1,luxuryball:1,healball:1});
       this.ballStock = Object.fromEntries(ballIds.map(id => [id,
         Number.isInteger(opts.balls?.[id]) && opts.balls[id] >= 0 ? opts.balls[id] : 0]));
+      this.itemStock = Object.fromEntries(Object.entries(opts.itemStock||{}).map(([id,n])=>[id,Math.max(0,Math.floor(Number(n)||0))]));
       this.outcome = null; this.capture = null; this.lastCapture = null;
       this.pendingSwitch = null; // player-facing active slot that must be replaced
       this.pendingSwitches = [];
@@ -508,7 +509,9 @@
     megaEvolve(side, slot = 0) {
       const p = this.cur(side, slot);
       if (!p || p.fainted || this.mechanicUsed[side].mega || p.mechanic !== 'mega' || !p.megaForm || !DEX[p.megaForm] || p.isMega) return false;
-      const form = DEX[p.megaForm], hpRatio = p.hp / p.maxHp;
+      const form = DEX[p.megaForm];
+      if (!form || normId(form.baseSpecies || '') !== p.originalSpeciesId) return false;
+      const hpRatio = p.hp / p.maxHp;
       p.speciesId = p.megaForm; p.speciesName = form.name; if (!p.hasNickname) p.name = form.name;
       p.types = form.types.slice(); p.originalTypes = form.types.slice();
 p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature });
@@ -571,6 +574,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
             || (k === 'def' && hasAbility(p, 'bigpecks'))
             || (k === 'accuracy' && hasAbility(p, 'keeneye'));
           if (blocked) { this.say(`${p.name} 的特性阻止了${STAT_LABELS[k]}降低！`); continue; }
+          if ((this.field.sides[p._side]?.safeguard||0)>0) { this.say(`我方的能力防守保护了${p.name}，${STAT_LABELS[k]}没有降低！`); continue; }
           if (hasAbility(p, 'mirrorarmor') && !opts.noMirror) {
             this.say(`${p.name} 的镜甲反弹了能力降低！`);
             this.changeStages(source, { [k]: amt }, p, { noMirror: true });
@@ -800,14 +804,39 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       return true;
     }
 
-    /** Execute one full turn. playerAction = {kind:'move'|'switch', index}. Returns log lines added. */
+    useTrainerItem(id){
+      const item=String(id||'');if((this.itemStock[item]||0)<=0)return false;
+      const p=this.cur(0);if(!p||p.fainted)return false;
+      const effects={xattack:[{atk:2}],xdefense:[{def:2}],xspatk:[{spa:2}],xspdef:[{spd:2}],xspeed:[{spe:2}],xaccuracy:[{accuracy:1}]};
+      if(item==='guardspec'){
+        this.field.sides[0].safeguard=5;this.itemStock[item]--;this.say('使用了能力防守！我方队伍的能力不会被对手降低（5回合）。');return true;
+      }
+      if(item==='direhit'){
+        p.volatile.critBoost=Math.max(2,Number(p.volatile.critBoost)||0);this.itemStock[item]--;this.say(`${p.name}的击中要害率大幅提高！`);return true;
+      }
+      const boosts=effects[item]?.[0];if(!boosts)return false;
+      const changed=this.changeStages(p,boosts,p);if(!changed){this.say(`${p.name}的相关能力已无法继续提高；道具未消耗。`);return false;}
+      this.itemStock[item]--;this.say(`使用了${({xattack:'力量强化',xdefense:'防御强化',xspatk:'特攻强化',xspdef:'特防强化',xspeed:'速度强化',xaccuracy:'命中强化'})[item]}！`);return true;
+    }
+    escapeWithDoll(){
+      if(this.winner!==null||this.encounterType!=='wild'||(this.itemStock.pokemondoll||0)<=0)return[];
+      const start=this.log.length;this.itemStock.pokemondoll--;this.winner=0;this.outcome='escaped';this.pendingSwitch=null;this.pendingSwitches=[];this.say('使用了宝可梦玩偶，成功从野生战斗中逃走！');return this.log.slice(start);
+    }
+
+    /** Execute one full turn. playerAction = {kind:'move'|'switch'|'item', index}. Returns log lines added. */
     turn(playerAction) {
       if (playerAction?.kind === 'capture') return this.captureTurn ? this.captureTurn(playerAction) : [];
       if (this.winner !== null || this.pendingSwitch !== null) return [];
+      if (this.double && playerAction?.kind === 'item') { if(playerAction.id==='pokemondoll')return this.escapeWithDoll(); if(!this.useTrainerItem(playerAction.id))return[]; return this.turnDouble([{kind:'pass'},{kind:'pass'}]); }
       if (this.double && playerAction?.kind === 'double') return this.turnDouble(playerAction.actions || []);
       const start = this.log.length;
       for (const side of [0, 1]) if (this.cur(side)) this.cur(side)._enteredThisTurn = false;
       let chosen = playerAction;
+      if(chosen?.kind==='item'){
+        if(chosen.id==='pokemondoll')return this.escapeWithDoll();
+        if(!this.useTrainerItem(chosen.id))return this.log.slice(start);
+        chosen={kind:'pass'};
+      }
       const activePlayer = this.cur(0);
       if (chosen?.kind === 'move' && activePlayer?.choiceLockedMove) {
         const locked = activePlayer.moves.findIndex(m => m.id === activePlayer.choiceLockedMove);
@@ -898,6 +927,8 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     turnDouble(playerActions) {
       const start = this.log.length;
       const player = [0, 1].map(slot => playerActions[slot] || { kind: 'move', index: 0, slot });
+      for(const a of player)if(a.kind==='item'){if(a.id==='pokemondoll')this.escapeWithDoll();else this.useTrainerItem(a.id);a.kind='pass';}
+      if(this.winner!==null)return this.log.slice(start);
       const enemy = [0, 1].map(slot => { const p = this.cur(1, slot); return p && !p.fainted ? this.aiAction(1, slot) : { kind: 'pass' }; });
       const actions = [
         ...player.map((action, slot) => ({ side: 0, slot, action })),
@@ -1061,6 +1092,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         if (move.basePower) {
           let critStage = move.critRatio || 0;
           critStage += user.volatile.critBoost || 0;
+          if(user.volatile.critBoost){delete user.volatile.critBoost;}
           if (hasAbility(user, 'superluck')) critStage += 1;
           if (['scopelens', 'razorclaw'].includes(itemId(user))) critStage += 1;
           const crit = !hasAbility(realTarget, 'battlearmor', 'shellarmor') && this.rng() < [1 / 24, 1 / 8, 1 / 2, 1][Math.min(3, critStage)];
@@ -1302,6 +1334,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         if (sc.lightscreen > 0 && --sc.lightscreen === 0) this.say('光墙消失了。');
         if (sc.auroraveil > 0 && --sc.auroraveil === 0) this.say('极光幕消失了。');
         if (sc.tailwind > 0 && --sc.tailwind === 0) this.say('顺风停了。');
+        if (sc.safeguard > 0 && --sc.safeguard === 0) this.say('能力防守的效果消失了。');
       }
       if (this.weatherTurns > 0 && --this.weatherTurns === 0) { this.say('天气恢复了正常。'); this.weather = null; }
       for (const side of [0, 1]) for (let slot = 0; slot < (this.double ? 2 : 1); slot++) { const p = this.cur(side, slot); if (p?.dynamaxed && --p.dynamaxTurns <= 0) this.endDynamax(p); }
@@ -1318,6 +1351,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         outcome: this.outcome || (this.winner === null ? null : this.winner === 0 ? 'victory' : 'defeat'),
         encounterType: this.encounterType,
         ballStock: { ...this.ballStock },
+        itemStock: { ...this.itemStock },
         capture: this.capture ? JSON.parse(JSON.stringify(this.capture)) : null,
         turns: this.turnCount,
         format: this.double ? 'doubles' : 'singles',

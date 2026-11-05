@@ -1,12 +1,13 @@
 import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './sprite-recovery.js?v=1.3.31';
-import * as K from './kanto-data.js?v=20261102-all-items-v1';
+import * as K from './kanto-data.js?v=20261105-battle-gear-v1';
+import './battle-mechanics.js';
 import '../src/engine/ability-choice.js?v=1.3.31';
 import {habitatAt, habitatPool, HABITAT_LABELS, indoorAt, isCenterLocation, completedTreatment} from './field-fixes.js?v=20261026-six-fixes-1';
 // 宝可梦·关都之旅 · 20261026-six-fixes-1（保留竖屏与多随行；水域/治疗/配音修复）
 // 由角色卡的酒馆助手脚本加载：
 //   window.ST_BRIDGE_PACK='kanto-main';
 //   window.PKM_APP_BASE_URL='https://<你的用户名>.github.io/pokemon-battle/';
-//   await import(window.PKM_APP_BASE_URL+'st-bridge/bridge.js?v=20261102-all-items-v1');
+//   await import(window.PKM_APP_BASE_URL+'st-bridge/bridge.js?v=20261105-battle-gear-v1');
 // 面板布局依 v1.3.0 机制修复卡恢复：蓝色队伍卡、绿色六列仓库；队伍／仓库操作仍读写实时 MVU 变量。
 // 负责：开局登记界面、图鉴状态栏（PKMKanto.mountDex）、右下角精灵球（队伍/仓库/跟随）、
 //       附近野生遭遇、对战窗口（pkm-modal-v1 通道 ↔ 自己的 pokemon-battle 网页）、
@@ -138,6 +139,8 @@ const HELD_ITEM_ID_BY_ZH={剩饭:'leftovers','黑色污泥':'blacksludge','生�
 const SUPPORTED_HELD_ITEM_IDS=new Set(['leftovers','blacksludge','lifeorb','choiceband','choicespecs','choicescarf','focussash','focusband','rockyhelmet','heavydutyboots','whiteherb','mentalherb','sitrusberry','oranberry','lumberry','leppaberry','cheriberry','chestoberry','pechaberry','rawstberry','aspearberry','persimberry','liechiberry','ganlonberry','salacberry','petayaberry','apicotberry','keeberry','marangaberry','enigmaberry','jabocaberry','rowapberry','flameorb','toxicorb','lightball','expertbelt','muscleband','wiseglasses','scopelens','razorclaw','shellbell','weaknesspolicy','charcoal','mysticwater','miracleseed','magnet','nevermeltice','blackbelt','poisonbarb','softsand','sharpbeak','twistedspoon','silverpowder','hardstone','spelltag','dragonfang','blackglasses','metalcoat','fairyfeather','silkscarf']);
 const HELD_ITEM_ZH_BY_ID={};for(const [zh,id] of Object.entries(HELD_ITEM_ID_BY_ZH))if(!HELD_ITEM_ZH_BY_ID[id])HELD_ITEM_ZH_BY_ID[id]=zh;
 const heldItemId=value=>{const raw=String(value??'').trim();if(!raw)return'';const id=HELD_ITEM_ID_BY_ZH[raw]||raw.toLowerCase().replace(/[^a-z0-9]/g,'');return SUPPORTED_HELD_ITEM_IDS.has(id)?id:'';};
+function giveBagItem(pkm,name,count=1){if(!name||!pkm)return;pkm.player=pkm.player||{};pkm.player.bag=isObj(pkm.player.bag)?pkm.player.bag:{};pkm.player.bag[name]=(Number(pkm.player.bag[name])||0)+Math.max(0,Number(count)||0);}
+
 function syncHeldItemConsumption(mon,battleEntry){if(!mon||!battleEntry||!Object.hasOwn(battleEntry,'item')||battleEntry.item!=null&&battleEntry.item!=='')return false;if(!heldItemId(mon.item))return false;delete mon.item;return true;}
 const zhMove = id => ZH?.moves?.[id] || id;
 const zhAbility = id => ZH?.abilities?.[id] || id || null;
@@ -546,9 +549,49 @@ async function setMsgVars(id, vars) {
   m.variables[m.swipe_id ?? 0] = vars;
   await ctx()?.saveChat?.();
 }
+// 酒馆导出的 JSONL 会原样保留每条消息自己的 variables；有时新助手楼层仍携带开局 initvar 快照。
+// 只有当该快照与本卡初始状态一致、且前面确有已推进的存档时，才将它视为陈旧快照。
+function stableSnapshotValue(v) {
+  if (Array.isArray(v)) return v.map(stableSnapshotValue);
+  if (v && typeof v === 'object') return Object.fromEntries(Object.keys(v).sort().map(k => [k, stableSnapshotValue(v[k])]));
+  return v;
+}
+function snapshotValueKey(v) { try { return JSON.stringify(stableSnapshotValue(v)); } catch (_) { return ''; } }
+function rosterSnapshotKey(pkm) {
+  const party = pkm?.party || {};
+  const brief = rows => (Array.isArray(rows) ? rows : []).filter(x => x && (x.species || x.name)).map(x => [x.species || '', x.name || '', x.nickname || '', Number(x.lv) || 0]);
+  return snapshotValueKey([brief(party.slots), brief(party.box)]);
+}
+function isInitialSnapshot(pkm) {
+  if (!isObj(pkm)) return false;
+  const d = defaultPkm(), cp = pkm.player || {}, dp = d.player || {}, cw = pkm.world || {}, dw = d.world || {};
+  const cd = pkm.dex || {}, dd = d.dex || {}, cb = pkm.battle || {}, db = d.battle || {};
+  return cw.time === dw.time && cw.location === dw.location && cw.mode === dw.mode
+    && Number(cp.money || 0) === Number(dp.money || 0)
+    && Number(cp.reputation || 0) === Number(dp.reputation || 0)
+    && snapshotValueKey(cp.bag || {}) === snapshotValueKey(dp.bag || {})
+    && snapshotValueKey(cp.badges || []) === snapshotValueKey(dp.badges || [])
+    && rosterSnapshotKey(pkm) === rosterSnapshotKey(d)
+    && snapshotValueKey(cd.seen || {}) === snapshotValueKey(dd.seen || {})
+    && snapshotValueKey(cd.caught || []) === snapshotValueKey(dd.caught || [])
+    && snapshotValueKey(cd.shiny || {}) === snapshotValueKey(dd.shiny || {})
+    && Number(cb.count || 0) === Number(db.count || 0) && Number(cb.wins || 0) === Number(db.wins || 0);
+}
+function isStaleInitialSnapshot(id, pkm) {
+  if (!isInitialSnapshot(pkm)) return false;
+  const c = chat(), start = Math.max(0, id - 40);
+  for (let i = id - 1; i >= start; i--) {
+    const prior = getMsgVars(i)?.stat_data?.pkm;
+    if (prior && !isInitialSnapshot(prior)) return true;
+  }
+  return false;
+}
 function findStat() {
   const c = chat();
-  for (let i = c.length - 1; i >= 0; i--) { const v = getMsgVars(i); if (v?.stat_data?.pkm) return { id: i, vars: v }; }
+  for (let i = c.length - 1; i >= 0; i--) {
+    const v = getMsgVars(i), pkm = v?.stat_data?.pkm;
+    if (pkm && !isStaleInitialSnapshot(i, pkm)) return { id: i, vars: v };
+  }
   return null;
 }
 let initvarCache = null;
@@ -644,26 +687,26 @@ function normalize(pkm) {
   return pkm;
 }
 const hasMon = s => !!(s && (s.species || s.name));
-const SHOP_PRICE = {"mart":{"精灵球":200,"超级球":600,"高级球":1200,"伤药":200,"好伤药":700,"厉害伤药":1200,"全满药":2500,"全复药":3000,"活力碎片":1500,"解毒药":200,"解麻药":200,"解眠药":250,"解烧伤药":250,"解冻药":250,"万灵药":400,"除虫喷雾":350,"白银喷雾":500,"黄金喷雾":700,"穿洞绳":300,"宝可梦玩偶":100},"department":{"先机球":1000,"黑暗球":1000,"计时球":1000,"重复球":1000,"捕网球":1000,"巢穴球":1000,"潜水球":1000,"豪华球":1000,"治愈球":300,"HP增强剂":10000,"攻击增强剂":10000,"防御增强剂":10000,"特攻增强剂":10000,"特防增强剂":10000,"速度增强剂":10000,"力量强化":500,"防御强化":550,"特攻强化":350,"特防强化":350,"速度强化":350,"命中强化":1000,"能力防守":1500,"击中要害":1000,"火之石":2100,"水之石":2100,"雷之石":2100,"叶之石":2100},"bicycle":{"自行车":30000},"perfume":{"香水（30mL）":6600}};
+const TRAINER_ITEM_ZH_TO_ID={'力量强化':'xattack','防御强化':'xdefense','特攻强化':'xspatk','特防强化':'xspdef','速度强化':'xspeed','命中强化':'xaccuracy','能力防守':'guardspec','击中要害':'direhit','宝可梦玩偶':'pokemondoll'};
+const REPEL_STEPS={'除虫喷雾':100,'白银喷雾':200};
+const GOLDEN_REPEL='黄金喷雾';
+function isRepelItem(name){return Object.hasOwn(REPEL_STEPS,name)||name===GOLDEN_REPEL;}
+function repelExpired(repel,timeValue){if(!repel||repel.item!==GOLDEN_REPEL)return false;const d=parseDate(timeValue);if(Number.isFinite(Number(repel.expiresOnDay))&&d)return d.day>=Number(repel.expiresOnDay);return Number.isFinite(Number(repel.expiresAt))&&Date.now()>=Number(repel.expiresAt);}
+function expireRepel(pkm,timeValue){const repel=pkm?.world?.repel;if(!repelExpired(repel,timeValue))return false;delete pkm.world.repel;return true;}
+const CAVE_LOC_RE=/(?:洞窟|洞穴|地道|矿洞|地下|遗迹|月见山|双子岛|地鼠洞穴|冠军之路|胜利之路|岩山隧道)/;
+function worldItemUsable(name){return isRepelItem(name)||['穿洞绳','离洞绳','自行车'].includes(name)||name==='香水（30mL）';}
+function battleItemStock(pkm){return Object.fromEntries(Object.entries(TRAINER_ITEM_ZH_TO_ID).map(([zh,id])=>[id,Math.max(0,Math.floor(Number(pkm.player?.bag?.[zh])||0))]));}
+function repelBlocks(repel,wildLevel,timeValue){return !!(repel&&!(repel.item===GOLDEN_REPEL&&repelExpired(repel,timeValue))&&(repel.item===GOLDEN_REPEL||Number(repel.remaining)>0)&&Number(wildLevel)<Number(repel.minLevel));}
+function activateRepel(pkm,item,lead,initialSteps){const count=Number(pkm?.player?.bag?.[item])||0;if(!isRepelItem(item)||count<1||!lead)return false;pkm.world=isObj(pkm.world)?pkm.world:{};const repel={item,minLevel:Number(lead.lv)||1,startedAt:Date.now()};if(item===GOLDEN_REPEL){const now=parseDate(pkm.world.time||latestState()?.state?.時間);if(now)repel.expiresOnDay=now.day+1;else repel.expiresAt=Date.now()+86400000;}else{repel.remaining=REPEL_STEPS[item];if(Number.isFinite(Number(initialSteps)))pkm.world.travelSteps=Number(initialSteps);}pkm.world.repel=repel;pkm.player.bag[item]=count-1;if(!pkm.player.bag[item])delete pkm.player.bag[item];return true;}
+function advanceRepel(pkm,st,oldLoc,newLoc){const repel=pkm?.world?.repel;if(!repel)return 0;if(repel.item===GOLDEN_REPEL){expireRepel(pkm,(st&&(st['时间']||st['時間']))||pkm.world.time);return 0;}if(Number(repel.remaining)<=0)return 0;let spent=0;const raw=st?.步数??st?.行走步数??st?.steps,stepN=Number(String(raw??'').replace(/[^0-9.-]/g,''));if(raw!=null&&Number.isFinite(stepN)){const prev=Number(pkm.world.travelSteps);if(Number.isFinite(prev)&&stepN>prev)spent=stepN-prev;pkm.world.travelSteps=stepN;}else if(newLoc&&oldLoc&&newLoc!==oldLoc)spent=1;if(spent>0){repel.remaining=Math.max(0,Number(repel.remaining)-spent);if(repel.remaining<=0)delete pkm.world.repel;}return spent;}
+const SHOP_PRICE = {"mart":{"精灵球":200,"超级球":600,"高级球":1200,"伤药":200,"好伤药":700,"厉害伤药":1200,"全满药":2500,"全复药":3000,"活力碎片":1500,"解毒药":200,"解麻药":200,"解眠药":250,"解烧伤药":250,"解冻药":250,"万灵药":400,"除虫喷雾":350,"白银喷雾":500,"黄金喷雾":700,"穿洞绳":300,"宝可梦玩偶":100},"department":{"先机球":1000,"黑暗球":1000,"计时球":1000,"重复球":1000,"捕网球":1000,"巢穴球":1000,"潜水球":1000,"豪华球":1000,"治愈球":300,"HP增强剂":10000,"攻击增强剂":10000,"防御增强剂":10000,"特攻增强剂":10000,"特防增强剂":10000,"速度增强剂":10000,"力量强化":500,"防御强化":550,"特攻强化":350,"特防强化":350,"速度强化":350,"命中强化":1000,"能力防守":1500,"击中要害":1000,"火之石":2100,"水之石":2100,"雷之石":2100,"叶之石":2100,"觉醒之石":3000,"暗之石":3000,"光之石":3000},"bicycle":{"自行车":30000},"perfume":{"香水（30mL）":6600},"specialties":{"深灰米果":500},"reputation":{"联系绳":1000,"金属膜":3000,"王者之证":3000,"锐利之爪":3000,"锐利之牙":3000,"深海之鳞":3000,"深海之牙":3000}};
 function purchaseItems(store, rows) {
-  const catalog = SHOP_PRICE[String(store || '')];
-  if (!catalog || !Array.isArray(rows) || !rows.length) return Promise.resolve({ok:false, reason:'invalid'});
-  const counts = {};
-  for (const row of rows) {
-    const name = String(row?.name || '').trim(), count = Number(row?.count);
-    if (!Object.prototype.hasOwnProperty.call(catalog, name) || !Number.isInteger(count) || count < 1 || count > 99) return Promise.resolve({ok:false, reason:'invalid'});
-    counts[name] = (counts[name] || 0) + count;
-    if (counts[name] > 99) return Promise.resolve({ok:false, reason:'invalid'});
-  }
-  const total = Object.entries(counts).reduce((n,[name,count]) => n + catalog[name] * count, 0);
-  return writePkm(pkm => {
-    const money = Math.max(0, Number(pkm.player.money) || 0);
-    if (money < total) return {ok:false, reason:'funds', money, total};
-    pkm.player.bag = isObj(pkm.player.bag) ? pkm.player.bag : {};
-    for (const [name,count] of Object.entries(counts)) pkm.player.bag[name] = Math.max(0, Number(pkm.player.bag[name]) || 0) + count;
-    pkm.player.money = money - total;
-    return {ok:true, total, money:pkm.player.money, items:Object.entries(counts).map(([name,count])=>({name,count}))};
-  });
+  const key=String(store||''),catalog=SHOP_PRICE[key];
+  if(!catalog||!Array.isArray(rows)||!rows.length)return Promise.resolve({ok:false,reason:'invalid'});
+  const counts={};
+  for(const row of rows){const name=String(row?.name||'').trim(),count=Number(row?.count);if(!Object.prototype.hasOwnProperty.call(catalog,name)||!Number.isInteger(count)||count<1||count>99)return Promise.resolve({ok:false,reason:'invalid'});counts[name]=(counts[name]||0)+count;if(counts[name]>99)return Promise.resolve({ok:false,reason:'invalid'});}
+  const total=Object.entries(counts).reduce((n,[name,count])=>n+catalog[name]*count,0),usesReputation=key==='reputation';
+  return writePkm(pkm=>{const balance=Math.max(0,Number(usesReputation?pkm.player.reputation:pkm.player.money)||0);if(balance<total)return {ok:false,reason:usesReputation?'reputation':'funds',balance,total};pkm.player.bag=isObj(pkm.player.bag)?pkm.player.bag:{};for(const [name,count] of Object.entries(counts))pkm.player.bag[name]=Math.max(0,Number(pkm.player.bag[name])||0)+count;if(usesReputation)pkm.player.reputation=balance-total;else pkm.player.money=balance-total;return {ok:true,total,currency:usesReputation?'reputation':'money',money:pkm.player.money,reputation:pkm.player.reputation,items:Object.entries(counts).map(([name,count])=>({name,count}))};});
 }
 function readPkm() { const f = findStat(); return normalize(f ? clone(f.vars.stat_data.pkm) : defaultPkm()); }
 let writeChain = Promise.resolve();
@@ -671,7 +714,14 @@ function writePkm(mutator) {
   const run = async (attempt = 0) => {
     const c = chat(); const id = Math.max(0, c.length - 1);
     const f = findStat();
-    const vars = clone(f ? f.vars : (getMsgVars(id) || {})) || {};
+    const targetVars = clone(getMsgVars(id) || {}) || {};
+    const vars = clone(f ? f.vars : targetVars) || {};
+    // 从上一条可信快照恢复时，只以它的 pkm 为准；保留目标楼层已有的其他变量键，避免恢复过程丢掉插件数据。
+    if (f && f.id !== id) {
+      for (const [k, v] of Object.entries(targetVars)) if (k !== 'stat_data' && vars[k] === undefined) vars[k] = v;
+      vars.stat_data = { ...(targetVars.stat_data || {}), ...(vars.stat_data || {}) };
+      vars.stat_data.pkm = clone(f.vars.stat_data.pkm);
+    }
     if (!isObj(vars.stat_data)) vars.stat_data = {};
     const pkm = normalize(vars.stat_data.pkm ? vars.stat_data.pkm : defaultPkm());
     for (const s of [...pkm.party.slots, ...pkm.party.box]) if (hasMon(s) && !s.uid) s.uid = uid();
@@ -693,7 +743,7 @@ function writePkm(mutator) {
 const monName = s => s?.nickname || s?.name || s?.species || '？';
 const genderMark = g => ({ M: '♂', F: '♀', 公: '♂', 母: '♀' }[g] || '');
 function dateText(pkm) { const st = latestState()?.state; return parseDate(st?.时间 || pkm.world.time)?.text || String(pkm.world.time || '').split(' ').slice(0, 2).join(' '); }
-function placeText(pkm) { return latestState()?.state?.地点 || pkm.world.location || '关都'; }
+function placeText(pkm) { return pkm.world?.escapePending?.to || latestState()?.state?.地点 || pkm.world.location || '关都'; }
 function addSeen(pkm, name, eventId) {
   if (!name || pkm.dex.seen[name]) return false;
   pkm.dex.seen[name] = [eventId || '自由', placeText(pkm), dateText(pkm)];
@@ -852,7 +902,7 @@ function plotPosition() {
 function summaryText(pkm) {
   const pl = pkm.player, lines = [];
   const title = pl.title || K.TITLES.find(([n]) => (pl.reputation || 0) >= n)[1];
-  lines.push(`训练家：${pl.name || userName()}${pl.gender ? '（' + pl.gender + '）' : ''}｜模式：${pkm.world.mode || '—'}｜金钱 ${pl.money} 元｜声望 ${pl.reputation}（${title}）｜徽章 ${pl.badges.length}/8${pl.badges.length ? '：' + pl.badges.join('、') : ''}`);
+  lines.push(`训练家：${pl.name || userName()}${pl.gender ? '（' + pl.gender + '）' : ''}｜模式：${pkm.world.mode || '—'}｜金钱 ${pl.money} 元｜声望 ${pl.reputation}（${title}）｜徽章 ${pl.badges.length}/8${pl.badges.length ? '：' + pl.badges.join('、') : ''}；首次赢得道馆徽章由桥接器奖励 1000 声望并自动写入，不得重复增加。`);
   const party = pkm.party.slots.map((s, i) => {
     if (!hasMon(s)) return null;
     const h = curHp(s);
@@ -870,6 +920,9 @@ function summaryText(pkm) {
   if (pkm.party.box.length) lines.push(`电脑：${pkm.party.box.length} 只（${pkm.party.box.slice(-12).map(monName).join('、')}）`);
   const bag = Object.entries(pl.bag).filter(([, n]) => Number(n) > 0).map(([k, n]) => `${k}×${n}`);
   lines.push('背包：' + (bag.join('、') || '空'));
+  const repel=pkm.world.repel;if(repel&&!(repel.item===GOLDEN_REPEL&&repelExpired(repel,pkm.world.time))&&(repel.item===GOLDEN_REPEL||Number(repel.remaining)>0))lines.push(repel.item===GOLDEN_REPEL?`遭遇喷雾：黄金喷雾有效至当前游戏日期结束，进入次日自动失效；阻止等级低于首发宝可梦 Lv${repel.minLevel} 的野生遭遇。`:`遭遇喷雾：${repel.item}仍有效；阻止等级低于首发宝可梦 Lv${repel.minLevel} 的野生遭遇，剩余约 ${repel.remaining} 行走单位（系统没有逐格移动计数；若状态栏提供步数按步数扣，否则跨地图地点估算）。`);
+  if(pkm.world.bicycleActive)lines.push('骑行状态：已骑上自行车；可让步行/骑行剧情移动更快，地图仍由剧情与状态栏位置驱动。');
+  if(pkm.world.escapePending)lines.push(`穿洞绳效果待叙述：从${pkm.world.escapePending.from}返回${pkm.world.escapePending.to}；下一条状态栏应更新地点。`);
   const seen = Object.keys(pkm.dex.seen);
   lines.push(`图鉴：遇见 ${seen.length} 种 / 录入 ${new Set(pkm.dex.caught).size} 种${seen.length ? '；图鉴已遇见：' + seen.join('、') : ''}`);
   const met = Object.values(pkm.npcs.records).filter(r => r && r.met).sort((a, b) => (b.lastInteraction ?? -1) - (a.lastInteraction ?? -1));
@@ -1024,9 +1077,12 @@ function parsePatchOps(text) {
   }
   return ops.map(o => ({ op: String(o.op || '').toLowerCase(), segs: pathSegs(o.path), value: o.value })).filter(o => o.segs.length && o.op);
 }
-const hasOwnStat = id => !!getMsgVars(id)?.stat_data?.pkm;
+const hasOwnStat = id => { const pkm = getMsgVars(id)?.stat_data?.pkm; return !!pkm && !isStaleInitialSnapshot(id, pkm); };
 function prevPkm(mesid) {
-  for (let i = mesid - 1; i >= 0; i--) { const v = getMsgVars(i); if (v?.stat_data?.pkm) return normalize(clone(v.stat_data.pkm)); }
+  for (let i = mesid - 1; i >= 0; i--) {
+    const v = getMsgVars(i), pkm = v?.stat_data?.pkm;
+    if (pkm && !isStaleInitialSnapshot(i, pkm)) return normalize(clone(pkm));
+  }
   return null;
 }
 // MVU 完全没有处理这一楼时（没装 / 报错），按 AI 的 JSONPatch 自己写入（与 MVU 的 replace/add/delta/remove/insert 语义一致）
@@ -1284,6 +1340,11 @@ function applySync(pkm, mesid, opts = {}) {
   const present = [];
   if (!st) { changed=applyPassiveRegen(pkm,pkm.world.time)||changed; return reconcileBonds(pkm, mesid, present) || changed; }
   const set = (obj, k, v) => { if (v != null && v !== '' && obj[k] !== v) { obj[k] = v; changed = true; } };
+  const oldLoc=String(pkm.world.location||''),newLoc=String(st.地点||'');
+  if(newLoc&&newLoc!==oldLoc&&CAVE_LOC_RE.test(newLoc)&&!CAVE_LOC_RE.test(oldLoc)){pkm.world.lastSafeLocation=oldLoc;changed=true;}
+  if(expireRepel(pkm,(st&&st['时间'])||pkm.world.time))changed=true;
+  if(advanceRepel(pkm,st,oldLoc,newLoc)>0)changed=true;
+  if(pkm.world.escapePending&&newLoc&&newLoc!==pkm.world.escapePending.from){delete pkm.world.escapePending;changed=true;}
   set(pkm.world, 'location', st.地点); set(pkm.world, 'time', st.时间);
   if(st.时间)changed=applyPassiveRegen(pkm,st.时间)||changed;
   if (/同行|小智|沙盒/.test(st.模式 || '')) set(pkm.world, 'mode', (st.模式.match(/(同行|小智|沙盒)模式/) || [])[0]);
@@ -1350,6 +1411,7 @@ html,body{background:transparent!important}
 .bag-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px}
 .bag-item{display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #e1e5ee;border-radius:10px;padding:5px 8px}
 .bag-item b{margin-left:auto;color:#b3001b}
+.pkb button.bag-item{width:100%;cursor:pointer;color:#303846;font-weight:500;border-radius:10px;justify-content:flex-start;text-align:left}.pkb button.bag-item:hover{border-color:#8ea7df;background:#f7f9ff}
 .love-row{display:flex;align-items:center;gap:8px;padding:6px 2px;border-bottom:1px dashed #dde2ec}
 .love-bar{flex:1;height:8px;border-radius:9px;background:#e6e9f0;position:relative;overflow:hidden}
 .love-bar i{position:absolute;top:0;bottom:0;left:50%;background:#ff5f9e}.love-bar i.neg{background:#7b8ab8}
@@ -1898,6 +1960,11 @@ html.pkm-kanto-native-fullscreen #pkm-kanto-modal>.bar,html.pkm-kanto-pseudo-ful
 #pkm-kanto-panel .detail-hp .hp i b.mid{background:#e4ae4c}#pkm-kanto-panel .detail-hp .hp i b.low{background:#dc5c61}
 #pkm-kanto-panel .detail-hp .hpn{font-size:8px;color:#817a77}
 #pkm-kanto-panel .detail-section{margin-top:11px}
+#pkm-kanto-panel .battle-gear-current{font-size:9px;color:#4b3f40;margin:2px 0 6px;font-weight:800}
+#pkm-kanto-panel .battle-gear-controls{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+#pkm-kanto-panel .battle-gear-controls select{min-width:0;flex:1 1 150px;border:1px solid #dccac0;border-radius:7px;padding:7px;background:#fff;color:#403a3b;font:inherit;font-size:9px}
+#pkm-kanto-panel .battle-gear-controls .action{padding:7px 8px}
+#pkm-kanto-panel .battle-gear-note{display:block;margin-top:5px;color:#897b78;font-size:8px;line-height:1.4}
 #pkm-kanto-panel .section-title{display:flex;align-items:center;gap:6px;margin:0 0 6px;color:#a42c3d;font-size:9px;font-weight:850;letter-spacing:.06em}
 #pkm-kanto-panel .section-title:before{content:"";width:3px;height:10px;border-radius:3px;background:#d73b4c;flex:none}
 #pkm-kanto-panel .facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
@@ -2389,7 +2456,7 @@ function dexDex(pkm) {
 function dexBag(pkm) {
   const items = Object.entries(pkm.player.bag).filter(([, n]) => Number(n) > 0);
   return `<div class="st-grid"><div><b>金钱</b>${esc(pkm.player.money)} 元</div><div><b>道具</b>${items.length} 种</div></div>
-    ${items.length ? `<div class="bag-list">${items.map(([k, n]) => `<div class="bag-item">${itemIcon(k)}<span>${esc(k)}</span><b>×${esc(n)}</b></div>`).join('')}</div>` : '<div class="empty">背包空空的。</div>'}`;
+    ${items.length ? `<div class="bag-list">${items.map(([k, n]) => `<button type="button" class="bag-item" data-use-item="${esc(k)}" title="点击查看使用方式">${itemIcon(k)}<span>${esc(k)}</span><b>×${esc(n)}</b></button>`).join('')}</div>` : '<div class="empty">背包空空的。</div>'}`;
 }
 function dexLove(pkm, st, m) {
   let list = Object.entries(pkm.npcs.records).filter(([, r]) => isObj(r) && r.met === true);
@@ -2558,6 +2625,8 @@ function recordWildAttention(key){
 }
 function startWildBattle(w,ui=null){
  if(w?.fishRequired&&!w?.fishReady){toast(`${w.species}在水域中活动，必须先成功钓起才能进入战斗或捕捉。`,'warning');return false;}
+ const pkm=readPkm(),repel=pkm.world?.repel,lead=pkm.party.slots.find(x=>hasMon(x)&&x.isLead)||pkm.party.slots.find(hasMon),leadLv=Number(lead?.lv)||1;
+ if(repelBlocks(repel,w?.level,pkm.world?.time)){toast(`${repel.item}生效：等级低于首发 Lv${repel.minLevel||leadLv} 的${w.species}没有接近。`,'info');return false;}
  openBattle({source:'wild',key:'wild|'+w.key,wildKey:w.key,cfg:{id:'野生-'+w.species,event:'自由',type:'wild',opponent:'野生'+w.species,title:`野生的${w.species}被惹恼了，主动发起进攻！`,team:[{species:w.species,level:w.level,gender:w.gender,shiny:w.shiny}]},ui});
 }
 async function fleeWildEncounter(m,w,canFight){
@@ -2593,6 +2662,7 @@ function runAmbientCry(){
 }
 function startAmbientCries(){if(ambientCryTimer)return;scheduleAmbientCry(18000+Math.random()*12000);cleanups.push(()=>{if(ambientCryTimer)P.clearTimeout(ambientCryTimer);ambientCryTimer=0;});}
 function onDexClick(m, e) {
+  const useItem=e.target.closest('[data-use-item]');if(useItem){showItemUseMenu(useItem.dataset.useItem,m);return;}
   const row=e.target.closest('[data-wild-cry]');if(row&&!e.target.closest('button')){wildCryAt(m,row.dataset.wildCry);return;}
   const t = e.target.closest('button'); if (!t) return;
   if(t.dataset.centerHeal){healAtCenter().catch(e=>toast(e.message,'warning'));return;}
@@ -7118,6 +7188,20 @@ function expPanelMarkup(mon){
   const total=Math.max(start,Math.min(next,raw)),earned=Math.max(0,total-start),need=Math.max(1,next-start),pct=Math.max(0,Math.min(100,earned/need*100));
   return `<div class="expbar"><i style="width:${pct.toFixed(1)}%"></i></div><small class="expnote">经验 ${Math.floor(earned)} / ${need} · 升级还需 ${Math.max(0,Math.ceil(next-total))}</small>`;
 }
+function battleGearOptionsFor(mon,pkm){
+ const api=globalThis.PKMBattleGear;if(!api||!mon)return[];
+ const species=speciesId(mon.species||mon.name);
+ return api.availableFor({...mon,species},pkm?.player?.bag||{},moveIdOf);
+}
+function battleGearMarkup(mon,pkm,index){
+ const choices=battleGearOptionsFor(mon,pkm),gear=mon.battleGear;
+ let current='尚未装备战斗机制道具';
+ if(!gear&&mon.item){const sid=speciesId(mon.species||mon.name),legacyMega=globalThis.PKMBattleGear?.megaStoneForItem(mon.item,sid),legacyZ=globalThis.PKMBattleGear?.zCrystalByItem(mon.item);if(legacyMega&&legacyMega!=='generic')current=`已携带：${mon.item} · ${legacyMega.name}`;else if(legacyMega==='generic')current=`已携带：${mon.item} · 请选择对应的超级形态`;else if(legacyZ&&globalThis.PKMBattleGear?.hasZMove(mon.moves,legacyZ.type,moveIdOf))current=`已携带：${mon.item} · ${legacyZ.name}`;}
+ if(gear?.kind==='mega'){const form=globalThis.PKMBattleGear?.formForSpecies(speciesId(mon.species||mon.name),gear.form);current=`${gear.itemName||'超级进化石'} · ${form?.name||gear.form||'超级进化'}`;}
+ else if(gear?.kind==='z'){const crystal=globalThis.PKMBattleGear?.DATA.zCrystals.find(x=>x.type===gear.type);current=`${gear.itemName||crystal?.name||'Ｚ纯晶'} · Ｚ招式`;} 
+ const opts=choices.map(c=>{const n=Number(pkm.player.bag?.[c.itemName])||0,stock=n>0?`背包 ${n}`:(mon.item===c.itemName?'当前携带':'');return `<option value="${esc(encodeURIComponent(JSON.stringify(c)))}">${esc(c.label)}${stock?`（${stock}）`:''}</option>`;}).join('');
+ return `<section class="detail-section battle-gear"><h5 class="section-title">战斗系统装备</h5><div class="battle-gear-current">${esc(current)}</div><div class="battle-gear-controls"><select data-gear-select ${choices.length?'':'disabled'} aria-label="选择兼容的超级进化石或Z纯晶"><option value="">${choices.length?'选择可用装备…':'没有兼容且在背包中的装备'}</option>${opts}</select><button type="button" class="action primary" data-op="gear-equip" data-i="${index}" ${choices.length?'':'disabled'}>装备</button>${gear?`<button type="button" class="action" data-op="gear-remove" data-i="${index}">卸下</button>`:''}</div><small class="battle-gear-note">超级进化只列出战斗引擎有对应形态的宝可梦；Ｚ纯晶只在有同属性招式时可装备。装备占用携带道具位，替换时道具会放回背包。</small></section>`;
+}
 function panelDetailMarkup(pkm) {
   const selection=panelSelection;
   const empty='<div class="detail-hero"><div class="detail-name"><b>选择一只宝可梦</b><small>点击队伍或仓库里的伙伴查看详细资料</small></div></div>';
@@ -7140,8 +7224,9 @@ function panelDetailMarkup(pkm) {
   const subtitle=[speciesSub,`Lv.${s.lv??'?'}`].filter(Boolean).join(' · ');
   return `<div class="detail-hero"><button type="button" class="dt-back" data-op="back">返回</button>${spriteImg(s.species||s.name,{shiny:s.shiny},'pk-spr dt-sprite')}<div class="detail-name"><b>${esc(monName(s))}</b><small>${esc(subtitle)} · ${esc(s.ball||'球种未记录')}</small><div class="detail-flags"><span class="tag">HP ${esc(hpLabel)}</span><span class="tag">${esc(gender)}</span>${s.shiny?'<span class="tag lead">✨ 异色</span>':''}${s.isLead?'<span class="tag lead">首发</span>':''}${isFollowing(pkm,s.uid)?'<span class="tag follow">跟随中</span>':''}</div></div><div class="detail-hp">${panelHpMarkup(s)}</div></div>
     <section class="detail-section"><h5 class="section-title">基础资料</h5><div class="facts"><div class="fact"><span>宝可梦</span>${esc(species)}</div><div class="fact"><span>等级</span>Lv.${esc(s.lv??'?')}</div><div class="fact"><span>HP / 状态</span>${esc(hpLabel)} · ${esc(status)}</div><div class="fact"><span>性别 / 位置</span>${esc(gender)} · ${where==='party'?'队伍':'仓库'}第${selection.index+1}格</div><div class="fact"><span>特性 / 性格</span>${esc(ability)} · ${esc(nature)}</div><div class="fact"><span>携带物品</span>${itemHtml}</div><div class="fact wide"><span>相遇记录</span>${esc(location)}</div><div class="fact wide"><span>精灵球</span>${esc(s.ball||'未记录')}</div></div></section>
+    ${where==='party'?battleGearMarkup(s,pkm,selection.index):''}
     <section class="detail-section"><h5 class="section-title">经验</h5>${expPanelMarkup(s)}</section>
-    <section class="detail-section"><h5 class="section-title">招式</h5><div class="moves">${moveMarkup}</div>${pendingMoveMarkup}</section>
+    <section class="detail-section"><h5 class="section-title">招式</h5><div class="moves">${moveMarkup}</div><button type="button" class="action" data-op="move-adjust" style="margin-top:8px">调整招式</button>${pendingMoveMarkup}</section>
     <section class="detail-section"><h5 class="section-title">能力与个体资料</h5><div class="facts"><div class="fact"><span>特性</span>${esc(ability)}</div><div class="fact"><span>性格</span>${esc(nature)}</div><div class="fact wide"><span>说明</span>能力值按等级、种族值、个体值和性格计算；空 HP 按满血显示。</div></div>${statBlock(s)}</section>
     <section class="detail-section"><h5 class="section-title">配音</h5><div class="voice-box">${voice}</div></section>
     ${panelAudioSettings()}
@@ -7213,6 +7298,23 @@ async function onVoiceOp(b) {
   }
   cry(s);
 }
+async function setBattleGear(index,value){
+ const before=readPkm(),mon=before.party?.slots?.[index];
+ if(!hasMon(mon)){toast('队伍位置已变化，请重新选择。','warning');return;}
+ const api=globalThis.PKMBattleGear;if(!api){toast('战斗装备数据未加载，请部署新版战斗系统文件。','warning');return;}
+ if(value&&!api.choiceForValue({...mon,species:speciesId(mon.species||mon.name)},before.player?.bag||{},moveIdOf,value)){toast('该装备已不在背包，或与这只宝可梦／招式不兼容。','warning');renderPanel();return;}
+ if(!value&&!mon.battleGear){toast('这只宝可梦没有装备战斗系统道具。');return;}
+ let changed=false,kind='';
+ try{
+  await writePkm(pkm=>{
+   const m=pkm.party?.slots?.[index];if(!hasMon(m))throw new Error('队伍位置已变化，请重新选择。');
+   pkm.player.bag=isObj(pkm.player.bag)?pkm.player.bag:{};
+   const result=api.applyEquipment(m,pkm.player.bag,value,moveIdOf,speciesId(m.species||m.name));
+   changed=!!result.changed;kind=result.choice?.kind||'';
+  });
+  if(changed){renderPanel();toast(value?(kind==='mega'?'超级进化石已装备；进入对战后可发动超级进化。':'Ｚ纯晶已装备；进入对战后可发动同属性Ｚ招式。'):'战斗系统装备已卸下并放回背包。');}
+ }catch(err){toast(err?.message||String(err),'warning');renderPanel();}
+}
 async function onPanelClick(e) {
   const b = e.target.closest('button');
   if (b) {
@@ -7228,6 +7330,9 @@ async function onPanelClick(e) {
     if (['voice', 'hear', 'gvoice', 'fallback', 'cbase-save'].includes(op)) { try { await onVoiceOp(b); } catch (err) { toast(err?.message || String(err), 'warning'); } return; }
     if(op==='center-heal'){try{await healAtCenter();}catch(err){toast(err.message,'warning');}return;}
     if(op==='learn-pending'){const sel=panelSelection,pk=readPkm(),list=sel?.scope==='party'?pk.party.slots:pk.party.box,mon=list?.[sel?.index];if(mon?.uid)showPendingMovePrompt(mon.uid);return;}
+    if(op==='move-adjust'){const sel=panelSelection,pk=readPkm(),list=sel?.scope==='party'?pk.party.slots:pk.party.box,mon=list?.[sel?.index];if(mon?.uid)showMoveAdjust(mon.uid);return;}
+    if(op==='gear-equip'){const sel=PD.querySelector('[data-gear-select]');await setBattleGear(i,sel?.value||'');return;}
+    if(op==='gear-remove'){await setBattleGear(i,'');return;}
     if (op === 'close') { closePanel(); return; }
     if (op === 'back') { panelSelection = null; renderPanel(); return; }
     if (op === 'resetpos') { saveBallPos(null); placeBall(PD.getElementById('pkm-kanto-ball')); return; }
@@ -7321,6 +7426,7 @@ function playerEntries(pkm) {
     if (s.nickname) e.nickname = s.nickname;
     if (s.nature) e.nature = s.nature; if (s.ability) e.ability = s.ability;
     const held=heldItemId(s.item);if(held)e.item=held;
+    const gear=s.battleGear,sid=speciesId(s.species||s.name),gearApi=globalThis.PKMBattleGear;let kind='',form='',zType='';if(gearApi&&gear?.kind==='mega'&&gearApi.formForSpecies(sid,gear.form)){kind='mega';form=gear.form;}else if(gearApi&&gear?.kind==='z'&&gearApi.zCrystalByItem(gear.itemName)?.type===gear.type&&gearApi.hasZMove(s.moves,gear.type,moveIdOf)){kind='z';zType=gear.type;}else if(gearApi&&!gear&&s.item){const legacyMega=gearApi.megaStoneForItem(s.item,sid),forms=gearApi.megaFormsForSpecies(sid);if(legacyMega&&legacyMega!=='generic'){kind='mega';form=legacyMega.form;}else if(legacyMega==='generic'&&forms.length===1){kind='mega';form=forms[0].form;}else{const legacyZ=gearApi.zCrystalByItem(s.item);if(legacyZ&&gearApi.hasZMove(s.moves,legacyZ.type,moveIdOf)){kind='z';zType=legacyZ.type;}}}if(kind==='mega'){e.mechanic='mega';e.megaForm=form;}else if(kind==='z'){e.mechanic='z';e.zType=zType;}
     if (s.gender) e.gender = s.gender; if (s.shiny) e.shiny = true;
     if (s.hp != null && s.maxHp) { e.hp = Number(s.hp); e.maxHp = Number(s.maxHp); }
     if (s.status && s.status !== '濒死') e.status = s.status;
@@ -7457,7 +7563,7 @@ function engineConfig(spec, pkm, tag) {
   const out = { rules,
     encounter: { type: fmt.wild ? 'wild' : 'trainer' }, difficulty: cfg.difficulty || K.DIFFICULTY_BY_TYPE[type] || 'normal',
     p1: { entrants: [{ name: 'host-player', party }] }, p2: { entrants: [{ name: 'host-enemy', party: enemy }] },
-    host: { tag, balls, intro: `${tx.intro}${doubleMode ? ' 双打规则：双方各2只同时出场。' : ''}`, captureContext }, ui: spec.ui || null };
+    host: { tag, balls, battleItems:battleItemStock(pkm), intro: `${tx.intro}${doubleMode ? ' 双打规则：双方各2只同时出场。' : ''}`, captureContext }, ui: spec.ui || null };
   // Normalize legacy Chinese/string environments and structured weather+terrain.
   const rawEnv = typeof cfg.environment === 'object' && cfg.environment ? cfg.environment : {weather: cfg.environment};
   const w = K.WEATHER[String(rawEnv.weather || '').trim()] || rawEnv.weather;
@@ -7720,7 +7826,7 @@ function launchBattle(m, pick) {
   const tag = uid();
   const { engine, balls, type, fmt } = engineConfig({ ...m.spec, cfg: m.cfg, pick }, pkm, tag);
   if (!engine.p1.entrants[0].party.length) { toast('队伍里的宝可梦都失去了战斗能力，先去宝可梦中心治疗吧。', 'warning'); closeBattle(true); return; }
-  Object.assign(m, { tag, engine, balls, type, fmt });
+  Object.assign(m, { tag, engine, balls, battleItems:engine.host?.battleItems||{}, type, fmt });
   const stage = m.el.querySelector('.stage');
   const frame = PD.createElement('iframe');
   frame.setAttribute('allow', 'autoplay; fullscreen'); frame.setAttribute('allowfullscreen', ''); frame.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
@@ -7800,7 +7906,7 @@ function onEngineMessage(d) {
     }).catch(err => { LOG('写回失败', err); setBar('结果写回失败：' + (err?.message || err)); toast('对战结果写回变量失败：' + (err?.message || err), 'error'); });
   }
 }
-const OUTCOME_ZH = { victory: '胜利', defeat: '败北', captured: '收服成功', draw: '平局/中止' };
+const OUTCOME_ZH = { victory: '胜利', defeat: '败北', captured: '收服成功', escaped:'逃跑成功', draw: '平局/中止' };
 function monFromCapture(cap, enemy, cfgEnemy, pkm) {
   const spec = cap.spec || {};
   const zhName = zhSpecies(spec.species || cap.species),captureMoves=[0,1,2,3].map(i=>spec.moves?.[i]?zhMove(spec.moves[i]):null),capturePp={};
@@ -7825,6 +7931,7 @@ function verdictText(outcome, fmt, pTeam, eTeam) {
   if (outcome === 'victory') return fmt?.wild ? `野生的${zhSpecies(eTeam[0]?.baseSpecies || eTeam[0]?.species) || '宝可梦'}失去战斗能力，获胜`
     : fmt?.full ? `对方的${en}只全部失去战斗能力，获胜` : `对方参赛的${en}只全部失去战斗能力，获胜`;
   if (outcome === 'captured') return '收服成功，对战结束';
+  if (outcome === 'escaped') return '使用宝可梦玩偶成功逃离野生战斗';
   return '对战中止，不计胜负';
 }
 function evolutionWorld(pkm){const st=latestState()?.state||{};return {time:String(st.时间||pkm?.world?.time||''),location:String(st.地点||pkm?.world?.location||''),weather:String(st.天气||st.weather||pkm?.world?.weather||'')};}
@@ -7855,6 +7962,29 @@ function levelEvolutionEligible(pkm,mon,e,level){
   if(c.weather){const w=String(c.weather),actual=world.weather;if(!actual)return false;if(/雨/.test(w)&&!/(?:雨|rain)/i.test(actual))return false;}
   if(c.location||c.loc){const required=String(c.location||c.loc).replace(/\[\[|\]\]/g,'');if(required&&!loc.includes(required))return false;}
   return true;
+}
+function moveCandidates(mon){
+ const out=new Map(),add=(name,source='已学会')=>{const n=String(name||'').trim();if(!n)return;const id=moveIdOf(n),key=id||n.toLowerCase();if(!out.has(key))out.set(key,{id,name:id?(ZH?.moves?.[id]||MOVE_ZH_BY_ID[id]||n):n,source});};
+ (Array.isArray(mon?.moves)?mon.moves:[]).forEach(n=>add(n,'当前招式'));
+ (Array.isArray(mon?.moveHistory)?mon.moveHistory:[]).forEach(n=>add(typeof n==='string'?n:(n?.name||n?.move),'曾经学会'));
+ const id=speciesId(mon?.species||mon?.name),rows=LEVEL_UP_LEARNSETS?.learnsets?.[id]||[],lv=Math.max(1,Number(mon?.lv)||1);
+ for(const row of rows)if(Number(row.level)<=lv){const mid=String(row.move||''),name=ZH?.moves?.[mid]||MOVE_ZH_BY_ID[mid]||row.name;if(name)add(name,'等级可回忆');}
+ return [...out.values()];
+}
+function applyMoveLoadout(mon,selectedNames){
+ if(!mon||!Array.isArray(selectedNames)||selectedNames.length>4)return{ok:false,reason:'最多只能选择四个招式。'};
+ const candidates=moveCandidates(mon),byId=new Map(candidates.map(x=>[x.id||x.name,x]));
+ const picked=[],seen=new Set();
+ for(const value of selectedNames){const raw=String(value||''),id=moveIdOf(raw),key=id||raw.toLowerCase(),row=byId.get(key);if(!row)return{ok:false,reason:`招式“${raw}”不在可选列表中。`};if(seen.has(key))return{ok:false,reason:'不能重复选择同一招式。'};seen.add(key);picked.push(row.name);}
+ const old=(Array.isArray(mon.moves)?mon.moves:[]).filter(Boolean).slice(0,4),oldKeys=new Set(old.map(x=>moveIdOf(x)||String(x).toLowerCase())),newKeys=new Set(picked.map(x=>moveIdOf(x)||String(x).toLowerCase()));
+ if(!Array.isArray(mon.moveHistory))mon.moveHistory=[];
+ for(const name of old){const key=moveIdOf(name)||String(name).toLowerCase();if(!newKeys.has(key)&&!mon.moveHistory.some(x=>(moveIdOf(typeof x==='string'?x:x?.name)||String(typeof x==='string'?x:x?.name||'').toLowerCase())===key))mon.moveHistory.push(name);}
+ mon.moves=[...picked];while(mon.moves.length<4)mon.moves.push(null);
+ if(isObj(mon.pp)){const next={...mon.pp},original={...mon.pp};for(const key of Object.keys(next)){const id=moveIdOf(key);if(id&&[...oldKeys].some(x=>x===id))delete next[key];}
+  for(const name of picked){const id=moveIdOf(name),key=id||String(name).toLowerCase(),oldName=old.find(x=>(moveIdOf(x)||String(x).toLowerCase())===key);if(oldName){const savedKey=Object.keys(original).find(k=>(moveIdOf(k)||String(k).toLowerCase())===key);if(savedKey!=null)next[name]=original[savedKey];}else next[name]=maxPP(name)||1;}
+  mon.pp=Object.keys(next).length?next:null;
+ }else if(mon.hp!=null){const next={};for(const name of picked)next[name]=maxPP(name)||1;mon.pp=next;}
+ return{ok:true,moves:picked};
 }
 function applyLevelEvolutions(pkm,mon,fromLevel,toLevel,eventId){
   const records=[],sideMons=[];let level=fromLevel;
@@ -7959,6 +8089,9 @@ async function finishWildBatch(){
   await writePkm(pkm=>{pkm.wild.pendingResults=[];});
   fillInput(text);toast(`已将 ${items.length} 场连续训练汇总到输入框；发送这一条即可回剧情。`);
 }
+const GYM_BADGE_HINTS=[['灰色徽章',['灰色徽章','岩石徽章','深灰','小刚','武志']],['蓝色徽章',['蓝色徽章','华蓝','小霞']],['橙色徽章',['橙色徽章','橘色徽章','枯叶','马志士']],['彩虹徽章',['彩虹徽章','玉虹','莉佳']],['粉红徽章',['粉红徽章','粉色徽章','浅红','阿桔']],['金色徽章',['金色徽章','金黄','娜姿']],['深红徽章',['深红徽章','红莲','夏伯']],['绿色徽章',['绿色徽章','常磐','坂木']]];
+function badgeForGymConfig(cfg){const stake=String(cfg?.stakes||'');for(const [badge,hints] of GYM_BADGE_HINTS)if(stake.includes(badge)||hints.some(h=>stake.includes(h)))return badge;const text=[cfg?.title,cfg?.opponent,cfg?.id].map(x=>String(x||'')).join(' ');for(const [badge,hints] of GYM_BADGE_HINTS)if(text.includes(badge)||hints.some(h=>text.includes(h)))return badge;return null;}
+function grantGymBadgeReward(pkm,cfg,type,outcome){if(type!=='gym'||outcome!=='victory')return null;const badge=badgeForGymConfig(cfg);if(!badge||!Array.isArray(pkm?.player?.badges)||pkm.player.badges.includes(badge))return null;pkm.player.badges.push(badge);pkm.player.reputation=Math.max(0,Number(pkm.player.reputation)||0)+1000;return badge;}
 async function applyResult(m, payload) {
   const outcome = payload.outcome || (payload.winner === 'player' ? 'victory' : payload.winner === 'enemy' ? 'defeat' : 'draw');
   if(outcome==='victory')await LEVEL_UP_LEARNSET_READY;
@@ -7966,12 +8099,12 @@ async function applyResult(m, payload) {
   const fmt = m.fmt || battleFormat(cfg, (payload.playerTeam || []).length);
   const pN = (payload.playerTeam || []).length, eN = (payload.enemyTeam || []).length;
   const fmtText = fmt.wild ? `野外 · ${fmt.tag}` : fmt.full ? `两边全队（我方${pN}只 vs 对方${eN}只）` : fmt.name;
-  let placed = null, capturedName = null;
+  let placed = null, capturedName = null, gymBadgeAward = null;
   let summaryParts = [];
   let xpGains = [];
   const bondNotes = [];
   const result = await writePkm(pkm => {
-    summaryParts = []; bondNotes.length = 0; placed = null; capturedName = null; // writePkm 可能重算
+    summaryParts = []; bondNotes.length = 0; placed = null; capturedName = null; gymBadgeAward = null; // writePkm 可能重算
     const won = outcome === 'victory' || outcome === 'captured';
     // 1) 我方体力 / 异常状态
     for (const p of payload.playerTeam || []) {
@@ -8000,6 +8133,7 @@ async function applyResult(m, payload) {
       const used = (m.balls[id] || 0) - (Number(payload.ballStock?.[id]) || 0);
       if (used > 0) { const left = Math.max(0, (Number(pkm.player.bag[zh]) || 0) - used); if (left > 0) pkm.player.bag[zh] = left; else delete pkm.player.bag[zh]; }
     }
+    for(const [zh,id] of Object.entries(TRAINER_ITEM_ZH_TO_ID)){const used=(Number(m.battleItems?.[id])||0)-(Number(payload.itemStock?.[id])||0);if(used>0){const left=Math.max(0,(Number(pkm.player.bag[zh])||0)-used);if(left>0)pkm.player.bag[zh]=left;else delete pkm.player.bag[zh];}}
     // 3) 图鉴：对手登记为已遇见
     const eventId = cfg.event && cfg.event !== '自由' ? cfg.event : '自由';
     for (const e of payload.enemyTeam || []) addSeen(pkm, zhSpecies(e.baseSpecies || e.species), eventId);
@@ -8011,6 +8145,8 @@ async function applyResult(m, payload) {
       if (!pkm.dex.caught.includes(mon.species)) pkm.dex.caught.push(mon.species);
       if (mon.shiny) pkm.dex.shiny[mon.species] = [eventId, placeText(pkm), dateText(pkm), true];
     } else if (cfgTeam[0]?.shiny && m.type === 'wild') { const n = zhSpecies(payload.enemyTeam?.[0]?.baseSpecies) || cfgTeam[0].species; if (!pkm.dex.shiny[n]) pkm.dex.shiny[n] = [eventId, placeText(pkm), dateText(pkm), false]; }
+    // 首次赢得对应道馆徽章：徽章与 1000 声望同一事务写入，重赛不会重复发放。
+    gymBadgeAward=grantGymBadgeReward(pkm,cfg,m.type,outcome);if(gymBadgeAward)summaryParts.push(`获得${gymBadgeAward}，声望+1000`);
     // 5) 战绩
     pkm.battle.count += 1; if (outcome === 'victory') pkm.battle.wins += 1;
     summaryParts.push(`${OUTCOME_ZH[outcome] || '结束'} · ${fmtText}${cfg.opponent ? ' · 对手：' + cfg.opponent : ''} · ${payload.turns || 0} 回合`);
@@ -8044,8 +8180,10 @@ async function applyResult(m, payload) {
     enemy: (payload.enemyTeam || []).map(p => ({ species: zhSpecies(p.baseSpecies || p.species), lv: p.level, hp: p.hp, maxHp: p.maxHp, fainted: !!p.fainted, status: K.STATUS_TO_ZH[p.status] || null })),
     capture: outcome === 'captured' && payload.capture ? { ball: K.BALL_ZH[payload.capture.ball] || '精灵球', species: capturedName, level: payload.capture.spec?.level, placed } : null,
     stakes: cfg.stakes || null,
+    badgeAward: gymBadgeAward, reputationAward: gymBadgeAward ? 1000 : 0,
   };
   const used = Object.entries(K.BALL_ZH).map(([id, zh]) => { const n = (m.balls[id] || 0) - (Number(payload.ballStock?.[id]) || 0); return n > 0 ? `${zh}×${n}` : null; }).filter(Boolean);
+  const usedTrainerItems=Object.entries(TRAINER_ITEM_ZH_TO_ID).map(([zh,id])=>{const n=(Number(m.battleItems?.[id])||0)-(Number(payload.itemStock?.[id])||0);return n>0?`${zh}×${n}`:null;}).filter(Boolean);
   const line = cfg.lines?.[outcome === 'defeat' ? 'player_lose' : 'player_win'];
   const human = [`【战斗结果】${OUTCOME_ZH[outcome] || '结束'}｜${fmt.wild ? `野外遭遇（${fmt.tag}）` : fmt.full ? `${K.BATTLE_LABEL?.[m.type] || '对战'}·两边全队（我方${res.player.length}只 vs 对方${res.enemy.length}只）` : `${K.TYPE_LABEL[m.type] || '对战'} ${fmt.name}`}｜${res.opponent || (m.type === 'wild' ? '野生宝可梦' : '对手')}｜${res.turns} 回合`,
     `判定：${verdict}。`,
@@ -8054,12 +8192,13 @@ async function applyResult(m, payload) {
     `对手${fmt.wild ? '' : fmt.full ? `（${res.enemy.length}只）` : `参赛（${res.enemy.length}只）`}：${res.enemy.map(p => `${p.species} Lv${p.lv} ${outcome === 'captured' && !p.fainted ? '被收服' : p.fainted ? '濒死' : `HP ${p.hp}/${p.maxHp}`}`).join('；')}`,
     m.comp?.added?.length ? `（${m.comp.who}的${m.comp.added.join('、')}是按原作进度补进对手阵容的，续写时当作${m.comp.who}本来就带着。）` : '',
     res.capture ? `收服：用${res.capture.ball}收服了 ${res.capture.species} Lv${res.capture.level}，已放进${placed}。` : '',
-    used.length ? `消耗：${used.join('、')}` : '',
+    used.length||usedTrainerItems.length ? `消耗：${[...used,...usedTrainerItems].join('、')}` : '',
+    gymBadgeAward ? `道馆奖励（脚本已写入）：获得${gymBadgeAward}，声望 +1000；当前声望 ${readPkm().player.reputation}。` : '',
     bondNotes.length ? `羁绊（脚本已加）：${bondNotes.join('，')}` : '',
     xpGains.length ? `经验（脚本已加）：${xpGains.map(x=>`${x.name} +${x.exp}（${x.share||'出场'}），Lv${x.from}${x.to>x.from?'→Lv'+x.to:''}${x.evolutions?.length?'，进化为'+x.evolutions.map(e=>e.to).join('、'):''}${x.learnedMoves?.length?'，学会'+x.learnedMoves.join('、'):''}${x.pendingMoves?.length?'，待处理招式'+x.pendingMoves.join('、'):''}`).join('；')}` : '',
     xpGains.some(x=>x.learnsetUnavailable)?'等级招式表未加载或该形态暂无覆盖；脚本没有猜招。请检查 st-bridge/level-up-learnsets-52poke.json 部署。':'',
     line ? `对手的台词（供续写）：「${line}」` : '',
-    '（变量已写入：体力/状态、剩余PP、经验与等级、等级进化、升级学招/待替换招式、精灵球、收服入队、图鉴、战斗羁绊。请按此结果续写战斗经过，不改写胜负，也不要重复写入这些变量。）'].filter(Boolean).join('\n');
+    '（变量已写入：体力/状态、剩余PP、经验与等级、等级进化、升级学招/待替换招式、精灵球、收服入队、图鉴、战斗羁绊、首次赢得道馆徽章及对应1000声望。请按此结果续写战斗经过，不改写胜负，也不要重复写入这些变量。）'].filter(Boolean).join('\n');
   const text = `<pkm_result>${JSON.stringify({...res, experience:xpGains})}</pkm_result>\n${human}`;
   if(m.type==='wild'){
     const pendingCount=readPkm().wild.pendingResults?.length||0;
@@ -8106,7 +8245,16 @@ function rekickFrames() {
     if (st && /没有连上对战系统|正在读取对战块/.test(st.textContent || '') && (f.getAttribute('srcdoc') || '').includes(CH)) { try { f.srcdoc = f.getAttribute('srcdoc'); } catch (_) {} }
   });
 }
-function onChatEvent() { eventCache = null; initvarCache = null; lastInjection = ''; refreshAll(); refreshInjection(); repairCenterHealing(); setTimeout(rekickFrames, 400); }
+function onChatEvent() {
+  eventCache = null; initvarCache = null; lastInjection = '';
+  refreshAll(); refreshInjection(); repairCenterHealing(); setTimeout(rekickFrames, 400);
+  // 聊天打开/导入 JSONL、切换 swipe 或编辑后，若最新助手楼层快照是陈旧 initvar，
+  // 复用现有 MVU/JSONPatch 对账流程自动继承最近可信快照；不改正文、不碰用户消息。
+  const c = chat(), ai = lastAiId();
+  if (ai >= 0 && c.length - 1 === ai && isStaleInitialSnapshot(ai, getMsgVars(ai)?.stat_data?.pkm)) {
+    setTimeout(() => scheduleSync(ai), 0);
+  }
+}
 /* ===== v1.3.31-plot-fix ⑤：把 AI 状态栏里的剧情进度写进脚本侧变量 pkm.world =====
    world 在变量 schema 里是 extensible/recursiveExtensible，新增 event/node/nodeStatus/free 是安全的。
    作用：AI 连写几轮"自由｜节点0｜进行中"时，进度不会回退到节点 1。 */
@@ -8589,7 +8737,7 @@ async function applyCare(){
  if(canonicalCareItem(op.name)==='神奇糖果')await LEVEL_UP_LEARNSET_READY;
  await writePkm(pkm=>{applied=false;revived=false;cured=false;healed=0;friendshipChange=0;evChange=null;evolved=null;equipped=null;leveled=null;levelLearned=[];levelPending=[];levelEvolutions=[];levelLearnsetUnavailable=false;const m=pkm.party.slots.find(m=>m.uid===op.id);if(PD.getElementById('pkm-kanto-modal')||!m||!isFollowing(pkm,op.id)||(Number(pkm.player.bag[op.name])||0)<1)return;
   const equipId=op.equipId||heldItemId(op.name);let ef=equipId?{valid:heldItemId(m.item)!==equipId,equipment:true}:careInfo(op.name,m,pkm);if(!ef.valid)return;
-  if(ef.equipment){const oldId=heldItemId(m.item),oldItem=String(m.item||'').trim();if(oldItem){const oldName=oldId?(HELD_ITEM_ZH_BY_ID[oldId]||oldItem):oldItem;pkm.player.bag[oldName]=Math.max(0,Number(pkm.player.bag[oldName])||0)+1;}m.item=HELD_ITEM_ZH_BY_ID[equipId]||canonicalCareItem(op.name);equipped={to:m.item,from:oldItem};}
+  if(ef.equipment){const oldId=heldItemId(m.item),oldItem=String(m.item||'').trim();if(oldItem){const oldName=oldId?(HELD_ITEM_ZH_BY_ID[oldId]||oldItem):oldItem;giveBagItem(pkm,oldName,1);}if(m.battleGear?.itemName){giveBagItem(pkm,m.battleGear.itemName,1);delete m.battleGear;}m.item=HELD_ITEM_ZH_BY_ID[equipId]||canonicalCareItem(op.name);equipped={to:m.item,from:oldItem};}
   else if(ef.levelUp){const from=Math.max(1,Math.min(100,Math.floor(Number(m.lv)||5))),to=from+1,oldMax=Number(m.maxHp)>0?Number(m.maxHp):(monStats(m)?.hp||1),oldHp=m.hp;m.lv=to;m.exp=experienceThreshold(m,to);const newMax=monStats(m)?.hp||oldMax;m.maxHp=newMax;if(oldHp==null)m.hp=null;else if(oldHp===0||m.status==='濒死')m.hp=0;else m.hp=Math.min(newMax,Number(oldHp)+Math.max(0,newMax-oldMax));const lr=learnLevelMovesAt(m,to);levelLearned=lr.learned;levelPending=lr.pending;levelLearnsetUnavailable=lr.unavailable;const ev=applyLevelEvolutions(pkm,m,from,to,'自由');levelEvolutions=ev.records;for(const side of ev.sideMons){if(pkm.party.slots.some(s=>!hasMon(s))){placeMon(pkm,side);pkm.dex=isObj(pkm.dex)?pkm.dex:{};if(!Array.isArray(pkm.dex.caught))pkm.dex.caught=[];if(!pkm.dex.caught.includes(side.species))pkm.dex.caught.push(side.species);addSeen(pkm,side.species,'自由');}}leveled={from,to};}
   else if(ef.evStat){if(!isObj(m.stats_meta))m.stats_meta={ivs:{},ev_level:0};if(!isObj(m.stats_meta.evs))m.stats_meta.evs={};const keys=K.STAT_KEYS||['hp','atk','def','spa','spd','spe'];for(const k of keys)if(!Number.isFinite(Number(m.stats_meta.evs[k])))m.stats_meta.evs[k]=0;m.stats_meta.evs[ef.evStat]=Math.max(0,Math.min(252,Math.floor(Number(m.stats_meta.evs[ef.evStat])||0)+ef.evGain));evChange={stat:ef.evStat,gain:ef.evGain,total:ef.evTotal};const oldHp=m.hp,newMax=monStats(m)?.hp||ef.max;m.maxHp=newMax;if(oldHp==null)m.hp=null;else m.hp=Math.max(0,Math.min(newMax,Number(oldHp)||0));}
   else if(ef.evolution?.valid)evolved=applyDirectEvolution(pkm,m,ef.evolution);else{m.hp=ef.nextHp;m.maxHp=ef.max;if(ef.cured)m.status=null;}
@@ -8606,6 +8754,17 @@ async function applyCare(){
 }
 function findMonByUid(pkm,id){return [...(pkm?.party?.slots||[]),...(pkm?.party?.box||[])].find(m=>m?.uid===id)||null;}
 function schedulePendingMovePrompt(){setTimeout(()=>{if(modal)return;const pkm=readPkm(),mon=[...(pkm.party.slots||[]),...(pkm.party.box||[])].find(m=>Array.isArray(m?.pendingMoves)&&m.pendingMoves.length);if(mon?.uid)showPendingMovePrompt(mon.uid);},120);}
+function showMoveAdjust(id){
+ const mon=findMonByUid(readPkm(),id);if(!mon)return;
+ const options=moveCandidates(mon),current=new Set((mon.moves||[]).filter(Boolean).map(x=>moveIdOf(x)||String(x).toLowerCase()));
+ const d=PD.createElement('div');d.id='pkm-move-adjust';d.className='pkb';
+ d.innerHTML=`<div class="care-card" style="max-width:620px;max-height:86vh;overflow:auto"><h3>调整招式</h3><p><b>${esc(monName(mon))}</b>：最多选择 4 招。当前招式可保留 PP；新装配的招式按满 PP 设置。</p><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:7px;margin:12px 0">${options.map((x,i)=>{const key=x.id||x.name,checked=current.has(key);return `<label style="display:flex;gap:8px;align-items:flex-start;padding:8px;border:1px solid #d7dce6;border-radius:10px"><input type="checkbox" data-move-pick="${i}" ${checked?'checked':''}><span><b>${esc(x.name)}</b><small style="display:block;opacity:.72">${esc(x.source)}${moveIdOf(x.name)?` · PP ${maxPP(x.name)||'—'}`:''}</small></span></label>`;}).join('')}</div><div class="acts"><span data-move-count>${current.size}/4 已选</span><button type="button" class="ghost" data-move-close>取消</button><button type="button" class="blue" data-move-save>保存招式</button></div><small>可回忆招式依据当前物种的等级招式表生成；补丁安装前被忘记的 TM／教学招式若未留档，无法凭空还原。升级学招的待处理队列仍保留原有流程。</small></div>`;
+ PD.body.append(d);
+ const update=()=>{const c=[...d.querySelectorAll('[data-move-pick]:checked')].length,lab=d.querySelector('[data-move-count]');if(lab)lab.textContent=`${c}/4 已选`;const save=d.querySelector('[data-move-save]');if(save)save.disabled=c>4;};
+ d.addEventListener('change',e=>{if(e.target.matches('[data-move-pick]'))update();});
+ d.addEventListener('click',async e=>{if(e.target.closest('[data-move-close]')){d.remove();return;}if(!e.target.closest('[data-move-save]'))return;const ids=[...d.querySelectorAll('[data-move-pick]:checked')].map(x=>Number(x.dataset.movePick)),names=ids.map(i=>options[i]?.name).filter(Boolean);if(names.length>4){toast('最多只能装备四招。','warning');return;}let res=null;try{await writePkm(pkm=>{const m=findMonByUid(pkm,id);if(!m)return;res=applyMoveLoadout(m,names);});}catch(err){toast('招式保存失败：'+(err?.message||err),'warning');return;}if(!res?.ok){toast(res?.reason||'队伍已变化，请重新打开窗口。','warning');return;}d.remove();renderPanel();toast(`${monName(findMonByUid(readPkm(),id)||mon)}的招式已更新：${res.moves.join('、')||'未装备招式'}。`);});
+ update();
+}
 function showPendingMovePrompt(id){
  if(modal||PD.getElementById('pkm-move-learn-confirm'))return;
  const mon=findMonByUid(readPkm(),id),entry=mon?.pendingMoves?.[0];if(!mon||!entry)return;
@@ -8613,9 +8772,35 @@ function showPendingMovePrompt(id){
  const d=PD.createElement('div');d.id='pkm-move-learn-confirm';d.className='pkb';
  d.innerHTML=`<div class="care-card"><h3>升级学会新招式</h3><p><b>${esc(monName(mon))}</b>想学会 <b>${esc(moveName)}</b>，但招式栏已有 4 招。请选择要忘记的招式：</p><div style="display:grid;gap:7px;margin:12px 0">${moves.map((m,i)=>`<button type="button" class="ghost" data-learn="replace" data-slot="${i}">替换第${i+1}招：${esc(canonicalMoveName(m)||m)}</button>`).join('')}</div><div class="acts"><button type="button" class="ghost" data-learn="later">稍后决定</button><button type="button" class="ghost" data-learn="skip">不学习此招</button></div><small>选择后会写回队伍招式；稍后决定会保留在宝可梦详情的“待学习招式”中。</small></div>`;
  PD.body.append(d);d.addEventListener('click',async e=>{const b=e.target.closest('[data-learn]');if(!b)return;const action=b.dataset.learn;if(action==='later'){d.remove();return;}const slot=Number(b.dataset.slot);let applied=false;
-  try{await writePkm(pkm=>{const m=findMonByUid(pkm,id),first=m?.pendingMoves?.[0],current=typeof first==='string'?first:(first?.name||MOVE_ZH_BY_ID[first?.move]||first?.move);if(!m||current!==moveName)return;if(action==='replace'){const moves=Array.isArray(m.moves)?m.moves.slice(0,4):[];if(!Number.isInteger(slot)||slot<0||slot>=moves.length||!moves[slot])return;const old=moves[slot];moves[slot]=moveName;m.moves=moves;if(isObj(m.pp)){for(const k of Object.keys(m.pp))if(moveIdOf(k)===moveIdOf(old))delete m.pp[k];m.pp[moveName]=maxPP(moveName)||1;}}if(!Array.isArray(m.pendingMoves))return;m.pendingMoves.shift();applied=true;});}catch(err){toast('招式学习写回失败：'+(err?.message||err),'warning');}
+  try{await writePkm(pkm=>{const m=findMonByUid(pkm,id),first=m?.pendingMoves?.[0],current=typeof first==='string'?first:(first?.name||MOVE_ZH_BY_ID[first?.move]||first?.move);if(!m||current!==moveName)return;if(action==='replace'){const moves=Array.isArray(m.moves)?m.moves.slice(0,4):[];if(!Number.isInteger(slot)||slot<0||slot>=moves.length||!moves[slot])return;const old=moves[slot];m.moveHistory=Array.isArray(m.moveHistory)?m.moveHistory:[];if(!m.moveHistory.some(x=>moveIdOf(typeof x==='string'?x:x?.name)===moveIdOf(old)))m.moveHistory.push(old);moves[slot]=moveName;m.moves=moves;if(isObj(m.pp)){for(const k of Object.keys(m.pp))if(moveIdOf(k)===moveIdOf(old))delete m.pp[k];m.pp[moveName]=maxPP(moveName)||1;}}if(!Array.isArray(m.pendingMoves))return;m.pendingMoves.shift();applied=true;});}catch(err){toast('招式学习写回失败：'+(err?.message||err),'warning');}
   d.remove();if(!applied){toast('存档中的待学招式或队伍已变化，请重新打开队伍栏。','warning');return;}renderPanel();schedulePendingMovePrompt();
  });
+}
+function showItemUseMenu(name,mount){
+ const item=String(name||'').trim();
+ if(isDirectUseItem(item)||heldItemId(item)){
+  const mons=readPkm().party.slots.map((m,i)=>({m,i})).filter(x=>hasMon(x.m));
+  if(!mons.length){toast('队伍里没有可以使用道具的宝可梦。','warning');return;}
+  const d=PD.createElement('div');d.className='pkb';d.id='pkm-item-target';d.innerHTML=`<div class="care-card"><h3>选择道具目标</h3><p>${itemIcon(item)} <b>${esc(item)}</b>：选择队伍宝可梦。装备类道具按原有规则换装。</p><div style="display:grid;gap:7px;margin:12px 0">${mons.map(({m,i})=>`<button type="button" class="ghost" data-target-uid="${esc(m.uid||'')}" data-target-index="${i}">${esc(monName(m))} · Lv${esc(m.lv??'?')} · HP ${esc(panelHpInfo(m).label)}</button>`).join('')}</div><div class="acts"><button type="button" class="ghost" data-item-cancel>取消</button></div></div>`;PD.body.append(d);
+  d.addEventListener('click',e=>{if(e.target.closest('[data-item-cancel]')){d.remove();return;}const b=e.target.closest('[data-target-index]');if(!b)return;const i=Number(b.dataset.targetIndex),m=readPkm().party.slots[i];d.remove();if(m?.uid)showCare(item,m.uid);else toast('队伍已变化，请重新打开背包。','warning');});return;
+ }
+ if(worldItemUsable(item)){showWorldItem(item,mount);return;}
+ if(Object.hasOwn(TRAINER_ITEM_ZH_TO_ID,item)){toast(`${item}请在对战窗口的“道具”面板中使用。`,'info');return;}
+ if(Object.values(K.BALL_ZH).includes(item)){toast(`${item}请在野生对战的“精灵球”面板中使用。`,'info');return;}
+ toast(item==='香水（30mL）'?'香水（30mL）目前没有可核实的主系列效果，未消耗。':`${item}目前没有已接入的直接使用效果，未消耗。`,'warning');
+}
+function showWorldItem(name,mount){
+ const item=String(name||''),pkm=readPkm(),count=Number(pkm.player.bag[item])||0,loc=placeText(pkm),lead=pkm.party.slots.find(x=>hasMon(x)&&x.isLead)||pkm.party.slots.find(hasMon);
+ if(item==='香水（30mL）'){toast('香水（30mL）缺少可核实的主系列效果；没有消耗物品。','warning');return;}
+ let title='',desc='',valid=count>0;
+ if(isRepelItem(item)){title='遭遇喷雾';desc=item===GOLDEN_REPEL?`持续至当前游戏日期结束，进入次日自动失效；阻止等级低于首发宝可梦当前等级（Lv${Number(lead?.lv)||1}）的野生战斗。`:`持续 ${REPEL_STEPS[item]} 行走单位，阻止等级低于首发宝可梦当前等级（Lv${Number(lead?.lv)||1}）的野生战斗。项目没有逐格移动计数：优先读取状态栏步数；没有步数时按跨地点移动估算。`;
+ }else if(item==='自行车'){title=pkm.world.bicycleActive?'收起自行车':'骑上自行车';desc='自行车可反复使用，不会从背包消失；骑行状态写入世界变量并提示剧情移动加快。地图本身没有格数速度系统。';
+ }else if(['穿洞绳','离洞绳'].includes(item)){title='穿洞绳';const can=CAVE_LOC_RE.test(loc)&&!!pkm.world.lastSafeLocation;valid=valid&&can;desc=can?`从${loc}返回最近记录的洞窟外地点：${pkm.world.lastSafeLocation}。`:`仅在洞窟/地道内，且曾记录入口地点时可用；当前地点：${loc}。`;
+ }else{toast(`${item}目前没有可用效果。`,'warning');return;}
+ const d=PD.createElement('div');d.id='pkm-world-item-confirm';d.className='pkb';d.innerHTML=`<div class="care-card"><h3>${esc(title)}</h3><div class="care-line">${itemIcon(item)}<b>${esc(item)}</b></div><p>${esc(desc)}</p><p>${valid?'确认后立即生效。':`当前无法使用；背包不扣除。`}</p><div class="acts"><button type="button" class="ghost" data-world-cancel>取消</button><button type="button" class="blue" data-world-confirm ${valid?'':'disabled'}>确认使用</button></div></div>`;PD.body.append(d);
+ d.addEventListener('click',async e=>{if(e.target.closest('[data-world-cancel]')){d.remove();return;}if(!e.target.closest('[data-world-confirm]')||!valid)return;let outcome='';try{await writePkm(p=>{const n=Number(p.player.bag[item])||0;if(item!=='自行车'&&n<1)return;if(isRepelItem(item)){const lead=p.party.slots.find(x=>hasMon(x)&&x.isLead)||p.party.slots.find(hasMon),st=latestState()?.state||{},step=Number(String(st.步数??st.行走步数??st.steps??'').replace(/[^0-9.-]/g,''));if(!activateRepel(p,item,lead,step))return;outcome=item===GOLDEN_REPEL?`${item}生效（持续至当前游戏日期结束，次日失效）`:`${item}生效（${REPEL_STEPS[item]}行走单位，低等级遭遇受抑制）`;}
+ else if(item==='自行车'){if(n<1)return;p.world.bicycleActive=!p.world.bicycleActive;outcome=p.world.bicycleActive?'已骑上自行车':'已收起自行车';}
+ else{const from=placeText(p),to=String(p.world.lastSafeLocation||'');if(!CAVE_LOC_RE.test(from)||!to)return;p.world.escapePending={from,to,at:Date.now()};p.world.location=to;p.player.bag[item]=n-1;if(!p.player.bag[item])delete p.player.bag[item];outcome=`穿洞绳生效：返回${to}`;}});}catch(err){toast('道具使用失败：'+(err?.message||err),'warning');return;}d.remove();if(outcome){toast(outcome);if(mount?.root?.isConnected)renderDex(mount);}else toast('世界状态已变化，道具未消耗，请重试。','warning');});
 }
 function installBagDrag(win,root){
  if(root.__pkmCareBinding?.owner===instance)return;root.__pkmCareBinding?.controller.abort();
@@ -8741,7 +8926,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261103-plot-chronology-v1", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261105-battle-gear-v1", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
