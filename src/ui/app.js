@@ -16,7 +16,7 @@ installSpriteRecovery(document);
   const EMBED = new URLSearchParams(location.search).has('embed');
   if (EMBED) document.documentElement.classList.add('embed');
   let dataReady = false, pendingHostConfig = null, hostTag = null, hostMode = false;
-  const APP_VERSION = '1.3.41d';
+  const APP_VERSION = '1.3.43-items-shops-reputation';
   let formatTag = '', formatRule = ''; // v1.3.8：角色卡发来的赛制（例：3v3、3只 vs 1只），显示在行动菜单的标签上
   let typeLabel = ''; // v1.3.9：角色卡发来的对战类型（道馆战 / 训练家对战 / 劲敌对战 / 火箭队……），标签第一段
   // 宿主模式：球袋来自角色卡变量（MVU），只存在本页内存里，不读写本机存档。
@@ -938,32 +938,43 @@ installSpriteRecovery(document);
     if (battle.pendingSwitch !== null && !animating) menuView = 'switch';
     if (ended) menuView = 'end';
     const view = menuView;
-    for (const [id, value] of [['command-home','home'],['command-fight-panel','fight'],['command-switch-panel','switch'],['command-balls-panel','balls'],['command-end','end']]) $(id).hidden = view !== value;
-    $('command-title').textContent = animating ? '行动进行中…' : ended ? (battle.outcome === 'captured' ? '收服成功！' : '本场战斗已结束')
-      : battle.pendingSwitch !== null ? '请选择下一只出战宝可梦' : ({home: `${displayPokemonName(battle.cur(0))}，要做什么？`, fight: `${displayPokemonName(battle.cur(0, battle.double ? doubleActionSlot : 0))} · 选择招式`, switch: battle.double && battle.pendingSwitch === null ? `为${displayPokemonName(battle.cur(0, doubleActionSlot))}选择替补` : '选择出战宝可梦', balls: '选择精灵球'}[view]);
+    for (const [id, value] of [['command-home','home'],['command-fight-panel','fight'],['command-switch-panel','switch'],['command-balls-panel','balls'],['command-items-panel','items'],['command-end','end']]) $(id).hidden = view !== value;
+    $('command-title').textContent = animating ? '行动进行中…' : ended ? (battle.outcome === 'captured' ? '收服成功！' : battle.outcome === 'escaped' ? '已逃离野生战斗' : '本场战斗已结束')
+      : battle.pendingSwitch !== null ? '请选择下一只出战宝可梦' : ({home: `${displayPokemonName(battle.cur(0))}，要做什么？`, fight: `${displayPokemonName(battle.cur(0, battle.double ? doubleActionSlot : 0))} · 选择招式`, switch: battle.double && battle.pendingSwitch === null ? `为${displayPokemonName(battle.cur(0, doubleActionSlot))}选择替补` : '选择出战宝可梦', balls: '选择精灵球', items: '选择战斗道具'}[view]);
     const isWild = battle.encounterType === 'wild';
     $('encounter-tag').textContent = `${typeLabel || (isWild ? '野生遭遇' : '训练家对战')}${formatTag ? ' · ' + formatTag : ''}${battle.double ? ' · 双打' : ''} · 第 ${battle.turnCount + (ended ? 0 : 1)} 回合`;
     $('encounter-tag').title = formatRule || '';
     $('encounter-tag').classList.toggle('wild', isWild);
     $('command-back').hidden = view === 'home' || view === 'end' || battle.pendingSwitch !== null;
     $('command-back').disabled = animating;
-    for (const id of ['command-fight','command-switch','command-balls']) $(id).disabled = animating || ended;
+    for (const id of ['command-fight','command-switch','command-balls','command-items']) $(id).disabled = animating || ended;
     $('capture-availability').textContent = isWild ? '投出精灵球 / 捕获伙伴' : '训练家的宝可梦不可捕获';
     $('command-balls').classList.toggle('capture-unavailable', !isWild || battle.double);
     $('command-balls').disabled = $('command-balls').disabled || !!battle.double;
+    $('command-items').disabled = $('command-items').disabled || !Object.values(battle.itemStock||{}).some(n=>n>0);
     const current = battle.cur(0, battle.double ? doubleActionSlot : 0) || battle.cur(0);
     const mst = animating || ended ? null : mechanicState(current);
     const fightHint = pendingDoubleTarget ? '请选择本次招式的目标；可以点上方出战位切换行动者。' : battle.double ? `双打：请为${displayPokemonName(current)}选择行动${doubleActions.some(Boolean) ? '；再为另一只选择行动' : ''}。${mst?.state === 'armed' ? `已装备${mst.name}。` : ''}` : mst?.state === 'armed' ? `已装备${mst.name}：选择招式后发动${mst.short}；再点道具可取消。` : mst?.state === 'ready' ? `点击血条框左侧的${mst.name}可${mst.short}；选中招式后才开始行动。` : '返回不消耗回合；选中招式后才开始行动。';
     $('command-status').textContent = commandMessage || (animating ? '请等待当前演出结束。' : view === 'home' ? '先选择行动，再决定招式、队友或精灵球。' : view === 'fight' ? fightHint : '');
     if (ended && hostMode) $('command-end-text').textContent = battle.outcome === 'captured'
       ? `收服了${displayPokemonName(battle.cur(1))}！结果已回传角色卡，手机返回／电脑按 Esc 退出后继续。`
+      : battle.outcome === 'escaped' ? '已成功逃离野生战斗；玩偶消耗已回传角色卡。手机返回／电脑按 Esc 退出后继续。'
       : '对战结束，结果已回传角色卡。手机返回／电脑按 Esc 退出后继续。';
     else if (ended) $('command-end-text').textContent = battle.outcome === 'captured'
       ? `${displayPokemonName(battle.cur(1))} 已收入仓库${worldStore.error ? '（当前仅临时保存，请导出）' : '并保存到本机'}。可在仓库选择位置加入下场编队。`
+      : battle.outcome === 'escaped' ? '已成功逃离野生战斗。' 
       : isWild ? '这次遭遇结束了。可以继续寻找新的野生宝可梦。' : '对战结束。也可以进入野生遭遇，收服新的伙伴。';
     for (const id of ['btn-start','btn-wild','btn-next-wild','btn-config','sel-enemy','sel-diff','btn-supply','btn-import-save','btn-box','btn-end-box']) $(id).disabled = animating;
     if (animating) document.querySelectorAll('#mechanics button, #moves button, #switches button, #ball-list button').forEach(b => { b.disabled = true; });
     $('action-card').setAttribute('aria-busy', String(animating));
+  }
+  const BATTLE_ITEM_NAMES={xattack:'力量强化',xdefense:'防御强化',xspatk:'特攻强化',xspdef:'特防强化',xspeed:'速度强化',xaccuracy:'命中强化',guardspec:'能力防守',direhit:'击中要害',pokemondoll:'宝可梦玩偶'};
+  const BATTLE_ITEM_DESC={xattack:'我方当前宝可梦攻击提高 2 级',xdefense:'我方当前宝可梦防御提高 2 级',xspatk:'我方当前宝可梦特攻提高 2 级',xspdef:'我方当前宝可梦特防提高 2 级',xspeed:'我方当前宝可梦速度提高 2 级',xaccuracy:'我方当前宝可梦命中提高 1 级',guardspec:'防止我方能力被对手降低，持续 5 回合',direhit:'下次攻击提高击中要害率',pokemondoll:'立即从野生战斗中逃走'};
+  function renderBattleItems(){
+    const root=$('battle-item-list');if(!root||!battle)return;root.replaceChildren();
+    const ids=Object.keys(BATTLE_ITEM_NAMES).filter(id=>(battle.itemStock?.[id]||0)>0);
+    for(const id of ids){const b=document.createElement('button');b.type='button';b.className='ball-choice';b.disabled=animating||battle.winner!==null||battle.pendingSwitch!==null||(id==='pokemondoll'&&battle.encounterType!=='wild');b.innerHTML=`<strong>${BATTLE_ITEM_NAMES[id]} ×${battle.itemStock[id]}</strong><small>${BATTLE_ITEM_DESC[id]}${id==='pokemondoll'&&battle.encounterType!=='wild'?' · 仅限野生战斗':''}</small>`;b.onclick=()=>chooseBattleAction({kind:'item',id});root.appendChild(b);}
+    if(!ids.length){const p=document.createElement('p');p.className='capture-hint';p.textContent='背包里没有可在战斗中使用的道具。';root.appendChild(p);}
   }
   function renderBalls() {
     const root = $('ball-list'); root.replaceChildren();
@@ -1083,7 +1094,7 @@ installSpriteRecovery(document);
   }
   function initWorldControls() {
     $('command-fight').onclick=()=>showCommand('fight'); $('command-switch').onclick=()=>showCommand('switch');
-    $('command-balls').onclick=()=>showCommand('balls'); $('command-back').onclick=()=>showCommand('home');
+    $('command-balls').onclick=()=>showCommand('balls'); $('command-items').onclick=()=>showCommand('items'); $('command-back').onclick=()=>showCommand('home');
     for(const id of ['btn-box','btn-end-box']) $(id).onclick=openCollection;
     for(const id of ['btn-wild','btn-next-wild']) $(id).onclick=beginWild;
     $('btn-supply').onclick=()=>{
@@ -1292,13 +1303,13 @@ installSpriteRecovery(document);
     const res = $('result');
     if (over) {
       res.classList.remove('hidden');
-      res.textContent = battle.outcome === 'captured' ? '收服成功！' : battle.winner === 0 ? '🏆 胜利！' : '💀 败北……';
+      res.textContent = battle.outcome === 'captured' ? '收服成功！' : battle.outcome === 'escaped' ? '已逃离野生战斗' : battle.winner === 0 ? '🏆 胜利！' : '💀 败北……';
     } else if (battle.pendingSwitch !== null) {
       res.classList.remove('hidden');
       res.textContent = '请选择下一只宝可梦出战';
     } else res.classList.add('hidden');
     renderDoubleControls();
-    renderBalls(); renderCommands();
+    renderBalls(); renderBattleItems(); renderCommands();
   }
 
   function renderDoubleControls() {
@@ -1455,7 +1466,7 @@ installSpriteRecovery(document);
     const battleRef = battle;
     const before = snapshotBattle();
     const logStart = battle.log.length;
-    let chosen = { kind: a.kind };
+    let chosen = { kind: a.kind, ...(a.id ? { id: a.id } : {}) };
     let mech = null;
     if (a.kind === 'move') {
       const me = battle.cur(0), base = me?.moves[a.index];
@@ -1663,7 +1674,7 @@ installSpriteRecovery(document);
       if (cfg.encounter?.type === 'wild' && enemyTeam.length !== 1) throw new Error('当前野生遭遇仅支持一只野生宝可梦。');
       if (doubleMode && (playerTeam.filter(p => !p.fainted).length < 2 || enemyTeam.filter(p => !p.fainted).length < 2)) throw new Error('双打模式需要双方各至少两只尚未失去战斗能力的宝可梦。');
       battle = new PKMBattle.Battle(playerTeam, enemyTeam, { double: doubleMode, difficulty, weather, weatherTurns: typeof wt !== 'undefined' ? wt : 0,
-        encounterType: cfg.encounter?.type, balls: worldStore.state.balls, seed: cfg.seed, captureContext:cfg.host?.captureContext||{} });
+        encounterType: cfg.encounter?.type, balls: worldStore.state.balls, itemStock:cfg.host?.battleItems||{}, seed: cfg.seed, captureContext:cfg.host?.captureContext||{} });
       if (environment.terrain) battle.setTerrain(environment.terrain, environment.terrainTurns);
       if (cfg.ui?.openBalls && battle.encounterType === 'wild') menuView = 'balls';
       // v1.3.9：战斗记录第一行写明这场的类型和赛制（角色卡发来的）

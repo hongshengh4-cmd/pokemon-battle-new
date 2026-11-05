@@ -723,7 +723,7 @@ textarea { width: 100%; min-height: 118px; padding: 13px 15px; resize: vertical;
 .encounter-tag.wild { background: #e2f5ea; color: #30745e; }
 .command-back { flex: 0 0 auto; padding: 4px 10px; border: 1px solid #d7d3e1; font-size: 12px; line-height: 1.2; box-shadow: none; white-space: nowrap; }
 /* Mechanic toggle sits in the heading row: it costs no vertical space inside the move list. */
-.command-home { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; flex: 1; min-height: 0; padding: 1px 4px 4px 0; }
+.command-home { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; flex: 1; min-height: 0; padding: 1px 4px 4px 0; }
 .command-choice { --choice: #fa759e; position: relative; display: grid; grid-template-columns: 36px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 12px; align-content: center; align-items: center; min-width: 0; min-height: 0; padding: 6px 14px 6px 12px; border: 2px solid color-mix(in srgb,var(--choice) 50%,white); border-radius: 11px; background: linear-gradient(135deg,color-mix(in srgb,var(--choice) 17%,white),#fff 85%); box-shadow: 4px 4px 0 color-mix(in srgb,var(--choice) 26%,#dddce6); text-align: left; overflow: hidden; }
 .command-choice::after { content: ''; position: absolute; width: 90px; height: 90px; right: -42px; bottom: -46px; border: 14px solid color-mix(in srgb,var(--choice) 12%,transparent); border-radius: 50%; pointer-events: none; }
 .command-choice:hover:not(:disabled) { border-color: var(--choice); transform: translateY(-2px); }
