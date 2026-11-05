@@ -717,6 +717,8 @@ textarea { width: 100%; min-height: 118px; padding: 13px 15px; resize: vertical;
 .log { padding: 6px 9px; font-size: 11px; line-height: 1.5; }
 .action-card { display: flex; flex-direction: column; gap: 5px; padding: 7px 12px 6px 16px; }
 .command-heading { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; min-height: 26px; }
+.music-toggle{width:30px;height:30px;flex:0 0 30px;border:1px solid #b8afc7;border-radius:50%;background:#fff;color:#5a4c73;font:900 16px/1 system-ui;cursor:pointer;display:grid;place-items:center;padding:0}.music-toggle:disabled{opacity:.48;cursor:not-allowed}.music-toggle:not(:disabled):hover{background:#f0eafa}.music-toggle.is-playing{background:#e6f7ed;color:#237552;border-color:#78c39c}
+html.embed .music-toggle{width:25px;height:25px;flex-basis:25px;font-size:14px}
 .command-heading-text { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; overflow: hidden; }
 .command-heading h3 { margin: 0; font-size: 14px; line-height: 1.2; font-weight: 950; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .encounter-tag { display: inline-flex; flex: 0 0 auto; background: #eeeaf5; color: #766984; border-radius: 4px; padding: 3px 7px; font-size: 10px; font-weight: 850; white-space: nowrap; }

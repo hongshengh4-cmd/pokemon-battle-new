@@ -6,6 +6,63 @@ installSpriteRecovery(document);
 (function () {
   'use strict';
   const $ = id => document.getElementById(id);
+  const BATTLE_MUSIC_TRACKS = [
+    { name: '宝可梦无印战斗 BGM-2', url: 'https://archive.org/download/BGM-5/%E5%AE%9D%E5%8F%AF%E6%A2%A6%E6%97%A0%E5%8D%B0%E6%88%98%E6%96%97BGM-2.mp3' },
+    { name: '宝可梦无印战斗 BGM-3', url: 'https://archive.org/download/BGM-5/%E5%AE%9D%E5%8F%AF%E6%A2%A6%E6%97%A0%E5%8D%B0%E6%88%98%E6%96%97BGM-3.mp3' },
+    { name: '宝可梦无印战斗 BGM-4', url: 'https://archive.org/download/BGM-5/%E5%AE%9D%E5%8F%AF%E6%A2%A6%E6%97%A0%E5%8D%B0%E6%88%98%E6%96%97BGM-4.mp3' },
+    { name: '宝可梦无印战斗 BGM-5', url: 'https://archive.org/download/BGM-5/%E5%AE%9D%E5%8F%AF%E6%A2%A6%E6%97%A0%E5%8D%B0%E6%88%98%E6%96%97BGM-5.mp3' },
+    { name: '宝可梦无印战斗 BGM-6', url: 'https://archive.org/download/BGM-5/%E5%AE%9D%E5%8F%AF%E6%A2%A6%E6%97%A0%E5%8D%B0%E6%88%98%E6%96%97BGM-6.mp3' },
+    { name: '宝可梦无印战斗 BGM-7', url: 'https://archive.org/download/BGM-5/%E5%AE%9D%E5%8F%AF%E6%A2%A6%E6%97%A0%E5%8D%B0%E6%88%98%E6%96%97BGM-7.mp3' },
+    { name: '宝可梦无印战斗 BGM', url: 'https://archive.org/download/BGM-5/%E5%AE%9D%E5%8F%AF%E6%A2%A6%E6%97%A0%E5%8D%B0%E6%88%98%E6%96%97BGM.mp3' },
+  ];
+  let battleMusicAudio = null, battleMusicPlaying = false, battleMusicTrack = null, battleMusicQueue = [], battleMusicLast = '';
+  function shuffleBattleMusic() {
+    const queue = [...BATTLE_MUSIC_TRACKS];
+    for (let i = queue.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [queue[i], queue[j]] = [queue[j], queue[i]]; }
+    if (queue.length > 1 && queue[0].name === battleMusicLast) [queue[0], queue[1]] = [queue[1], queue[0]];
+    return queue;
+  }
+  async function playNextBattleMusic() {
+    if (!battleMusicQueue.length) battleMusicQueue = shuffleBattleMusic();
+    const track = battleMusicQueue.shift(), button = $('battle-music-toggle');
+    if (!track || !battleMusicAudio) return;
+    battleMusicTrack = track; battleMusicLast = track.name; battleMusicAudio.src = track.url; battleMusicAudio.load();
+    try {
+      await battleMusicAudio.play(); battleMusicPlaying = true;
+      button.textContent = '♫'; button.classList.add('is-playing');
+      button.title = `正在播放：${track.name}（点击暂停）`; button.setAttribute('aria-label', `暂停战斗音乐：${track.name}`);
+    } catch (_) {
+      battleMusicPlaying = false; button.textContent = '♪'; button.classList.remove('is-playing');
+      button.title = `浏览器未能自动播放：${track.name}；点击重试`; button.setAttribute('aria-label', '重试战斗音乐');
+    }
+  }
+  async function startBattleMusic() {
+    if (battleMusicPlaying || !battleMusicAudio) return;
+    if (battleMusicTrack) {
+      try { await battleMusicAudio.play(); battleMusicPlaying = true; const b = $('battle-music-toggle'); b.textContent = '♫'; b.classList.add('is-playing'); b.title = `正在播放：${battleMusicTrack.name}（点击暂停）`; }
+      catch (_) { $('battle-music-toggle').title = '浏览器未能自动播放，请点击音乐键'; }
+    } else await playNextBattleMusic();
+  }
+  function pauseBattleMusic() {
+    if (!battleMusicAudio || !battleMusicPlaying) return;
+    const endedTrack = battleMusicTrack?.name || '战斗音乐';
+    battleMusicAudio.pause(); battleMusicPlaying = false; battleMusicTrack = null;
+    const b = $('battle-music-toggle'); if (b) { b.textContent = '♪'; b.classList.remove('is-playing'); b.title = `战斗结束：${endedTrack}`; b.setAttribute('aria-label', '战斗音乐已暂停'); }
+  }
+  function initBattleMusic() {
+    const button = $('battle-music-toggle');
+    if (!button) return;
+    button.disabled = true; button.title = '进入战斗后随机播放七首战斗 BGM';
+    button.setAttribute('aria-label', '进入战斗后随机播放战斗音乐');
+    battleMusicAudio = new Audio(); battleMusicAudio.preload = 'none';
+    battleMusicAudio.addEventListener('ended', () => { if (battleMusicPlaying) void playNextBattleMusic(); });
+    battleMusicAudio.addEventListener('error', () => { battleMusicPlaying = false; button.textContent = '♪'; button.classList.remove('is-playing'); button.title = '战斗音乐载入失败，请点击重试'; });
+    button.onclick = async () => {
+      if (battleMusicPlaying) { battleMusicAudio.pause(); battleMusicPlaying = false; button.textContent = '♪'; button.classList.remove('is-playing'); button.title = `已暂停：${battleMusicTrack?.name || '战斗音乐'}`; button.setAttribute('aria-label', '继续播放战斗音乐'); }
+      else await startBattleMusic();
+    };
+  }
+  initBattleMusic();
   const normId = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   let battle = null, moveCache = {}, selectedMechanic = null, animating = false;
   let doubleActionSlot = 0, doubleActions = [null, null], pendingDoubleTarget = null;
@@ -16,7 +73,7 @@ installSpriteRecovery(document);
   const EMBED = new URLSearchParams(location.search).has('embed');
   if (EMBED) document.documentElement.classList.add('embed');
   let dataReady = false, pendingHostConfig = null, hostTag = null, hostMode = false;
-  const APP_VERSION = '1.3.44-battle-gear';
+  const APP_VERSION = '1.3.45-battle-music-playlist';
   let formatTag = '', formatRule = ''; // v1.3.8：角色卡发来的赛制（例：3v3、3只 vs 1只），显示在行动菜单的标签上
   let typeLabel = ''; // v1.3.9：角色卡发来的对战类型（道馆战 / 训练家对战 / 劲敌对战 / 火箭队……），标签第一段
   // 宿主模式：球袋来自角色卡变量（MVU），只存在本页内存里，不读写本机存档。
@@ -935,6 +992,8 @@ installSpriteRecovery(document);
   function renderCommands() {
     if (!battle) return;
     const ended = battle.winner !== null && !animating;
+    const musicButton = $('battle-music-toggle'); if (musicButton) musicButton.disabled = ended;
+    if (ended) pauseBattleMusic();
     if (battle.pendingSwitch !== null && !animating) menuView = 'switch';
     if (ended) menuView = 'end';
     const view = menuView;
@@ -1698,6 +1757,7 @@ installSpriteRecovery(document);
     const sideEl = $('e-side-label');
     if (sideEl) sideEl.textContent = String((cfg && cfg.rules?.sideLabel) || (battle.encounterType === 'wild' ? '野生' : '敌方')).slice(0, 6);
     after();
+    if (EMBED && !window.PKMPreview) void startBattleMusic();
     if (!window.PKMPreview) requestAnimationFrame(() => {
       if (battle.double) { [0, 1].forEach(slot => { setTimeout(() => playSendOut(1, slot), slot * 180); setTimeout(() => playSendOut(0, slot), 300 + slot * 180); }); }
       else { playSendOut(1); setTimeout(() => playSendOut(0), 150); }
