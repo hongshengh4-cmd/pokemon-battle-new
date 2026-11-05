@@ -166,12 +166,17 @@ let STATS = null;
 fetch(BASE + 'st-bridge/kanto-stats.json?v=' + VERSION).then(r => (r.ok ? r.json() : null)).then(j => { if (j?.s) { STATS = j; refreshAll(); } }).catch(e => LOG('能力值表加载失败（不影响主要功能）', e));
 let EFFORT_YIELDS={};
 const EFFORT_YIELDS_READY=fetch(BASE+'st-bridge/effort-yields.json?v=20261106-ev-yield-v1',{cache:'force-cache'}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(d=>{if(!d?.yields)throw new Error('努力值表结构无效');EFFORT_YIELDS=d.yields;}).catch(e=>{LOG('努力值来源表加载失败；本次战斗不伪造努力值',e);EFFORT_YIELDS={};});
-const FRIENDSHIP_DEFAULT=70,FRIENDSHIP_MAX=255,FRIENDSHIP_EVOLUTION_THRESHOLD=160;
+const FRIENDSHIP_DEFAULT=0,FRIENDSHIP_MAX=255,FRIENDSHIP_EVOLUTION_THRESHOLD=160;
 const FRIENDSHIP_OLD_KEYS=['trust','passion','insight','devotion'];
 const friendshipClamp=v=>Math.max(0,Math.min(FRIENDSHIP_MAX,Math.round(Number(v)||0)));
 function legacyFriendshipValue(data){const old=data?.avs||{};const vals=FRIENDSHIP_OLD_KEYS.map(k=>Number(old[k])).filter(Number.isFinite).map(v=>Math.max(0,Math.min(100,v)));return vals.length?Math.max(FRIENDSHIP_DEFAULT,Math.min(FRIENDSHIP_MAX,Math.round(Math.max(...vals)))):FRIENDSHIP_DEFAULT;}
 function friendshipValue(mon){const f=mon?.friendship||{},raw=f.official;if(raw!=null&&raw!==''&&Number.isFinite(Number(raw)))return friendshipClamp(raw);return legacyFriendshipValue(f);}
 function ensureFriendship(mon){let changed=false;if(!isObj(mon.friendship)){mon.friendship={official:FRIENDSHIP_DEFAULT};return true;}const value=friendshipValue(mon);if(mon.friendship.official!==value){mon.friendship.official=value;changed=true;}if(Object.prototype.hasOwnProperty.call(mon.friendship,'avs')){delete mon.friendship.avs;changed=true;}return changed;}
+const FRIENDSHIP_SCHEMA_VERSION=2;
+function migrateFriendshipDefaults(pkm){if(!isObj(pkm.integration))pkm.integration={};if(Number(pkm.integration.friendshipSchema)>=FRIENDSHIP_SCHEMA_VERSION)return false;for(const mon of [...(pkm.party?.slots||[]),...(pkm.party?.box||[])]){if(!hasMon(mon))continue;if(!isObj(mon.friendship))mon.friendship={};const f=mon.friendship,raw=Number(f.official);if(Number.isFinite(raw)&&raw===70){f.official=Object.hasOwn(f,'avs')?legacyFriendshipValue(f):FRIENDSHIP_DEFAULT;}else if(f.official==null||f.official===''){f.official=legacyFriendshipValue(f);}if(Object.hasOwn(f,'avs'))delete f.avs;}pkm.integration.friendshipSchema=FRIENDSHIP_SCHEMA_VERSION;return true;}
+
+const FRIENDSHIP_INTERACTION_RE=/(?:摸头|轻拍|拍拍|抚摸|蹭|贴过来|喂食|喂给|喂了|投喂|一起吃|拥抱|抱住|亲吻|击掌|握手|梳理|清理|照料|照顾|治疗|包扎|安慰|鼓励|守护|保护|挡下|救下|救助|训练|并肩|玩耍|交流|交谈|互动|陪伴|陪它|牵着|握爪|分享|递给|抚慰|回应)/;
+function hasExplicitPokemonInteraction(body,mon){const names=[mon?.nickname,mon?.species,mon?.name].map(x=>String(x||'').trim()).filter(Boolean);if(!names.length)return false;return String(body||'').split(/[。！？!?\n]+/).some(sentence=>names.some(n=>sentence.includes(n))&&FRIENDSHIP_INTERACTION_RE.test(sentence));}
 const ivOk = v => Number.isInteger(v) && v >= 0 && v <= 31;
 // 性格统一成中文名；英文 id（adamant）在中文名表加载后换算，加载前原样保留
 function natureZh(n) {
@@ -607,7 +612,7 @@ function defaultPkm() {
 }
 function emptySlot(n) {
   return { slot: n, name: null, nickname: null, species: null, gender: null, lv: null, quality: null, nature: null, ability: null, shiny: false, item: null, isAce: false, isLead: false,
-    friendship: { official: 70 }, moves: [null, null, null, null],
+    friendship: { official: 0 }, moves: [null, null, null, null],
     stats_meta: { ivs: { hp: null, atk: null, def: null, spa: null, spd: null, spe: null }, evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 }, ev_level: 0 }, hp: null, maxHp: null, status: null, pp: null, exp: null, ball: null, met: null, notes: null };
 }
 const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
@@ -617,6 +622,8 @@ function normalize(pkm) {
   const pl = pkm.player;
   if (!isObj(pl.bag)) pl.bag = {};
   if (!Array.isArray(pl.badges)) pl.badges = [];
+  if (!isObj(pl.honors)) pl.honors = { leagueChampion: false, regionalChampion: false };
+  else { if (pl.honors.leagueChampion == null) pl.honors.leagueChampion = false; if (pl.honors.regionalChampion == null) pl.honors.regionalChampion = false; }
   if (typeof pl.money !== 'number') pl.money = Number(pl.money) || 0;
   if (typeof pl.reputation !== 'number') pl.reputation = Number(pl.reputation) || 0;
   pkm.party = isObj(pkm.party) ? pkm.party : {};
@@ -677,6 +684,7 @@ function normalize(pkm) {
   if (!Array.isArray(pkm.battle.done)) pkm.battle.done = [];
   pkm.integration = isObj(pkm.integration) ? pkm.integration : {};
   if (!isObj(pkm.integration.battles)) pkm.integration.battles = {};
+  migrateFriendshipDefaults(pkm);
   migrateExperienceCurve(pkm);
   pkm.wild = isObj(pkm.wild) ? pkm.wild : {};
   if (!isObj(pkm.wild.used)) pkm.wild.used = {};
@@ -909,6 +917,7 @@ function summaryText(pkm) {
   const pl = pkm.player, lines = [];
   const title = pl.title || K.TITLES.find(([n]) => (pl.reputation || 0) >= n)[1];
   lines.push(`训练家：${pl.name || userName()}${pl.gender ? '（' + pl.gender + '）' : ''}｜模式：${pkm.world.mode || '—'}｜金钱 ${pl.money} 元｜声望 ${pl.reputation}（${title}）｜徽章 ${pl.badges.length}/8${pl.badges.length ? '：' + pl.badges.join('、') : ''}；首次赢得道馆徽章由桥接器奖励 1000 声望并自动写入，不得重复增加。`);
+  const earnedHonors=Object.entries(FRIENDSHIP_HONOR_REWARDS).filter(([key])=>pkm.player.honors?.[key]).map(([,v])=>v.label);if(earnedHonors.length)lines.push('已获冠军荣誉：'+earnedHonors.join('、')+'（不可重复领取亲密值奖励）');
   const party = pkm.party.slots.map((s, i) => {
     if (!hasMon(s)) return null;
     const h = curHp(s);
@@ -957,7 +966,8 @@ function bondRules(pkm, st) {
   return ['【好感与亲密值（每轮都要检查）】',
     `- 本轮 {{user}} 和在场人物有实际互动（交谈、帮忙、请客、并肩作战、吵架又和好……）时，在 <UpdateVariable> 里给他/她好感：{"op":"delta","path":"/pkm/npcs/records/<key>/love","value":2}（日常 +1~3，救命或重大事件 +5~10，冒犯、背叛为负），同时 replace 这个人的 last（本次变化值）和 why（原因，15 字内）。`,
     `- key 必须用英文 key，不能用中文名${keys.length ? '。上一幕在场人物：' + keys.join('、') : ''}。`,
-    `- 宝可梦只保留一个亲密值：{\"op\":\"delta\",\"path\":\"/pkm/party/slots/<i>/friendship/official\",\"value\":1}。范围 0~255，默认 70，160 为亲密进化最低线。只有明确的照料、互相救助、信任建立等重要互动才写入；每条助手回复最多 +1，不得因每句台词、跟随、日常移动自动加值；不得再创建信任/热情/默契字段${slots.length ? '。槽位：' + slots.join('、') : ''}。`,
+    `- 宝可梦只保留一个亲密值：范围 0~255，默认 0，160 为亲密进化最低线。亲密低于160时，只有正文明确写出这只宝可梦参与了实际互动，才可写 +1；每条助手回复最多 +1。160及以上摸头、喂食、同行等日常交互不再增加。不得因每句台词、跟随、日常移动自动加值；不得再创建信任/热情/默契字段。`,
+    `- 战斗胜利时脚本给实际出战的宝可梦 +1（达到160后停止），未出战不加。首次获得道馆徽章时脚本给本场出战者 +3。获得联盟冠军将荣誉设为 {\"op\":\"replace\",\"path\":\"/pkm/player/honors/leagueChampion\",\"value\":true}；获得地区冠军则写 {\"op\":\"replace\",\"path\":\"/pkm/player/honors/regionalChampion\",\"value\":true}；桥接器按实际出战队伍分别奖励 +5/+10，两项同次获得则累加，不能手动改友情数值。`,
     '- 努力值由脚本按宝可梦种族、战斗出场/经验分享和六项规则结算；仅六项增强剂各加 10，单项上限 252、合计上限 510。剧情生成不得手动改写 stats_meta.evs.',
     '- 角色扮演不要自动增加宝可梦亲密值；亲密值的战斗增长由脚本结算，日常亲密值需有明确的重要互动。',
     '【宝可梦叫声】宝可梦（会说话的喵喵除外）只会喊自己的名字或名字的音节，队伍里的叫法见上面的“叫声”。不要把名字截成不存在的叫法（例如小火龙不叫“小火小火”，应是“小火龙～！”“小～火龙！”）。',
@@ -1123,8 +1133,9 @@ function reconcileBonds(pkm, mesid, presentKeys) {
   const msg = chat()[mesid]; if (!msg || msg.is_user) return false;
   const base = prevPkm(mesid); if (!base) return false;
   const ops = parsePatchOps(msg.mes);
+  const bodyText=String(msg.mes||'').replace(/<UpdateVariable>[\s\S]*?(<\/UpdateVariable>|$)/gi,'').replace(/<pkm_state>[\s\S]*?<\/pkm_state>/gi,'');
+  let changed = migrateFriendshipDefaults(pkm);
   const recs = pkm.npcs.records, baseRecs = base.npcs.records;
-  let changed = false;
   const exp = {}, touched = new Set(), dup = new Set();
   for (const o of ops) {
     const g = o.segs;
@@ -1182,11 +1193,11 @@ function reconcileBonds(pkm, mesid, presentKeys) {
 
 // 兼容旧存档中的 AVS 路径，但只迁移为单一亲密值；每条对话的正向提升最多 +1。
   const expFriend={};
-  const friendBase=m=>friendshipValue(m);
+  const friendBase=m=>Number(base.integration?.friendshipSchema)<FRIENDSHIP_SCHEMA_VERSION&&Number(m?.friendship?.official)===70?(Object.hasOwn(m.friendship,'avs')?legacyFriendshipValue(m.friendship):FRIENDSHIP_DEFAULT):friendshipValue(m);
   for(const o of ops){
     const g=o.segs;if(g[0]!=='pkm'||g[1]!=='party'||!['slots','box'].includes(g[2])||g[4]!=='friendship')continue;
     const i=Number(g[3]),bm=base.party[g[2]]?.[i];if(!Number.isInteger(i)||!hasMon(bm))continue;
-    const id=g[2]+':'+i,e=expFriend[id]||(expFriend[id]={}),baseFriend=friendBase(bm),cur=()=>e.value??baseFriend,limitPositive=(current,target)=>target>current?Math.min(target,baseFriend+1):target;
+    const id=g[2]+':'+i,e=expFriend[id]||(expFriend[id]={}),baseFriend=friendBase(bm),cur=()=>e.value??baseFriend,hasInteraction=hasExplicitPokemonInteraction(bodyText,bm),limitPositive=(current,target)=>target>current?(baseFriend>=FRIENDSHIP_EVOLUTION_THRESHOLD||!hasInteraction?current:Math.min(target,baseFriend+1,FRIENDSHIP_EVOLUTION_THRESHOLD)):target;
     if(g.length===6&&g[5]==='official'){
       const n=Number(o.value);if(!Number.isFinite(n))continue;
       if(o.op==='delta'){const d=n>0?Math.min(1,n):n;e.value=friendshipClamp(limitPositive(cur(),cur()+d));}
@@ -1210,10 +1221,21 @@ function reconcileBonds(pkm, mesid, presentKeys) {
   for(const [id,e] of Object.entries(expFriend)){
     const [where,si]=id.split(':'),i=Number(si),bm=base.party[where]?.[i],cm=pkm.party[where]?.[i];if(!hasMon(cm))continue;
     if(bm?.uid&&cm.uid?bm.uid!==cm.uid:(cm.species||cm.name)!==(bm.species||bm.name))continue;
-    const baseValue=friendBase(bm),current=friendshipValue(cm),target=friendshipClamp(e.value);
-    const rawOfficial=cm.friendship?.official,hasCanonical=rawOfficial!=null&&rawOfficial!==''&&Number.isFinite(Number(rawOfficial));if(!hasCanonical||current===baseValue||current===target){if(!isObj(cm.friendship))cm.friendship={};if(cm.friendship.official!==target){cm.friendship.official=target;changed=true;}if(Object.prototype.hasOwnProperty.call(cm.friendship,'avs')){delete cm.friendship.avs;changed=true;}}
+    const baseValue=friendBase(bm),current=friendshipValue(cm),target=friendshipClamp(e.value),hasInteraction=hasExplicitPokemonInteraction(bodyText,bm),maxPositive=baseValue<FRIENDSHIP_EVOLUTION_THRESHOLD&&hasInteraction?Math.min(baseValue+1,FRIENDSHIP_EVOLUTION_THRESHOLD):baseValue;
+    const rawOfficial=cm.friendship?.official,hasCanonical=rawOfficial!=null&&rawOfficial!==''&&Number.isFinite(Number(rawOfficial)),approved=target<=baseValue||(baseValue<FRIENDSHIP_EVOLUTION_THRESHOLD&&hasInteraction&&target<=maxPositive);if(current>maxPositive||!approved&&!hasCanonical){if(!isObj(cm.friendship))cm.friendship={};cm.friendship.official=maxPositive;if(Object.prototype.hasOwnProperty.call(cm.friendship,'avs'))delete cm.friendship.avs;changed=true;continue;}if(!approved){continue;}if(!hasCanonical||current===baseValue||current===target){if(!isObj(cm.friendship))cm.friendship={};if(cm.friendship.official!==target){cm.friendship.official=target;changed=true;}if(Object.prototype.hasOwnProperty.call(cm.friendship,'avs')){delete cm.friendship.avs;changed=true;}}
   }
   for(const where of ['slots','box'])for(const mon of pkm.party[where]||[])if(hasMon(mon)&&ensureFriendship(mon))changed=true;
+  if(!isObj(pkm.player.honors))pkm.player.honors={leagueChampion:false,regionalChampion:false};
+  const oldHonors=base.player?.honors||{};
+  for(const [key,award] of Object.entries(FRIENDSHIP_HONOR_REWARDS)){
+    if(oldHonors[key]===true||!honorPatchSetsTrue(ops,key)||pkm.battle?.friendshipAwards?.some(x=>x?.honor===key))continue;
+    if(!honorNamedInBody(bodyText,key)){if(pkm.player.honors[key]!==!!oldHonors[key]){pkm.player.honors[key]=!!oldHonors[key];changed=true;}continue;}
+    pkm.player.honors[key]=true;changed=true;
+    const recipients=awardRememberedBattleParticipantsFriendship(pkm,award.value,award.label,base.integration?.friendshipBattleParticipants);
+    if(!Array.isArray(pkm.battle.friendshipAwards))pkm.battle.friendshipAwards=[];
+    pkm.battle.friendshipAwards.push({honor:key,label:award.label,value:award.value,recipients,at:mesid});
+    if(pkm.battle.friendshipAwards.length>30)pkm.battle.friendshipAwards.splice(0,pkm.battle.friendshipAwards.length-30);
+  }
   return changed; }
 
 
@@ -8111,6 +8133,13 @@ async function finishWildBatch(){
 const GYM_BADGE_HINTS=[['灰色徽章',['灰色徽章','岩石徽章','深灰','小刚','武志']],['蓝色徽章',['蓝色徽章','华蓝','小霞']],['橙色徽章',['橙色徽章','橘色徽章','枯叶','马志士']],['彩虹徽章',['彩虹徽章','玉虹','莉佳']],['粉红徽章',['粉红徽章','粉色徽章','浅红','阿桔']],['金色徽章',['金色徽章','金黄','娜姿']],['深红徽章',['深红徽章','红莲','夏伯']],['绿色徽章',['绿色徽章','常磐','坂木']]];
 function badgeForGymConfig(cfg){const stake=String(cfg?.stakes||'');for(const [badge,hints] of GYM_BADGE_HINTS)if(stake.includes(badge)||hints.some(h=>stake.includes(h)))return badge;const text=[cfg?.title,cfg?.opponent,cfg?.id].map(x=>String(x||'')).join(' ');for(const [badge,hints] of GYM_BADGE_HINTS)if(text.includes(badge)||hints.some(h=>text.includes(h)))return badge;return null;}
 function grantGymBadgeReward(pkm,cfg,type,outcome){if(type!=='gym'||outcome!=='victory')return null;const badge=badgeForGymConfig(cfg);if(!badge||!Array.isArray(pkm?.player?.badges)||pkm.player.badges.includes(badge))return null;pkm.player.badges.push(badge);pkm.player.reputation=Math.max(0,Number(pkm.player.reputation)||0)+1000;return badge;}
+const FRIENDSHIP_HONOR_REWARDS={leagueChampion:{label:'联盟冠军',value:5},regionalChampion:{label:'地区冠军',value:10}};
+function battleFriendshipParticipants(pkm,payload){const seen=new Set(),rows=[];for(const p of payload?.playerTeam||[]){const i=Number(p.hostSlot);if(p.participated===false||!Number.isInteger(i)||i<0||seen.has(i))continue;const mon=pkm.party.slots[i];if(!hasMon(mon))continue;seen.add(i);rows.push({uid:mon.uid==null?'':String(mon.uid),slot:i,species:speciesId(mon.species||mon.name)});}return rows;}
+function rememberFriendshipBattleParticipants(pkm,payload){const rows=battleFriendshipParticipants(pkm,payload);if(!rows.length)return false;if(!isObj(pkm.integration))pkm.integration={};pkm.integration.friendshipBattleParticipants=rows;return true;}
+function awardBattleParticipantsFriendship(pkm,payload,amount,reason,stopAtEvolutionThreshold=false){const notes=[];for(const r of battleFriendshipParticipants(pkm,payload)){const mon=pkm.party.slots[r.slot];ensureIndividual(mon);const before=friendshipValue(mon);if(stopAtEvolutionThreshold&&before>=FRIENDSHIP_EVOLUTION_THRESHOLD)continue;const after=Math.min(stopAtEvolutionThreshold?FRIENDSHIP_EVOLUTION_THRESHOLD:FRIENDSHIP_MAX,friendshipClamp(before+amount));if(after<=before)continue;mon.friendship.official=after;notes.push(`${monName(mon)} +${after-before}（${reason}）`);}return notes;}
+function awardRememberedBattleParticipantsFriendship(pkm,amount,reason,refsOverride){const refs=Array.isArray(refsOverride)?refsOverride:(Array.isArray(pkm.integration?.friendshipBattleParticipants)?pkm.integration.friendshipBattleParticipants:[]),notes=[],seen=new Set();for(const ref of refs){let mon=null;for(const m of [...(pkm.party?.slots||[]),...(pkm.party?.box||[])]){if(!hasMon(m))continue;if(ref.uid&&String(m.uid||'')===String(ref.uid)||!ref.uid&&Number.isInteger(Number(ref.slot))&&speciesId(m.species||m.name)===ref.species){mon=m;break;}}if(!mon||seen.has(mon.uid||mon))continue;seen.add(mon.uid||mon);ensureIndividual(mon);const before=friendshipValue(mon),after=friendshipClamp(before+amount);if(after<=before)continue;mon.friendship.official=after;notes.push(`${monName(mon)} +${after-before}（${reason}）`);}return notes;}
+function honorNamedInBody(body,key){const text=String(body||'');return key==='leagueChampion'?/(?:联盟冠军|联盟大赛冠军|宝可梦联盟冠军|石英大会冠军|白银大会冠军|铃兰大会冠军|橘子联盟胜利者杯|胜利者杯冠军|league champion|pokemon league champion)/i.test(text):/(?:地区冠军|关都冠军|城都冠军|丰缘冠军|神奥冠军|合众冠军|卡洛斯冠军|阿罗拉冠军|伽勒尔冠军|帕底亚冠军|regional champion)/i.test(text);}
+function honorPatchSetsTrue(ops,key){return ops.some(o=>{const g=o.segs||[],truth=o.value===true||o.value===1||String(o.value).toLowerCase()==='true';if(g[0]!=='pkm'||g[1]!=='player'||g[2]!=='honors')return false;if(g.length===4&&g[3]===key)return truth;if(g.length===3&&isObj(o.value))return o.value[key]===true;return false;});}
 async function applyResult(m, payload) {
   const outcome = payload.outcome || (payload.winner === 'player' ? 'victory' : payload.winner === 'enemy' ? 'defeat' : 'draw');
   if(outcome==='victory')await Promise.all([LEVEL_UP_LEARNSET_READY,EFFORT_YIELDS_READY]);
@@ -8121,9 +8150,9 @@ async function applyResult(m, payload) {
   let placed = null, capturedName = null, gymBadgeAward = null;
   let summaryParts = [];
   let xpGains = [],evGains=[];
-  const bondNotes = [];
+  const bondNotes = [], honorNotes=[];
   const result = await writePkm(pkm => {
-    summaryParts = []; bondNotes.length = 0; placed = null; capturedName = null; gymBadgeAward = null; evGains=[]; // writePkm 可能重算
+    summaryParts = []; bondNotes.length = 0; honorNotes.length=0; placed = null; capturedName = null; gymBadgeAward = null; evGains=[]; // writePkm 可能重算
     const won = outcome === 'victory' || outcome === 'captured';
     // 1) 我方体力 / 异常状态
     for (const p of payload.playerTeam || []) {
@@ -8137,9 +8166,9 @@ async function applyResult(m, payload) {
       if(p.participated!==false)setHpRegenBaseline(pkm,s);
       // PP 每场即时写回；中文 ID 未加载时由 helper 按顺序兜底，缺失字段不会清空旧 PP。
       updateRemainingMovePP(s,p.moves);
-      // 亲密值增长刻意放慢：只有胜利战斗中实际出场者 +1。
-      if(p.participated!==false&&outcome==='victory'){ensureIndividual(s);s.friendship.official=friendshipClamp(friendshipValue(s)+1);bondNotes.push(`${monName(s)}亲密度+1`);}
+
     }
+    if(outcome==='victory'){bondNotes.push(...awardBattleParticipantsFriendship(pkm,payload,1,'胜利出战',true));rememberFriendshipBattleParticipants(pkm,payload);}
     // 1.5) 胜利经验：野外出场者各得全额、队伍其余成员各得一半；其他战斗仍按原参战规则。升级同步最大 HP。
     xpGains=awardBattleExperience(pkm,payload,outcome,m.type,(cfg.event&&cfg.event!=='自由'?cfg.event:'自由'));
     evGains=awardBattleEffort(pkm,payload,outcome,m.type);
@@ -8161,12 +8190,12 @@ async function applyResult(m, payload) {
       if (mon.shiny) pkm.dex.shiny[mon.species] = [eventId, placeText(pkm), dateText(pkm), true];
     } else if (cfgTeam[0]?.shiny && m.type === 'wild') { const n = zhSpecies(payload.enemyTeam?.[0]?.baseSpecies) || cfgTeam[0].species; if (!pkm.dex.shiny[n]) pkm.dex.shiny[n] = [eventId, placeText(pkm), dateText(pkm), false]; }
     // 首次赢得对应道馆徽章：徽章与 1000 声望同一事务写入，重赛不会重复发放。
-    gymBadgeAward=grantGymBadgeReward(pkm,cfg,m.type,outcome);if(gymBadgeAward)summaryParts.push(`获得${gymBadgeAward}，声望+1000`);
+    gymBadgeAward=grantGymBadgeReward(pkm,cfg,m.type,outcome);if(gymBadgeAward){summaryParts.push(`获得${gymBadgeAward}，声望+1000`);honorNotes.push(...awardBattleParticipantsFriendship(pkm,payload,3,`${gymBadgeAward}徽章`));}
     // 5) 战绩
     pkm.battle.count += 1; if (outcome === 'victory') pkm.battle.wins += 1;
     summaryParts.push(`${OUTCOME_ZH[outcome] || '结束'} · ${fmtText}${cfg.opponent ? ' · 对手：' + cfg.opponent : ''} · ${payload.turns || 0} 回合`);
     if (capturedName) summaryParts.push(`收服了${capturedName}（${placed}）`);
-    if(bondNotes.length)summaryParts.push('亲密值：'+bondNotes.join('，'));
+    if(bondNotes.length)summaryParts.push('战斗亲密值：'+bondNotes.join('，'));if(honorNotes.length)summaryParts.push('徽章荣誉亲密值：'+honorNotes.join('，'));
     if(evGains.length)summaryParts.push('努力值：'+evGains.map(x=>`${x.name} ${x.changes.map(c=>`${K.STAT_ZH[c.stat]}+${c.gain}`).join('、')}（合计 ${x.total}/510）`).join('；'));
     const summary = summaryParts.join('；');
     pkm.battle.lastResult = summary;
@@ -8210,7 +8239,8 @@ async function applyResult(m, payload) {
     res.capture ? `收服：用${res.capture.ball}收服了 ${res.capture.species} Lv${res.capture.level}，已放进${placed}。` : '',
     used.length||usedTrainerItems.length ? `消耗：${[...used,...usedTrainerItems].join('、')}` : '',
     gymBadgeAward ? `道馆奖励（脚本已写入）：获得${gymBadgeAward}，声望 +1000；当前声望 ${readPkm().player.reputation}。` : '',
-    bondNotes.length ? `亲密值（脚本已加）：${bondNotes.join('，')}` : '',
+    bondNotes.length ? `战斗亲密值（脚本已加）：${bondNotes.join('，')}` : '',
+    honorNotes.length ? `徽章奖励亲密值（脚本已加）：${honorNotes.join('，')}` : '',
     evGains.length ? `努力值（脚本已加）：${evGains.map(x=>`${x.name} ${x.changes.map(c=>`${K.STAT_ZH[c.stat]}+${c.gain}`).join('、')}（合计 ${x.total}/510）`).join('；')}` : '',
     xpGains.length ? `经验（脚本已加）：${xpGains.map(x=>`${x.name} +${x.exp}（${x.share||'出场'}），Lv${x.from}${x.to>x.from?'→Lv'+x.to:''}${x.evolutions?.length?'，进化为'+x.evolutions.map(e=>e.to).join('、'):''}${x.learnedMoves?.length?'，学会'+x.learnedMoves.join('、'):''}${x.pendingMoves?.length?'，待处理招式'+x.pendingMoves.join('、'):''}`).join('；')}` : '',
     xpGains.some(x=>x.learnsetUnavailable)?'等级招式表未加载或该形态暂无覆盖；脚本没有猜招。请检查 st-bridge/level-up-learnsets-52poke.json 部署。':'',
@@ -8397,7 +8427,7 @@ function installOriginalFollowerMood(unit) {
   const pkmNow = () => { try { return host.PKMKanto?.read?.() || null; } catch (_) { return null; } };
   const follower = () => { if(!unit.isConnected)return null;const p = pkmNow(), id = unit.dataset.uid; if (!id) return null; return [...(p.party.slots || []), ...(p.party.box || [])].find(s => s && s.uid === id && (s.species || s.name)) || null; };
   const hpRatio = m => { const hp = Number(m?.hp), max = Number(m?.maxHp); return m?.hp == null || !Number.isFinite(max) || max <= 0 ? 1 : Math.max(0, Math.min(1, hp / max)); };
-  const bondValue = m => Math.max(0,Math.min(255,Number(m?.friendship?.official)||70));
+  const bondValue = m => Math.max(0,Math.min(255,Number(m?.friendship?.official)||0));
   const hiBond = m => bondValue(m) >= 160, midBond = m => bondValue(m) >= 120;
   const escape = x => String(x ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const cry = m => { const n = String(m?.species || m?.name || '宝可梦').replace(/[♀♂]/g, ''); if (CRY[n]) return CRY[n]; const z = n.slice(0, 2) || '宝可梦'; return Math.random() < .5 ? z + z + '！' : n + '～'; };
@@ -8689,7 +8719,7 @@ const CARE_FRIENDSHIP_PENALTY=new Set(['元气粉','元气根','复活草','万�
 const CARE_FULL_HP=new Set(['全满药','全复药']);
 const CARE_VITAMINS={'HP增强剂':'hp','攻击增强剂':'atk','防御增强剂':'def','特攻增强剂':'spa','特防增强剂':'spd','速度增强剂':'spe'};
 function careHasConfusion(mon){return mon?.confused===true||mon?.confusion===true||/混乱/.test(String(mon?.status||''));}
-function careFriendshipLoss(mon,item){if(!CARE_FRIENDSHIP_PENALTY.has(item))return 0;const v=Number(mon?.friendship?.official);return(Number.isFinite(v)?Math.max(0,Math.min(255,v)):70)<200?5:10;}
+function careFriendshipLoss(mon,item){if(!CARE_FRIENDSHIP_PENALTY.has(item))return 0;const v=Number(mon?.friendship?.official);return(Number.isFinite(v)?Math.max(0,Math.min(255,v)):FRIENDSHIP_DEFAULT)<200?5:10;}
 const CARE_REVIVE_HALF=new Set(['活力碎片']);
 const CARE_REVIVE_FULL=new Set(['活力块','复活草']);
 function canonicalCareItem(name){const raw=String(name??'').trim();return Object.prototype.hasOwnProperty.call(CARE_ALIAS,raw)?CARE_ALIAS[raw]:raw;}
@@ -8735,7 +8765,7 @@ function showCare(name,id){
  const hpText=effect.valid&&effect.nextHp!==effect.hp?` → ${effect.nextHp}/${effect.max}（+${effect.heal}）`:'';
  const statusText=effect.valid&&effect.cured?`<p>状态：${esc(String(effect.status||'濒死'))} → 无异常</p>`:'';
  const evolutionText=effect.evolution?.valid?`<p>进化：${esc(monName(mon))} → <b>${esc(effect.evolution.target)}</b></p>`:'';
- const effectText=effect.equipment?`<p>本次对战携带<b>${esc(HELD_ITEM_ZH_BY_ID[equipId]||name)}</b>；${mon.item?`替换当前携带的${esc(mon.item)}（旧道具放回背包）。`:'该物品将从背包转为携带道具。'}</p>`:effect.levelUp?`<p>等级：Lv.${Number(mon.lv)||5} → Lv.${(Number(mon.lv)||5)+1}；将检查该等级招式与等级进化。</p>`:effect.evStat?`<p>${esc(K.STAT_ZH[effect.evStat]||effect.evStat)}努力值 +${effect.evGain}（该项 ${effect.evNow}/${252}，总计 ${effect.evTotal}/510）。</p>`:effect.evolution?.valid?evolutionText:`<p>HP ${effect.hp}/${effect.max}${hpText}</p>${statusText}${effect.friendshipLoss?`<p>亲密度：${Number.isFinite(Number(mon.friendship?.official))?Number(mon.friendship.official):70} → ${Math.max(0,(Number.isFinite(Number(mon.friendship?.official))?Number(mon.friendship.official):70)-effect.friendshipLoss)}（−${effect.friendshipLoss}）</p>`:''}`;
+ const effectText=effect.equipment?`<p>本次对战携带<b>${esc(HELD_ITEM_ZH_BY_ID[equipId]||name)}</b>；${mon.item?`替换当前携带的${esc(mon.item)}（旧道具放回背包）。`:'该物品将从背包转为携带道具。'}</p>`:effect.levelUp?`<p>等级：Lv.${Number(mon.lv)||5} → Lv.${(Number(mon.lv)||5)+1}；将检查该等级招式与等级进化。</p>`:effect.evStat?`<p>${esc(K.STAT_ZH[effect.evStat]||effect.evStat)}努力值 +${effect.evGain}（该项 ${effect.evNow}/${252}，总计 ${effect.evTotal}/510）。</p>`:effect.evolution?.valid?evolutionText:`<p>HP ${effect.hp}/${effect.max}${hpText}</p>${statusText}${effect.friendshipLoss?`<p>亲密度：${Number.isFinite(Number(mon.friendship?.official))?Number(mon.friendship.official):FRIENDSHIP_DEFAULT} → ${Math.max(0,(Number.isFinite(Number(mon.friendship?.official))?Number(mon.friendship.official):FRIENDSHIP_DEFAULT)-effect.friendshipLoss)}（−${effect.friendshipLoss}）</p>`:''}`;
  d.innerHTML=`<div class="care-card"><h3>${effect.equipment?'确认携带':effect.levelUp?'确认升级':effect.evStat?'确认增强':effect.evolution?.valid?'确认进化':`确认${canonicalCareItem(name)==='橙橙果'?'喂食':'使用物品'}`}</h3><div class="care-line">${itemIcon(name)}<b>${esc(name)}</b> → ${spriteImg(mon.species)}<b>${esc(monName(mon))}</b></div>${effectText}<p>${effect.valid?'确认后背包扣除 1 个；取消不消耗。':`当前使用无效：${esc(effect.reason)} 不会扣除物品。`}</p><div class="acts"><button class="ghost" data-care="cancel">取消</button><button class="blue" data-care="confirm" ${effect.valid?'':'disabled'}>${effect.equipment?'确认携带':effect.levelUp?'确认升级':effect.evolution?.valid?'确认进化':'确认使用'}</button></div><small>确认后会同步修改宝可梦与背包存档；无效使用不扣道具。</small></div>`;
  PD.body.append(d);let ignoreTrustedUntil=0;d.addEventListener('pointerup',e=>{if(e.pointerType!=='touch')return;const b=e.target.closest('[data-care]');if(b&&!b.disabled){ignoreTrustedUntil=Date.now()+700;b.click();}});d.addEventListener('click',async e=>{if(e.isTrusted&&Date.now()<ignoreTrustedUntil)return;const act=e.target.closest('[data-care]')?.dataset.care;if(act==='cancel'){pendingCare=null;d.remove();}if(act==='confirm')await applyCare();});
 }
@@ -8759,7 +8789,7 @@ async function applyCare(){
   else if(ef.evStat){if(!isObj(m.stats_meta))m.stats_meta={ivs:{},ev_level:0};if(!isObj(m.stats_meta.evs))m.stats_meta.evs={};const keys=K.STAT_KEYS||['hp','atk','def','spa','spd','spe'];for(const k of keys)if(!Number.isFinite(Number(m.stats_meta.evs[k])))m.stats_meta.evs[k]=0;m.stats_meta.evs[ef.evStat]=Math.max(0,Math.min(252,Math.floor(Number(m.stats_meta.evs[ef.evStat])||0)+ef.evGain));evChange={stat:ef.evStat,gain:ef.evGain,total:ef.evTotal};const oldHp=m.hp,newMax=monStats(m)?.hp||ef.max;m.maxHp=newMax;if(oldHp==null)m.hp=null;else m.hp=Math.max(0,Math.min(newMax,Number(oldHp)||0));}
   else if(ef.evolution?.valid)evolved=applyDirectEvolution(pkm,m,ef.evolution);else{m.hp=ef.nextHp;m.maxHp=ef.max;if(ef.cured)m.status=null;}
   if(ef.curedConfusion){m.confused=false;m.confusion=false;}
-  if(ef.friendshipLoss){if(!isObj(m.friendship))m.friendship={official:FRIENDSHIP_DEFAULT};const raw=Number(m.friendship.official),current=Number.isFinite(raw)?Math.max(0,Math.min(255,raw)):70;const next=Math.max(0,current-ef.friendshipLoss);m.friendship.official=next;friendshipChange=current-next;}
+  if(ef.friendshipLoss){if(!isObj(m.friendship))m.friendship={official:FRIENDSHIP_DEFAULT};const raw=Number(m.friendship.official),current=Number.isFinite(raw)?Math.max(0,Math.min(255,raw)):FRIENDSHIP_DEFAULT;const next=Math.max(0,current-ef.friendshipLoss);m.friendship.official=next;friendshipChange=current-next;}
   const count=Number(pkm.player.bag[op.name])||0;if(count<=1)delete pkm.player.bag[op.name];else pkm.player.bag[op.name]=count-1;if(!ef.equipment)setHpRegenBaseline(pkm,m);revived=ef.revive;cured=ef.cured;healed=ef.heal;applied=true;});
  PD.getElementById('pkm-care-confirm')?.remove();if(!applied){toast('目标、状态或物品数量已变化；未使用，也未扣除物品。');return;}
  const el=PD.querySelector('.pkm-follow-unit[data-uid="'+op.id+'"]');el?.__originalMood?.happy(canonicalCareItem(op.name)==='橙橙果'?'feed':'medicine');
