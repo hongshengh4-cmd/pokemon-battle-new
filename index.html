@@ -93,6 +93,7 @@
       <div class="command-heading">
         <div class="command-heading-text"><span class="encounter-tag" id="encounter-tag">训练家对战</span><h3 id="command-title">请选择行动</h3></div>
         <button id="battle-music-toggle" class="music-toggle" type="button" title="等待提供音乐链接" aria-label="播放战斗音乐" disabled>♫</button>
+        <label class="music-volume-control" title="BGM最高为原音轨38%音量，默认50%；宝可梦/精灵球音效出现时再自动降低"><span>BGM</span><input id="battle-music-volume" type="range" min="0" max="100" step="5" value="50" aria-label="战斗背景音乐音量"><b id="battle-music-volume-value">50%</b></label>
         <button id="command-back" class="command-back" type="button" hidden>‹ 返回</button>
       </div>
       <div id="command-home" class="command-home">
@@ -182,6 +183,6 @@
 <script src="./src/ui/sprite-sizing.js?v=1.3.31"></script>
 <script src="./src/ui/move-info.js?v=1.3.31"></script>
 <script src="./src/ui/field-fx.js?v=1.3.31"></script>
-<script type="module" src="./src/ui/app.js?v=20261106-music-cache-bust"></script>
+<script type="module" src="./src/ui/app.js?v=20261106-audio-duck-johto"></script>
 </body>
 </html>

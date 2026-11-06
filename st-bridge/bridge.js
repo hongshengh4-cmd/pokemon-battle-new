@@ -362,7 +362,7 @@ let cryManifestKnown = false, cryManifestCount = null;
 function loadCryManifest() {
   cryTakes = {}; cryManifestKnown = false; cryManifestCount = null;
   const base = CRY_BASE;
-  fetch(base + 'manifest.json?v=' + VERSION).then(r => (r.ok ? r.json() : null)).then(j => {
+  fetch(base + 'manifest.json?v=' + encodeURIComponent(VERSION + '-johto-20261106')).then(r => (r.ok ? r.json() : null)).then(j => {
     if (base !== CRY_BASE || !j || typeof j !== 'object') return;
     if (j.takes && typeof j.takes === 'object') cryTakes = j.takes;
     const count = j.count == null ? NaN : Number(j.count);
@@ -384,7 +384,7 @@ function probeCry(id) {
   if (cryHave.has(id)) return Promise.resolve(true);
   if (cryMiss.has(id)) return Promise.resolve(false);
   if (cryProbe.has(id)) return cryProbe.get(id);
-  const base = CRY_BASE, url = `${base}${id}.mp3`;
+  const base = CRY_BASE, url = cryCacheBust(`${base}${id}.mp3`);
   const pr = new Promise(resolve => {
     let a; try { a = new P.Audio(); } catch (_) { cryProbe.delete(id); resolve(false); return; }
     const finish = ok => {
@@ -400,12 +400,13 @@ function probeCry(id) {
   cryProbe.set(id, pr);
   return pr;
 }
+function cryCacheBust(url) { return `${url}${url.includes('?') ? '&' : '?'}v=${encodeURIComponent(VERSION + '-johto-20261106')}`; }
 function cryUrl(id) {
   const n = Math.max(1, Math.min(32, Math.floor(Number(cryTakes[id])) || 1));
   let k = 1 + Math.floor(Math.random() * n);
   if (n > 1 && k === cryLast[id]) k = k % n + 1;
   cryLast[id] = k;
-  return `${CRY_BASE}${id}${k > 1 ? '_' + k : ''}.mp3`;
+  return cryCacheBust(`${CRY_BASE}${id}${k > 1 ? '_' + k : ''}.mp3`);
 }
 /* ---------- 语音合成（动漫配音没有录音时的替代：用浏览器的中文语音喊名字） ---------- */
 const synth = () => { try { return P.speechSynthesis || null; } catch (_) { return null; } };
@@ -433,7 +434,7 @@ function speakCry(s, line, vol) {
   try {
     const sy = synth(); sy.cancel();
     const u = new P.SpeechSynthesisUtterance(text), tone = ttsTone(heightOf(name));
-    u.voice = ttsVoice; u.lang = ttsVoice.lang || 'zh-CN'; u.pitch = tone.pitch; u.rate = tone.rate; u.volume = Math.max(0, Math.min(1, vol / 100));
+    u.voice = ttsVoice; u.lang = ttsVoice.lang || 'zh-CN'; u.pitch = tone.pitch; u.rate = tone.rate; u.volume = Math.max(0, Math.min(1, vol / 100)); u.onstart = () => notifyAudioSfx(Math.max(1400, Math.min(4200, text.length * 260)));
     lastUtter = u; sy.speak(u); try { sy.resume?.(); } catch (_) {}
     return true;
   } catch (_) { return false; }
@@ -441,8 +442,23 @@ function speakCry(s, line, vol) {
 /* ---------- 播放 ---------- */
 let lastCry = null;
 function stopCry() { try { lastCry?.pause?.(); } catch (_) {} lastCry = null; try { const sy = synth(); if (sy?.speaking || sy?.pending) sy.cancel(); } catch (_) {} }
+function notifyAudioSfx(duration = 1500) {
+  const ms = Math.max(300, Math.min(6000, Number(duration) || 1500));
+  const message = { type: 'PKM_AUDIO_SFX', duration: ms };
+  try { if (modal?.frame?.contentWindow) postFromHost(modal.frame.contentWindow, message); } catch (_) {}
+  try {
+    for (const chatFrame of P.document.querySelectorAll('#chat iframe')) {
+      try { chatFrame.contentWindow?.postMessage(message, '*'); } catch (_) {}
+      try { chatFrame.contentDocument?.querySelectorAll('iframe').forEach(frame => frame.contentWindow?.postMessage(message, '*')); } catch (_) {}
+    }
+  } catch (_) {}
+}
+function notifyAudioSfxOnPlay(audio, duration) {
+  const onPlaying = () => notifyAudioSfx(duration);
+  try { audio.addEventListener('playing', onPlaying, { once: true }); } catch (_) {}
+}
 function playGameCry(id, vol) {
-  try { const a = new P.Audio(`https://play.pokemonshowdown.com/audio/cries/${id}.mp3`); a.volume = Math.min(1, vol / 100 * 0.78); lastCry = a; a.play().catch(() => {}); } catch (_) {}
+  try { const a = new P.Audio(`https://play.pokemonshowdown.com/audio/cries/${id}.mp3`); a.volume = Math.min(1, vol / 100 * 0.78); lastCry = a; notifyAudioSfxOnPlay(a, 1600); a.play().catch(() => {}); } catch (_) {}
 }
 function playCustomCry(id, vol, onMiss) {
   const url = cryUrl(id);
@@ -450,11 +466,12 @@ function playCustomCry(id, vol, onMiss) {
   if (!a) { a = new P.Audio(); a.preload = 'auto'; a.src = url; cryEls.set(url, a); }
   if (!a._pkHooked) { a._pkHooked = true; a.addEventListener('error', () => a._pkFail?.()); }
   a.volume = Math.max(0, Math.min(1, vol / 100));
+  notifyAudioSfxOnPlay(a, 1900);
   try { a.currentTime = 0; } catch (_) {}
   let failed = false;
   a._pkFail = () => {
     if (failed) return; failed = true; cryEls.delete(url);
-    const primary = url === `${CRY_BASE}${id}.mp3`;
+    const primary = url === cryCacheBust(`${CRY_BASE}${id}.mp3`);
     if (primary) { cryMiss.add(id); cryHave.delete(id); } else cryTakes[id] = 1; // 文件不存在：记住，下次直接走替代方案
     if (lastCry !== a) return;                                        // 已经被新的叫声顶替了
     if (primary) onMiss?.(); else playCustomCry(id, vol, onMiss);    // 备选版本缺失 → 退回第一个版本
@@ -6854,7 +6871,7 @@ function playBallSfx(name) {
     let audio = ballSfxNodes[name];
     if (!audio) { audio = new P.Audio(src); audio.preload = 'auto'; ballSfxNodes[name] = audio; }
     audio.pause(); audio.currentTime = 0; audio.volume = 0.52;
-    const playing = audio.play(); if (playing?.catch) playing.catch(() => {});
+    const playing = audio.play(); if (playing?.then) playing.then(() => notifyAudioSfx(850)).catch(() => {}); else notifyAudioSfx(850);
   } catch (_) {}
 }
 function playBallAnimation(opening) {
@@ -7856,7 +7873,7 @@ function launchBattle(m, pick) {
   const frame = PD.createElement('iframe');
   frame.setAttribute('allow', 'autoplay; fullscreen'); frame.setAttribute('allowfullscreen', ''); frame.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
   frame.style.background = '#070a14';
-  frame.src = `${BASE}index.html?embed=1&v=${encodeURIComponent(VERSION)}&ui=20261105-battle-music-playlist`;
+  frame.src = `${BASE}index.html?embed=1&v=${encodeURIComponent(VERSION)}&ui=20261106-audio-duck-johto`;
   stage.replaceWith(frame);
   m.frame = frame;
   setBar(m.cfg.lines?.start ? '「' + m.cfg.lines.start + '」' : '正在连接对战系统……');

@@ -15,7 +15,55 @@ installSpriteRecovery(document);
     { name: '宝可梦无印战斗 BGM-7', url: 'https://archive.org/download/BGM-5/%E5%AE%9D%E5%8F%AF%E6%A2%A6%E6%97%A0%E5%8D%B0%E6%88%98%E6%96%97BGM-7.mp3' },
     { name: '宝可梦无印战斗 BGM', url: 'https://archive.org/download/BGM-5/%E5%AE%9D%E5%8F%AF%E6%A2%A6%E6%97%A0%E5%8D%B0%E6%88%98%E6%96%97BGM.mp3' },
   ];
+  const BATTLE_BGM_VOLUME_KEY = 'pkmKantoBattleBgmVolume';
+  const BATTLE_BGM_MAX_GAIN = 0.38;
+  const readBattleBgmVolume = () => { try { const n = Number(localStorage.getItem(BATTLE_BGM_VOLUME_KEY)); return localStorage.getItem(BATTLE_BGM_VOLUME_KEY) == null || !Number.isFinite(n) ? 50 : Math.max(0, Math.min(100, n)); } catch (_) { return 50; } };
+  let battleMusicLevel = readBattleBgmVolume() / 100, battleMusicVolume = battleMusicLevel * BATTLE_BGM_MAX_GAIN, battleMusicDuckUntil = 0, battleMusicRamp = 0, battleMusicDuckTimer = 0;
   let battleMusicAudio = null, battleMusicPlaying = false, battleMusicTrack = null, battleMusicQueue = [], battleMusicLast = '';
+  function rampBattleMusicVolume(target, duration = 130) {
+    if (!battleMusicAudio) return;
+    clearInterval(battleMusicRamp);
+    const from = Number.isFinite(battleMusicAudio.volume) ? battleMusicAudio.volume : target;
+    const started = performance.now();
+    const tick = () => {
+      if (!battleMusicAudio) return;
+      const t = Math.min(1, (performance.now() - started) / duration);
+      battleMusicAudio.volume = from + (target - from) * t;
+      if (t >= 1) { clearInterval(battleMusicRamp); battleMusicRamp = 0; }
+    };
+    tick(); battleMusicRamp = setInterval(tick, 30);
+  }
+  function applyBattleMusicVolume(duration = 130) {
+    const duck = Date.now() < battleMusicDuckUntil ? 0.06 : 1;
+    rampBattleMusicVolume(battleMusicVolume * duck, duration);
+  }
+  function duckBattleMusic(ms = 1500) {
+    battleMusicDuckUntil = Math.max(battleMusicDuckUntil, Date.now() + Math.max(300, Math.min(6000, Number(ms) || 1500)));
+    applyBattleMusicVolume(90);
+    clearTimeout(battleMusicDuckTimer);
+    battleMusicDuckTimer = setTimeout(() => {
+      if (Date.now() >= battleMusicDuckUntil) applyBattleMusicVolume(420);
+      else duckBattleMusic(battleMusicDuckUntil - Date.now());
+    }, Math.max(300, battleMusicDuckUntil - Date.now() + 20));
+  }
+  function setupBattleMusicVolume() {
+    const slider = $('battle-music-volume'), readout = $('battle-music-volume-value');
+    if (!slider) return;
+    slider.value = String(Math.round(battleMusicLevel * 100));
+    if (readout) readout.textContent = `${slider.value}%`;
+    slider.addEventListener('input', () => {
+      const n = Math.max(0, Math.min(100, Number(slider.value) || 0));
+      battleMusicLevel = n / 100; battleMusicVolume = battleMusicLevel * BATTLE_BGM_MAX_GAIN;
+      try { localStorage.setItem(BATTLE_BGM_VOLUME_KEY, String(n)); } catch (_) {}
+      if (readout) readout.textContent = `${n}%`;
+      applyBattleMusicVolume(80);
+    });
+  }
+  setupBattleMusicVolume();
+  window.addEventListener('message', event => {
+    if (event.source !== window.parent || event.data?.type !== 'PKM_AUDIO_SFX') return;
+    duckBattleMusic(event.data.duration);
+  });
   function shuffleBattleMusic() {
     const queue = [...BATTLE_MUSIC_TRACKS];
     for (let i = queue.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [queue[i], queue[j]] = [queue[j], queue[i]]; }
@@ -26,7 +74,7 @@ installSpriteRecovery(document);
     if (!battleMusicQueue.length) battleMusicQueue = shuffleBattleMusic();
     const track = battleMusicQueue.shift(), button = $('battle-music-toggle');
     if (!track || !battleMusicAudio) return;
-    battleMusicTrack = track; battleMusicLast = track.name; battleMusicAudio.src = track.url; battleMusicAudio.load();
+    battleMusicTrack = track; battleMusicLast = track.name; battleMusicAudio.src = track.url; battleMusicAudio.volume = battleMusicVolume * (Date.now() < battleMusicDuckUntil ? 0.06 : 1); battleMusicAudio.load();
     try {
       await battleMusicAudio.play(); battleMusicPlaying = true;
       button.textContent = '♫'; button.classList.add('is-playing');
@@ -54,7 +102,7 @@ installSpriteRecovery(document);
     if (!button) return;
     button.disabled = true; button.title = '进入战斗后随机播放七首战斗 BGM';
     button.setAttribute('aria-label', '进入战斗后随机播放战斗音乐');
-    battleMusicAudio = new Audio(); battleMusicAudio.preload = 'none';
+    battleMusicAudio = new Audio(); battleMusicAudio.preload = 'none'; battleMusicAudio.volume = battleMusicVolume;
     battleMusicAudio.addEventListener('ended', () => { if (battleMusicPlaying) void playNextBattleMusic(); });
     battleMusicAudio.addEventListener('error', () => { battleMusicPlaying = false; button.textContent = '♪'; button.classList.remove('is-playing'); button.title = '战斗音乐载入失败，请点击重试'; });
     button.onclick = async () => {
@@ -73,7 +121,7 @@ installSpriteRecovery(document);
   const EMBED = new URLSearchParams(location.search).has('embed');
   if (EMBED) document.documentElement.classList.add('embed');
   let dataReady = false, pendingHostConfig = null, hostTag = null, hostMode = false;
-  const APP_VERSION = '1.3.45-battle-music-playlist';
+  const APP_VERSION = '1.3.45-audio-duck-johto';
   let formatTag = '', formatRule = ''; // v1.3.8：角色卡发来的赛制（例：3v3、3只 vs 1只），显示在行动菜单的标签上
   let typeLabel = ''; // v1.3.9：角色卡发来的对战类型（道馆战 / 训练家对战 / 劲敌对战 / 火箭队……），标签第一段
   // 宿主模式：球袋来自角色卡变量（MVU），只存在本页内存里，不读写本机存档。
