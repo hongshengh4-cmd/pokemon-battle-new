@@ -1,5 +1,5 @@
 import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.js?v=1.3.31';
-// External status runtime 20261106-bag-drag-evolution-parallel-audio-v3; original card UI retained.
+// External status runtime 20261106-bag-drag-evolution-parallel-audio-v4; original card UI retained.
 // v1.3.17 + v1.2.1 状态栏：只读 UI，独立命名空间，保留现有外置桥接。
 (function () {
  'use strict';
