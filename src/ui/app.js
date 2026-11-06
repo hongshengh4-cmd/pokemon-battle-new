@@ -18,7 +18,7 @@ installSpriteRecovery(document);
   const BATTLE_BGM_VOLUME_KEY = 'pkmKantoBattleBgmVolume';
   const BATTLE_BGM_MAX_GAIN = 0.38;
   const readBattleBgmVolume = () => { try { const n = Number(localStorage.getItem(BATTLE_BGM_VOLUME_KEY)); return localStorage.getItem(BATTLE_BGM_VOLUME_KEY) == null || !Number.isFinite(n) ? 50 : Math.max(0, Math.min(100, n)); } catch (_) { return 50; } };
-  let battleMusicLevel = readBattleBgmVolume() / 100, battleMusicVolume = battleMusicLevel * BATTLE_BGM_MAX_GAIN, battleMusicDuckUntil = 0, battleMusicRamp = 0, battleMusicDuckTimer = 0;
+  let battleMusicLevel = readBattleBgmVolume() / 100, battleMusicVolume = battleMusicLevel * BATTLE_BGM_MAX_GAIN, battleMusicRamp = 0;
   let battleMusicAudio = null, battleMusicPlaying = false, battleMusicTrack = null, battleMusicQueue = [], battleMusicLast = '';
   function rampBattleMusicVolume(target, duration = 130) {
     if (!battleMusicAudio) return;
@@ -34,17 +34,7 @@ installSpriteRecovery(document);
     tick(); battleMusicRamp = setInterval(tick, 30);
   }
   function applyBattleMusicVolume(duration = 130) {
-    const duck = Date.now() < battleMusicDuckUntil ? 0.06 : 1;
-    rampBattleMusicVolume(battleMusicVolume * duck, duration);
-  }
-  function duckBattleMusic(ms = 1500) {
-    battleMusicDuckUntil = Math.max(battleMusicDuckUntil, Date.now() + Math.max(300, Math.min(6000, Number(ms) || 1500)));
-    applyBattleMusicVolume(90);
-    clearTimeout(battleMusicDuckTimer);
-    battleMusicDuckTimer = setTimeout(() => {
-      if (Date.now() >= battleMusicDuckUntil) applyBattleMusicVolume(420);
-      else duckBattleMusic(battleMusicDuckUntil - Date.now());
-    }, Math.max(300, battleMusicDuckUntil - Date.now() + 20));
+    rampBattleMusicVolume(battleMusicVolume, duration);
   }
   function setupBattleMusicVolume() {
     const slider = $('battle-music-volume'), readout = $('battle-music-volume-value');
@@ -60,10 +50,6 @@ installSpriteRecovery(document);
     });
   }
   setupBattleMusicVolume();
-  window.addEventListener('message', event => {
-    if (event.source !== window.parent || event.data?.type !== 'PKM_AUDIO_SFX') return;
-    duckBattleMusic(event.data.duration);
-  });
   function shuffleBattleMusic() {
     const queue = [...BATTLE_MUSIC_TRACKS];
     for (let i = queue.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [queue[i], queue[j]] = [queue[j], queue[i]]; }
@@ -74,7 +60,7 @@ installSpriteRecovery(document);
     if (!battleMusicQueue.length) battleMusicQueue = shuffleBattleMusic();
     const track = battleMusicQueue.shift(), button = $('battle-music-toggle');
     if (!track || !battleMusicAudio) return;
-    battleMusicTrack = track; battleMusicLast = track.name; battleMusicAudio.src = track.url; battleMusicAudio.volume = battleMusicVolume * (Date.now() < battleMusicDuckUntil ? 0.06 : 1); battleMusicAudio.load();
+    battleMusicTrack = track; battleMusicLast = track.name; battleMusicAudio.src = track.url; battleMusicAudio.volume = battleMusicVolume; battleMusicAudio.load();
     try {
       await battleMusicAudio.play(); battleMusicPlaying = true;
       button.textContent = '♫'; button.classList.add('is-playing');

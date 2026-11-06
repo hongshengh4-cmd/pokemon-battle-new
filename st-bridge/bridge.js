@@ -2506,7 +2506,7 @@ function dexDex(pkm) {
 function dexBag(pkm) {
   const items = Object.entries(pkm.player.bag).filter(([, n]) => Number(n) > 0);
   return `<div class="st-grid"><div><b>金钱</b>${esc(pkm.player.money)} 元</div><div><b>道具</b>${items.length} 种</div></div>
-    ${items.length ? `<div class="bag-list">${items.map(([k, n]) => `<button type="button" class="bag-item" data-use-item="${esc(k)}" title="点击查看使用方式">${itemIcon(k)}<span>${esc(k)}</span><b>×${esc(n)}</b></button>`).join('')}</div>` : '<div class="empty">背包空空的。</div>'}`;
+    ${items.length ? `<div class="bag-list">${items.map(([k, n]) => `<button type="button" class="bag-item" data-use-item="${esc(k)}" title="点击确认使用；喷雾可拖到地图空处，宝可梦道具可长按后拖到伙伴身上">${itemIcon(k)}<span>${esc(k)}</span><b>×${esc(n)}</b></button>`).join('')}</div>` : '<div class="empty">背包空空的。</div>'}`;
 }
 function dexLove(pkm, st, m) {
   let list = Object.entries(pkm.npcs.records).filter(([, r]) => isObj(r) && r.met === true);
@@ -2712,7 +2712,7 @@ function runAmbientCry(){
 }
 function startAmbientCries(){if(ambientCryTimer)return;scheduleAmbientCry(18000+Math.random()*12000);cleanups.push(()=>{if(ambientCryTimer)P.clearTimeout(ambientCryTimer);ambientCryTimer=0;});}
 function onDexClick(m, e) {
-  const useItem=e.target.closest('[data-use-item]');if(useItem){showItemUseMenu(useItem.dataset.useItem,m);return;}
+  const useItem=e.target.closest('[data-use-item]');if(useItem){if(useItem.dataset.pkmDragged){delete useItem.dataset.pkmDragged;e.preventDefault();e.stopPropagation();return;}showItemUseMenu(useItem.dataset.useItem,m);return;}
   const row=e.target.closest('[data-wild-cry]');if(row&&!e.target.closest('button')){wildCryAt(m,row.dataset.wildCry);return;}
   const t = e.target.closest('button'); if (!t) return;
   if(t.dataset.centerHeal){healAtCenter().catch(e=>toast(e.message,'warning'));return;}
@@ -7882,7 +7882,7 @@ function launchBattle(m, pick) {
   const frame = PD.createElement('iframe');
   frame.setAttribute('allow', 'autoplay; fullscreen'); frame.setAttribute('allowfullscreen', ''); frame.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
   frame.style.background = '#070a14';
-  frame.src = `${BASE}index.html?embed=1&v=${encodeURIComponent(VERSION)}&ui=20261106-audio-duck-johto`;
+  frame.src = `${BASE}index.html?embed=1&v=${encodeURIComponent(VERSION)}&ui=20261106-bag-drag-evolution-parallel-audio-v1`;
   stage.replaceWith(frame);
   m.frame = frame;
   setBar(m.cfg.lines?.start ? '「' + m.cfg.lines.start + '」' : '正在连接对战系统……');
@@ -8736,7 +8736,16 @@ function installFollowerGesture(el){
 const DIRECT_ITEM_EVOLUTIONS={"pikachu":[{"to":"raichu","item":"雷之石","conditions":{"gender":"在其他地区或{{tt|[[究極空間]]|僅限於究極之日或究極之月}}","evostone":"雷之石"}},{"to":"raichualola","item":"雷之石","conditions":{"gender":"在[[阿罗拉地区]]","evostone":"雷之石"}}],"sandshrewalola":[{"to":"sandslashalola","item":"冰之石","conditions":{"form":"阿罗拉","item":"冰之石"}}],"nidorina":[{"to":"nidoqueen","item":"月之石","conditions":{"evostone":"月之石"}}],"nidorino":[{"to":"nidoking","item":"月之石","conditions":{"evostone":"月之石"}}],"clefairy":[{"to":"clefable","item":"月之石","conditions":{"evostone":"月之石"}}],"gloom":[{"to":"vileplume","item":"叶之石","conditions":{"evostone":"叶之石"}},{"to":"bellossom","item":"日之石","conditions":{"evostone":"日之石"}}],"vulpix":[{"to":"ninetales","item":"火之石","conditions":{"item":"火之石"}}],"vulpixalola":[{"to":"ninetalesalola","item":"冰之石","conditions":{"form":"阿罗拉","item":"冰之石"}}],"jigglypuff":[{"to":"wigglytuff","item":"月之石","conditions":{"evostone":"月之石"}}],"growlithe":[{"to":"arcanine","item":"火之石","conditions":{"evostone":"火之石"}}],"growlithehisui":[{"to":"arcaninehisui","item":"火之石","conditions":{"form":"洗翠","evostone":"火之石"}}],"poliwhirl":[{"to":"poliwrath","item":"水之石","conditions":{"evostone":"水之石"}}],"kadabra":[{"to":"alakazam","item":"联系绳","conditions":{"item":"联系绳"}}],"machoke":[{"to":"machamp","item":"联系绳","conditions":{"item":"联系绳"}}],"weepinbell":[{"to":"victreebel","item":"叶之石","conditions":{"evostone":"叶之石"}}],"graveler":[{"to":"golem","item":"联系绳","conditions":{"item":"联系绳"}}],"slowpokegalar":[{"to":"slowbrogalar","item":"伽勒豆蔻手环","conditions":{"form":"伽勒尔","item":"伽勒豆蔻手环"}},{"to":"slowkinggalar","item":"伽勒豆蔻花圈","conditions":{"form":"伽勒尔","item":"伽勒豆蔻花圈"}}],"magneton":[{"to":"magnezone","item":"雷之石","conditions":{"item":"雷之石","extraa":"[[第八世代]]起"}}],"shellder":[{"to":"cloyster","item":"水之石","conditions":{"evostone":"水之石"}}],"haunter":[{"to":"gengar","item":"联系绳","conditions":{"item":"联系绳"}}],"voltorbhisui":[{"to":"electrodehisui","item":"叶之石","conditions":{"form":"洗翠","item":"叶之石"}}],"exeggcute":[{"to":"exeggutor","item":"叶之石","conditions":{"gender":"在其他地区或{{tt|[[究極空間]]|僅限於究極之日或究極之月}}","evostone":"叶之石"}},{"to":"exeggutoralola","item":"叶之石","conditions":{"gender":"在[[阿罗拉地区]]","evostone":"叶之石"}}],"staryu":[{"to":"starmie","item":"水之石","conditions":{"evostone":"水之石"}}],"scyther":[{"to":"kleavor","item":"黑奇石","conditions":{"item":"黑奇石"}}],"eevee":[{"to":"vaporeon","item":"水之石","conditions":{"evostone":"水之石"}},{"to":"jolteon","item":"雷之石","conditions":{"evostone":"雷之石"}},{"to":"flareon","item":"火之石","conditions":{"evostone":"火之石"}},{"to":"leafeon","item":"叶之石","conditions":{"item":"叶之石","extraa":"[[第八世代]]起"}},{"to":"glaceon","item":"冰之石","conditions":{"item":"冰之石","extraa":"[[第八世代]]起"}},{"to":"vaporeon","item":"水之石","conditions":{"item":"水之石"}},{"to":"jolteon","item":"雷之石","conditions":{"item":"雷之石"}},{"to":"flareon","item":"火之石","conditions":{"item":"火之石"}},{"to":"leafeon","item":"叶之石","conditions":{"item":"叶之石","generation":"第八世代起"}},{"to":"glaceon","item":"冰之石","conditions":{"item":"冰之石","generation":"第八世代起"}}],"togetic":[{"to":"togekiss","item":"光之石","conditions":{"evostone":"光之石"}}],"sunkern":[{"to":"sunflora","item":"日之石","conditions":{"evostone":"日之石"}}],"murkrow":[{"to":"honchkrow","item":"暗之石","conditions":{"evostone":"暗之石"}}],"misdreavus":[{"to":"mismagius","item":"暗之石","conditions":{"evostone":"暗之石"}}],"lombre":[{"to":"ludicolo","item":"水之石","conditions":{"evostone":"水之石"}}],"nuzleaf":[{"to":"shiftry","item":"叶之石","conditions":{"evostone":"叶之石"}}],"kirlia":[{"to":"gallade","item":"觉醒之石","conditions":{"gender":"M","evostone":"觉醒之石"}}],"nosepass":[{"to":"probopass","item":"雷之石","conditions":{"item":"雷之石","extraa":"{{Game4|LA}}起"}}],"skitty":[{"to":"delcatty","item":"月之石","conditions":{"evostone":"月之石"}}],"roselia":[{"to":"roserade","item":"光之石","conditions":{"evostone":"光之石"}}],"snorunt":[{"to":"froslass","item":"觉醒之石","conditions":{"gender":"F","evostone":"觉醒之石"}}],"pansage":[{"to":"simisage","item":"叶之石","conditions":{"evostone":"叶之石"}}],"pansear":[{"to":"simisear","item":"火之石","conditions":{"evostone":"火之石"}}],"panpour":[{"to":"simipour","item":"水之石","conditions":{"evostone":"水之石"}}],"munna":[{"to":"musharna","item":"月之石","conditions":{"evostone":"月之石"}}],"cottonee":[{"to":"whimsicott","item":"日之石","conditions":{"evostone":"日之石"}}],"petilil":[{"to":"lilligant","item":"日之石","conditions":{"evostone":"日之石","extraa":"在其他地区"}},{"to":"lilliganthisui","item":"日之石","conditions":{"evostone":"日之石","extraa":"在[[洗翠地区]]"}}],"darumakagalar":[{"to":"darmanitangalar","item":"冰之石","conditions":{"form":"伽勒尔","item":"冰之石"}}],"minccino":[{"to":"cinccino","item":"光之石","conditions":{"evostone":"光之石"}}],"eelektrik":[{"to":"eelektross","item":"雷之石","conditions":{"evostone":"雷之石"}}],"lampent":[{"to":"chandelure","item":"暗之石","conditions":{"evostone":"暗之石"}}],"floette":[{"to":"florges","item":"光之石","conditions":{"evostone":"光之石"}}],"doublade":[{"to":"aegislash","item":"暗之石","conditions":{"evostone":"暗之石"}}],"helioptile":[{"to":"heliolisk","item":"日之石","conditions":{"evostone":"日之石"}}],"charjabug":[{"to":"vikavolt","item":"雷之石","conditions":{"item":"雷之石","extraa":"[[第八世代]]起"}}],"crabrawler":[{"to":"crabominable","item":"冰之石","conditions":{"item":"冰之石","extraa":"[[第九世代]]起"}}],"applin":[{"to":"flapple","item":"酸酸苹果","conditions":{"evostone":"酸酸苹果"}},{"to":"appletun","item":"甜甜苹果","conditions":{"evostone":"甜甜苹果"}},{"to":"dipplin","item":"蜜汁苹果","conditions":{"evostone":"蜜汁苹果"}},{"to":"flapple","item":"酸酸苹果","conditions":{"item":"酸酸苹果"}},{"to":"appletun","item":"甜甜苹果","conditions":{"item":"甜甜苹果"}},{"to":"dipplin","item":"蜜汁苹果","conditions":{"item":"蜜汁苹果"}}],"duraludon":[{"to":"archaludon","item":"复合金属","conditions":{"item":"复合金属"}}],"kubfu":[{"to":"urshifu","item":"水之挂轴","conditions":{"item":"水之挂轴"}}],"charcadet":[{"to":"ceruledge","item":"咒术之铠","conditions":{"item":"咒术之铠"}},{"to":"armarouge","item":"庆祝之铠","conditions":{"item":"庆祝之铠"}}],"tadbulb":[{"to":"bellibolt","item":"雷之石","conditions":{"item":"雷之石"}}],"capsakid":[{"to":"scovillain","item":"火之石","conditions":{"item":"火之石"}}],"cetoddle":[{"to":"cetitan","item":"冰之石","conditions":{"item":"冰之石"}}]};
 const CARE_ALIAS={
  '解毒剂':'解毒药','解麻痹药':'解麻药','解烧伤药':'灼伤药','烧伤药':'灼伤药','全回复药':'全复药','全回复':'全复药','全治疗药':'万灵药','万能药':'万灵药','元气药':'活力块','元气碎片':'活力碎片',
+ '王者之征':'王者之证','王者之證':'王者之证','kingsrock':'王者之证','kings-rock':'王者之证','king-s-rock':'王者之证',
  'rare-candy':'神奇糖果','potion':'伤药','super-potion':'好伤药','hyper-potion':'厉害伤药','max-potion':'全满药','full-restore':'全复药','antidote':'解毒药','paralyze-heal':'解麻药','burn-heal':'灼伤药','ice-heal':'解冻药','awakening':'解眠药','full-heal':'万灵药','revive':'活力碎片','max-revive':'活力块','fresh-water':'美味之水','soda-pop':'劲爽汽水','lemonade':'果汁牛奶','moomoo-milk':'哞哞鲜奶','energy-powder':'元气粉','energy-root':'元气根','revival-herb':'复活草','berry-juice':'树果汁','sweet-heart':'心形甜点','pecha-berry':'桃桃果','cheri-berry':'樱子果','rawst-berry':'莓莓果','aspear-berry':'利木果','chesto-berry':'零余果','lum-berry':'木子果','heal-powder':'万能粉','lava-cookie':'釜炎仙贝','old-gateau':'森之羊羹','rage-candy-bar':'愤怒馒头','casteliacone':'飞云冰淇淋','lumiose-galette':'密阿雷格雷派饼','shalour-sable':'娑罗沙布蕾','big-malasada':'大马拉萨达','hp-up':'HP增强剂','ＨＰ增强剂':'HP增强剂','protein':'攻击增强剂','iron':'防御增强剂','calcium':'特攻增强剂','zinc':'特防增强剂','carbos':'速度增强剂'
+};
+const SPECIAL_ITEM_EVOLUTIONS={
+ poliwhirl:[{to:'politoed',item:'王者之证',conditions:{item:'王者之证'}}],
+ slowpoke:[{to:'slowking',item:'王者之证',conditions:{item:'王者之证'}}],
+ onix:[{to:'steelix',item:'金属膜',conditions:{item:'金属膜'}}],
+ scyther:[{to:'scizor',item:'金属膜',conditions:{item:'金属膜'}}],
+ seadra:[{to:'kingdra',item:'龙之鳞片',conditions:{item:'龙之鳞片'}}],
+ porygon:[{to:'porygon2',item:'升级数据',conditions:{item:'升级数据'}}]
 };
 const CARE_HP={伤药:20,好伤药:60,厉害伤药:120,橙橙果:10,美味之水:30,劲爽汽水:50,果汁牛奶:70,哞哞鲜奶:100,元气粉:60,元气根:120,树果汁:20,心形甜点:20};
 const CARE_STATUS={解毒药:'poison',解麻药:'paralysis',灼伤药:'burn',解冻药:'freeze',解眠药:'sleep',桃桃果:'poison',樱子果:'paralysis',莓莓果:'burn',利木果:'freeze',零余果:'sleep'};
@@ -8749,11 +8758,13 @@ function careFriendshipLoss(mon,item){if(!CARE_FRIENDSHIP_PENALTY.has(item))retu
 const CARE_REVIVE_HALF=new Set(['活力碎片']);
 const CARE_REVIVE_FULL=new Set(['活力块','复活草']);
 function canonicalCareItem(name){const raw=String(name??'').trim();return Object.prototype.hasOwnProperty.call(CARE_ALIAS,raw)?CARE_ALIAS[raw]:raw;}
+function allItemEvolutionEdges(){return [...Object.values(DIRECT_ITEM_EVOLUTIONS),...Object.values(SPECIAL_ITEM_EVOLUTIONS)].flat();}
+function hasItemEvolution(name){const item=canonicalCareItem(name);return allItemEvolutionEdges().some(e=>e.item===item);}
 function isCareItem(name){const n=canonicalCareItem(name);return Object.hasOwn(CARE_HP,n)||Object.hasOwn(CARE_STATUS,n)||CARE_ALL_STATUS.has(n)||CARE_FULL_HP.has(n)||CARE_REVIVE_HALF.has(n)||CARE_REVIVE_FULL.has(n)||Object.hasOwn(CARE_VITAMINS,n);}
-function isDirectUseItem(name){return isCareItem(name)||canonicalCareItem(name)==='神奇糖果'||Object.values(DIRECT_ITEM_EVOLUTIONS).some(edges=>edges.some(e=>e.item===canonicalCareItem(name)));}
+function isDirectUseItem(name){return isCareItem(name)||canonicalCareItem(name)==='神奇糖果'||hasItemEvolution(name);}
 function careStatusKey(value){const s=String(value??'').trim().toLowerCase();if(!s)return'';if(/濒死|倒下|失去战斗能力|faint/.test(s))return'faint';if(/中毒|剧毒|poison|toxic/.test(s))return'poison';if(/麻痹|瘫痪|paraly/.test(s))return'paralysis';if(/灼伤|烧伤|烫伤|burn/.test(s))return'burn';if(/冰冻|冻结|冻伤|freeze|frozen/.test(s))return'freeze';if(/睡眠|睡着|沉睡|sleep/.test(s))return'sleep';return'';}
 function directItemEvolutionInfo(name,mon,pkm){
- const item=canonicalCareItem(name),id=speciesId(mon?.species||mon?.name),edges=(DIRECT_ITEM_EVOLUTIONS[id]||[]).filter(e=>e.item===item);
+ const item=canonicalCareItem(name),id=speciesId(mon?.species||mon?.name),edges=[...(DIRECT_ITEM_EVOLUTIONS[id]||[]),...(SPECIAL_ITEM_EVOLUTIONS[id]||[])].filter(e=>e.item===item);
  if(!edges.length)return null;
  if(/不变之石|everstone/i.test(String(mon.item||'')))return{valid:false,reason:'目标携带不变之石，无法进化。'};
  const level=Math.max(1,Number(mon.lv)||1),eligible=[...new Map(edges.filter(e=>levelEvolutionEligible(pkm,mon,{level:1,conditions:e.conditions||{}},level)).map(e=>[e.to,e])).values()];
@@ -8784,10 +8795,10 @@ function careInfo(name,mon,pkm){
  else if(evolution&&!valid)reason=evolution.reason;
  return{hp,max,heal:healed,nextHp,nextStatus,revive,cured,curedConfusion,friendshipLoss:careFriendshipLoss(mon,n),valid,reason,status:mon.status??null,item:n,evolution};
 }
-function showCare(name,id){
+function showCare(name,id,options={}){
  if(PD.getElementById('pkm-kanto-modal')){toast('对战中请在对战窗口使用道具，避免与战斗结算冲突。');return;}
- const pkm=readPkm(),mon=pkm.party.slots.find(m=>m.uid===id),equipId=heldItemId(name);if(!mon||!isFollowing(pkm,id)||(!isDirectUseItem(name)&&!equipId)||!(Number(pkm.player.bag[name])>0))return;
- const effect=equipId?{valid:heldItemId(mon.item)!==equipId,equipment:true,reason:heldItemId(mon.item)===equipId?'目标已经携带该道具。':'装备携带道具'}:careInfo(name,mon,pkm);pendingCare={name,id,equipId};PD.getElementById('pkm-care-confirm')?.remove();const d=PD.createElement('div');d.id='pkm-care-confirm';d.className='pkb';
+ const pkm=readPkm(),mon=pkm.party.slots.find(m=>m.uid===id),evolutionItem=hasItemEvolution(name),evolutionUse=evolutionItem&&(!heldItemId(name)||options.dragged===true),equipId=evolutionUse?'':heldItemId(name);if(!mon||!isFollowing(pkm,id)||(!isDirectUseItem(name)&&!equipId)||!(Number(pkm.player.bag[name])>0))return;
+ const effect=equipId?{valid:heldItemId(mon.item)!==equipId,equipment:true,reason:heldItemId(mon.item)===equipId?'目标已经携带该道具。':'装备携带道具'}:careInfo(name,mon,pkm);pendingCare={name,id,equipId,evolutionUse};PD.getElementById('pkm-care-confirm')?.remove();const d=PD.createElement('div');d.id='pkm-care-confirm';d.className='pkb';
  const hpText=effect.valid&&effect.nextHp!==effect.hp?` → ${effect.nextHp}/${effect.max}（+${effect.heal}）`:'';
  const statusText=effect.valid&&effect.cured?`<p>状态：${esc(String(effect.status||'濒死'))} → 无异常</p>`:'';
  const evolutionText=effect.evolution?.valid?`<p>进化：${esc(monName(mon))} → <b>${esc(effect.evolution.target)}</b></p>`:'';
@@ -8809,7 +8820,7 @@ async function applyCare(){
  const op=pendingCare;if(!op)return;pendingCare=null;let applied=false,revived=false,cured=false,healed=0,friendshipChange=0,evChange=null,evolved=null,equipped=null,leveled=null,levelLearned=[],levelPending=[],levelEvolutions=[],levelLearnsetUnavailable=false;
  if(canonicalCareItem(op.name)==='神奇糖果')await LEVEL_UP_LEARNSET_READY;
  await writePkm(pkm=>{applied=false;revived=false;cured=false;healed=0;friendshipChange=0;evChange=null;evolved=null;equipped=null;leveled=null;levelLearned=[];levelPending=[];levelEvolutions=[];levelLearnsetUnavailable=false;const m=pkm.party.slots.find(m=>m.uid===op.id);if(PD.getElementById('pkm-kanto-modal')||!m||!isFollowing(pkm,op.id)||(Number(pkm.player.bag[op.name])||0)<1)return;
-  const equipId=op.equipId||heldItemId(op.name);let ef=equipId?{valid:heldItemId(m.item)!==equipId,equipment:true}:careInfo(op.name,m,pkm);if(!ef.valid)return;
+  const equipId=op.evolutionUse?'':(op.equipId||heldItemId(op.name));let ef=equipId?{valid:heldItemId(m.item)!==equipId,equipment:true}:careInfo(op.name,m,pkm);if(!ef.valid)return;
   if(ef.equipment){const oldId=heldItemId(m.item),oldItem=String(m.item||'').trim();if(oldItem){const oldName=oldId?(HELD_ITEM_ZH_BY_ID[oldId]||oldItem):oldItem;giveBagItem(pkm,oldName,1);}if(m.battleGear?.itemName){giveBagItem(pkm,m.battleGear.itemName,1);delete m.battleGear;}m.item=HELD_ITEM_ZH_BY_ID[equipId]||canonicalCareItem(op.name);equipped={to:m.item,from:oldItem};}
   else if(ef.levelUp){const from=Math.max(1,Math.min(100,Math.floor(Number(m.lv)||5))),to=from+1,oldMax=Number(m.maxHp)>0?Number(m.maxHp):(monStats(m)?.hp||1),oldHp=m.hp;m.lv=to;m.exp=experienceThreshold(m,to);const newMax=monStats(m)?.hp||oldMax;m.maxHp=newMax;if(oldHp==null)m.hp=null;else if(oldHp===0||m.status==='濒死')m.hp=0;else m.hp=Math.min(newMax,Number(oldHp)+Math.max(0,newMax-oldMax));const lr=learnLevelMovesAt(m,to);levelLearned=lr.learned;levelPending=lr.pending;levelLearnsetUnavailable=lr.unavailable;const ev=applyLevelEvolutions(pkm,m,from,to,'自由');levelEvolutions=ev.records;for(const side of ev.sideMons){if(pkm.party.slots.some(s=>!hasMon(s))){placeMon(pkm,side);pkm.dex=isObj(pkm.dex)?pkm.dex:{};if(!Array.isArray(pkm.dex.caught))pkm.dex.caught=[];if(!pkm.dex.caught.includes(side.species))pkm.dex.caught.push(side.species);addSeen(pkm,side.species,'自由');}}leveled={from,to};}
   else if(ef.evStat){if(!isObj(m.stats_meta))m.stats_meta={ivs:{},ev_level:0};if(!isObj(m.stats_meta.evs))m.stats_meta.evs={};const keys=K.STAT_KEYS||['hp','atk','def','spa','spd','spe'];for(const k of keys)if(!Number.isFinite(Number(m.stats_meta.evs[k])))m.stats_meta.evs[k]=0;m.stats_meta.evs[ef.evStat]=Math.max(0,Math.min(252,Math.floor(Number(m.stats_meta.evs[ef.evStat])||0)+ef.evGain));evChange={stat:ef.evStat,gain:ef.evGain,total:ef.evTotal};const oldHp=m.hp,newMax=monStats(m)?.hp||ef.max;m.maxHp=newMax;if(oldHp==null)m.hp=null;else m.hp=Math.max(0,Math.min(newMax,Number(oldHp)||0));}
@@ -8850,11 +8861,12 @@ function showPendingMovePrompt(id){
  });
 }
 function showItemUseMenu(name,mount){
- const item=String(name||'').trim();
+ const item=String(name||'').trim(),pkm=readPkm(),evolutionUse=hasItemEvolution(item)&&!heldItemId(item),dualPurpose=hasItemEvolution(item)&&!!heldItemId(item);
  if(isDirectUseItem(item)||heldItemId(item)){
-  const mons=readPkm().party.slots.map((m,i)=>({m,i})).filter(x=>hasMon(x.m));
-  if(!mons.length){toast('队伍里没有可以使用道具的宝可梦。','warning');return;}
-  const d=PD.createElement('div');d.className='pkb';d.id='pkm-item-target';d.innerHTML=`<div class="care-card"><h3>选择道具目标</h3><p>${itemIcon(item)} <b>${esc(item)}</b>：选择队伍宝可梦。装备类道具按原有规则换装。</p><div style="display:grid;gap:7px;margin:12px 0">${mons.map(({m,i})=>`<button type="button" class="ghost" data-target-uid="${esc(m.uid||'')}" data-target-index="${i}">${esc(monName(m))} · Lv${esc(m.lv??'?')} · HP ${esc(panelHpInfo(m).label)}</button>`).join('')}</div><div class="acts"><button type="button" class="ghost" data-item-cancel>取消</button></div></div>`;PD.body.append(d);
+  let mons=pkm.party.slots.map((m,i)=>({m,i})).filter(x=>hasMon(x.m));
+  if(evolutionUse)mons=mons.filter(({m})=>isFollowing(pkm,m.uid)&&directItemEvolutionInfo(item,m,pkm)?.valid);
+  if(!mons.length){toast(evolutionUse?`队伍中没有满足“${item}”进化条件且已放出的宝可梦；物品不会消耗。`:'队伍里没有可以使用道具的宝可梦。','warning');return;}
+  const d=PD.createElement('div');d.className='pkb';d.id='pkm-item-target';d.innerHTML=`<div class="care-card"><h3>选择道具目标</h3><p>${itemIcon(item)} <b>${esc(item)}</b>：选择队伍宝可梦。${dualPurpose?'保持原有点击装备方式；长按拖拽到兼容目标可触发进化。':evolutionUse?'仅显示当前满足该道具进化条件、且已放出的目标。':'装备类道具按原有规则换装。'}</p><div style="display:grid;gap:7px;margin:12px 0">${mons.map(({m,i})=>`<button type="button" class="ghost" data-target-uid="${esc(m.uid||'')}" data-target-index="${i}">${esc(monName(m))} · Lv${esc(m.lv??'?')} · HP ${esc(panelHpInfo(m).label)}</button>`).join('')}</div><div class="acts"><button type="button" class="ghost" data-item-cancel>取消</button></div></div>`;PD.body.append(d);
   d.addEventListener('click',e=>{if(e.target.closest('[data-item-cancel]')){d.remove();return;}const b=e.target.closest('[data-target-index]');if(!b)return;const i=Number(b.dataset.targetIndex),m=readPkm().party.slots[i];d.remove();if(m?.uid)showCare(item,m.uid);else toast('队伍已变化，请重新打开背包。','warning');});return;
  }
  if(worldItemUsable(item)){showWorldItem(item,mount);return;}
@@ -8881,8 +8893,8 @@ function installBagDrag(win,root){
  const bind=(type,fn,options={})=>root.addEventListener(type,fn,{...options,signal:controller.signal});let active=null;
  const stop=()=>{if(active?.timer)win.clearTimeout(active.timer);active=null;PD.getElementById('pkm-item-drag')?.remove();PD.querySelectorAll('.pkm-drop-ready').forEach(n=>n.classList.remove('pkm-drop-ready'));};
  bind('pointerdown',e=>{
-  const item=e.target.closest('[data-p=bag] .item');if(!item)return;const name=item.querySelector('b')?.textContent.trim();if(!isDirectUseItem(name)&&!heldItemId(name))return;
-  const touch=e.pointerType==='touch';if(!touch)e.preventDefault();
+  const item=e.target.closest('[data-p=bag] .bag-item[data-use-item]');if(!item)return;const name=item.dataset.useItem||item.querySelector('b')?.textContent.trim();if(!worldItemUsable(name)&&!isDirectUseItem(name)&&!heldItemId(name))return;
+  const touch=e.pointerType==='touch';
   const a=active={pointer:e.pointerId,name,sx:e.clientX,sy:e.clientY,moved:false,armed:!touch,touch,item,fr:win.frameElement?.getBoundingClientRect()||{left:0,top:0}};
   const capture=()=>{try{item.setPointerCapture(e.pointerId)}catch(_){}};
   if(touch)a.timer=win.setTimeout(()=>{if(active!==a)return;a.armed=true;capture();item.style.outline='2px solid #477bdf';},420);else capture();
@@ -8897,7 +8909,7 @@ function installBagDrag(win,root){
   let ghost=PD.getElementById('pkm-item-drag');if(!ghost){ghost=PD.createElement('div');ghost.id='pkm-item-drag';ghost.className='pkb';ghost.innerHTML=itemIcon(active.name);PD.body.append(ghost);}
   const x=e.clientX+active.fr.left,y=e.clientY+active.fr.top;ghost.style.left=x+'px';ghost.style.top=y+'px';PD.querySelectorAll('.pkm-drop-ready').forEach(n=>n.classList.remove('pkm-drop-ready'));PD.elementFromPoint(x,y)?.closest('.pkm-follow-unit')?.classList.add('pkm-drop-ready');
  });
- const end=e=>{if(!active)return;const a=active;a.item.style.outline='';stop();if(e.type!=='pointerup'||!a.armed)return;const x=e.clientX+a.fr.left,y=e.clientY+a.fr.top,target=PD.elementFromPoint(x,y)?.closest('.pkm-follow-unit');if(a.moved&&target)showCare(a.name,target.dataset.uid);else if(a.moved)toast('请把可使用的背包道具拖到已放出的宝可梦身上；未消耗。');};bind('pointerup',end);bind('pointercancel',end);
+ const end=e=>{if(!active)return;const a=active;a.item.style.outline='';stop();if(e.type!=='pointerup'||!a.armed||!a.moved)return;a.item.dataset.pkmDragged='1';win.setTimeout(()=>delete a.item.dataset.pkmDragged,700);if(worldItemUsable(a.name)){showWorldItem(a.name);return;}const x=e.clientX+a.fr.left,y=e.clientY+a.fr.top,target=PD.elementFromPoint(x,y)?.closest('.pkm-follow-unit');if(target)showCare(a.name,target.dataset.uid,{dragged:true});else toast('请把可使用的背包道具拖到已放出的宝可梦身上；未消耗。');};bind('pointerup',end);bind('pointercancel',end);
 }
 
 
