@@ -2100,6 +2100,15 @@ html.pkm-kanto-native-fullscreen #pkm-kanto-modal>.bar,html.pkm-kanto-pseudo-ful
 #pkm-kanto-panel.pkm-panel-compact .storage-grid{grid-template-columns:repeat(6,minmax(0,1fr))!important;grid-auto-rows:minmax(50px,1fr)}
 #pkm-kanto-panel.pkm-panel-compact .dt-back{display:block!important}
 
+/* Mobile move-learning dialogs: fixed center within the dynamic viewport; scroll inside the card if needed. */
+@media(max-width:680px){
+ #pkm-move-learn-confirm,#pkm-move-adjust{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;height:100dvh!important;min-height:0!important;box-sizing:border-box!important;display:flex!important;align-items:center!important;justify-content:center!important;overflow-x:hidden!important;overflow-y:auto!important;padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom))!important;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+ #pkm-move-learn-confirm .care-card,#pkm-move-adjust .care-card{box-sizing:border-box;width:min(620px,100%)!important;max-height:calc(100vh - 24px)!important;max-height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important;margin:0 auto!important;flex:0 1 auto;overflow-y:auto!important;-webkit-overflow-scrolling:touch;padding:14px}
+ #pkm-move-learn-confirm [data-learn="replace"]{display:block;width:100%;min-height:44px;line-height:1.4;white-space:normal;text-align:left;padding:10px 12px}
+ #pkm-move-learn-confirm .acts,#pkm-move-adjust .acts{display:flex;flex-wrap:wrap;gap:8px}
+ #pkm-move-learn-confirm .acts button,#pkm-move-adjust .acts button{min-height:44px;flex:1 1 42%}
+}
+
 `;
 function ensureHostStyle() {
   if (PD.getElementById('pkm-kanto-style')) return;
