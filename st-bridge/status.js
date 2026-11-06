@@ -1,5 +1,5 @@
 import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.js?v=1.3.31';
-// External status runtime 20261106-bag-drag-evolution-parallel-audio-v1; original card UI retained.
+// External status runtime 20261106-bag-drag-evolution-parallel-audio-v3; original card UI retained.
 // v1.3.17 + v1.2.1 状态栏：只读 UI，独立命名空间，保留现有外置桥接。
 (function () {
  'use strict';
@@ -375,7 +375,7 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
     try { observer = new win.ResizeObserver(fit); observer.observe(el); } catch (_) {}
     timer = win.setInterval(tick, 2000);
     win.addEventListener('pagehide', cleanup, { once: true });
-    tick(); host.PKMKanto?.installBagDrag?.(win,el);const careStyle=idoc.createElement('style');careStyle.textContent='[data-p=bag] .item{touch-action:pan-y;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;cursor:grab}';idoc.head.append(careStyle);return true;
+    tick(); host.PKMKanto?.installBagDrag?.(win,el);const careStyle=idoc.createElement('style');careStyle.textContent='[data-p=bag] [data-use-item]{touch-action:pan-y;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;cursor:grab}';idoc.head.append(careStyle);return true;
   }
   function drawDex(el, R, UI) {
     const S = R.S, seen = S.dex.seen, caught = S.dex.caught, shiny = S.dex.shiny, fresh = S.dex.fresh;
@@ -493,7 +493,7 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
       const money = S.pendingMoney;
       const pendingMoney = money ? `<div style="margin:7px 0 0;color:#9a6b00;font-size:11px">回复中的金钱变更也未写入：${money.delta > 0 ? '+' : '−'}₽ ${Math.abs(money.delta).toLocaleString()}（预计余额 ₽ ${money.expected.toLocaleString()}）</div>` : '';
       P.innerHTML = `<div class="bag"><div class="pockets">${POCKETS.map((k, i) => { const n = (S.pendingBag || []).filter(x => item(x.name).pk === i).length; return `<button data-k="${i}" class="${i === UI.pocket ? 'on' : ''}">${k}<small>${B[i].length}${n ? ` · +${n}待同步` : ''}</small></button>`; }).join('')}</div>
-   <div class="items">${pendingHead}${B[UI.pocket].map(x => `<div class="item"><div class="ico">${itemImg(x.name)}</div><div><b>${esc(x.name)}</b><p>${esc(x.d)}</p></div><em>×${x.c}</em></div>`).join('')}${pendingRows}${!B[UI.pocket].length && !pending.length ? '<div class="empty">口袋是空的</div>' : ''}${pendingMoney}</div></div>`;
+   <div class="items">${pendingHead}${B[UI.pocket].map(x => `<div class="item" data-use-item="${esc(x.name)}" role="button" tabindex="0" title="点击确认使用；长按拖到目标"><div class="ico">${itemImg(x.name)}</div><div><b>${esc(x.name)}</b><p>${esc(x.d)}</p></div><em>×${x.c}</em></div>`).join('')}${pendingRows}${!B[UI.pocket].length && !pending.length ? '<div class="empty">口袋是空的</div>' : ''}${pendingMoney}</div></div>`;
       P.querySelectorAll('.pockets button').forEach(b => b.onclick = () => { UI.pocket = +b.dataset.k; bagPane(); });
     }
     function affPane() {
