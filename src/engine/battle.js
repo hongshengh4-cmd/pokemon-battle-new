@@ -1042,7 +1042,8 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       }
       if (firstAction && (move.selfdestruct === 'always' || baseMove.id === 'finalgambit')) this._boom = user; // v1.3.5：大爆炸 / 自爆 / 搏命，使用后自己倒下
       const selfTarget = move.category === 'Status' && !move.basePower && (move.heal || (move.boosts && move.target === 'self') || move.status === undefined && move.volatileStatus === undefined);
-      const realTarget = (move.target === 'self' || selfTarget) ? user : target;
+      const ghostCurse = move.id === 'curse' && user.types?.includes('Ghost');
+      const realTarget = move.id === 'curse' ? (ghostCurse ? target : user) : ((move.target === 'self' || selfTarget) ? user : target);
       if (realTarget !== user && hasAbility(realTarget, 'pressure') && baseMove.ppLeft > 0) baseMove.ppLeft--;
       const priority = this.movePriority(user, move, realTarget);
       if (realTarget !== user && priority > 0 && hasAbility(realTarget, 'dazzling', 'queenlymajesty', 'armortail')) { this.say(`${realTarget.name} 的特性阻止了先制招式！`); return; }
@@ -1079,6 +1080,19 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       if (move.category === 'Physical' && hasAbility(user, 'hustle')) acc *= 0.8;
       if (this.field.gravity > 0) acc *= 5 / 3;
       if (this.rng() * 100 > acc) { this.say(`但是没有命中 ${realTarget.name}！`); return; }
+      if (move.id === 'curse') {
+        if (!ghostCurse) {
+          this.changeStages(user, { atk: 1, def: 1, spe: -1 }, user);
+          return;
+        }
+        if (!target || target === user || target.fainted || target.volatile?.curse) { this.say('但是失败了！'); return; }
+        const cost = Math.max(1, Math.floor(user.maxHp / 2));
+        if (user.hp <= cost) { this.say('体力不足以施展诅咒；但是失败了！'); return; }
+        this.applyDamage(user, cost, `${user.name} 消耗一半最大 HP 施展诅咒！`);
+        target.volatile.curse = true;
+        this.say(`${target.name} 被下了诅咒！每回合结束时会损失最大 HP 的四分之一。`);
+        return;
+      }
       if (['brickbreak', 'psychicfangs'].includes(move.id) && realTarget !== user) {
         const sc = this.field.sides[this.sideOf(realTarget)];
         if (sc.reflect || sc.lightscreen || sc.auroraveil) { sc.reflect = 0; sc.lightscreen = 0; sc.auroraveil = 0; this.say(`${realTarget.name} 一方的壁被打破了！`); }
@@ -1294,6 +1308,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         const p = this.cur(side, slot);
         if (!p || p.fainted) continue;
         const ab = abilityId(p);
+        if (p.volatile?.curse) this.applyDamage(p, Math.max(1, Math.floor(p.maxHp / 4)), `${p.name} 受到了诅咒的伤害！`);
         if (this.field.terrain === 'grassy' && isGrounded(p)) this.heal(p, Math.floor(p.maxHp / 16), '青草场地回复了体力');
         if (this.weather === 'rain' && ab === 'raindish') this.heal(p, Math.floor(p.maxHp / 16), '雨盘回复了体力');
         if (this.weather === 'snow' && ab === 'icebody') this.heal(p, Math.floor(p.maxHp / 16), '冰冻之躯回复了体力');
