@@ -107,7 +107,7 @@ installSpriteRecovery(document);
   const EMBED = new URLSearchParams(location.search).has('embed');
   if (EMBED) document.documentElement.classList.add('embed');
   let dataReady = false, pendingHostConfig = null, hostTag = null, hostMode = false;
-  const APP_VERSION = '20261030-all-requested-fixes-v7';
+  const APP_VERSION = '20261030-all-requested-fixes-v8';
   let formatTag = '', formatRule = ''; // v1.3.8：角色卡发来的赛制（例：3v3、3只 vs 1只），显示在行动菜单的标签上
   let typeLabel = ''; // v1.3.9：角色卡发来的对战类型（道馆战 / 训练家对战 / 劲敌对战 / 火箭队……），标签第一段
   // 宿主模式：球袋来自角色卡变量（MVU），只存在本页内存里，不读写本机存档。
@@ -1541,7 +1541,7 @@ installSpriteRecovery(document);
     const payload = battle.result();
     payload.hostTag = hostTag;
     const indiv = src => ({ nature: src.nature || '', ivs: { ...src.ivs }, stats: { ...src.stats } });
-    payload.playerTeam.forEach((p, i) => { const src = battle.teams[0][i]; if (src) { Object.assign(p, indiv(src)); p.level = src.level; p.hostSlot = src.hostSlot ?? null; p.name = src.name; p.moves = src.moves.map(m => ({ id: m.id, ppLeft: m.ppLeft, pp: m.pp })); p.participated = !!src._participated || i === 0; } });
+    payload.playerTeam.forEach((p, i) => { const src = battle.teams[0][i]; if (src) { Object.assign(p, indiv(src)); p.level = src.level; p.hostSlot = src.hostSlot ?? null; p.name = src.name; p.moves = src.moves.map(m => ({ id: m.id, ppLeft: m.ppLeft, pp: m.pp })); p.participated = !!src._participated; } });
     payload.enemyTeam.forEach((p, i) => { const src = battle.teams[1][i]; if (src) { Object.assign(p, indiv(src)); p.level = src.level; p.name = src.name; p.shiny = !!src.shiny; p.gender = src.gender || null; } });
     postHost('PKM_BATTLE_RESULT', payload);
   }

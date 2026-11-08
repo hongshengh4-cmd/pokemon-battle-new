@@ -1,5 +1,5 @@
 import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './sprite-recovery.js?v=1.3.31';
-import * as K from './kanto-data.js?v=20261030-all-requested-fixes-v7';
+import * as K from './kanto-data.js?v=20261030-all-requested-fixes-v8';
 import './battle-mechanics.js';
 import '../src/engine/ability-choice.js?v=1.3.31';
 import {habitatAt, habitatPool, HABITAT_LABELS, indoorAt, isCenterLocation, completedTreatment} from './field-fixes.js?v=20261026-six-fixes-1';
@@ -7,7 +7,7 @@ import {habitatAt, habitatPool, HABITAT_LABELS, indoorAt, isCenterLocation, comp
 // 由角色卡的酒馆助手脚本加载：
 //   window.ST_BRIDGE_PACK='kanto-main';
 //   window.PKM_APP_BASE_URL='https://<你的用户名>.github.io/pokemon-battle/';
-//   await import(window.PKM_APP_BASE_URL+'st-bridge/bridge.js?v=20261030-all-requested-fixes-v7');
+//   await import(window.PKM_APP_BASE_URL+'st-bridge/bridge.js?v=20261030-all-requested-fixes-v8');
 // 面板布局依 v1.3.0 机制修复卡恢复：蓝色队伍卡、绿色六列仓库；队伍／仓库操作仍读写实时 MVU 变量。
 // 负责：开局登记界面、图鉴状态栏（PKMKanto.mountDex）、右下角精灵球（队伍/仓库/跟随）、
 //       附近野生遭遇、对战窗口（pkm-modal-v1 通道 ↔ 自己的 pokemon-battle 网页）、
@@ -15,9 +15,9 @@ import {habitatAt, habitatPool, HABITAT_LABELS, indoorAt, isCenterLocation, comp
 // v1.3.8 新增：① 配音二选一：精灵球面板里每只宝可梦都能选 🎬 动漫配音 / 🎮 游戏配音（全局默认 + 单只覆盖）；
 //       动漫配音有录音播录音，没有录音时用语音合成喊名字（按体型调音高），也可改成播游戏叫声或不出声。
 //       ② 赛制：野外 / 捕捉 = 对方 1 只 vs 我方能战斗的全部（最多 6 只，不足不补）；道馆按该馆规矩 NvN（缺 teamSize 时按道馆规矩表兜底），
-//       能战斗的多于 N 只时开战前点选参赛名单；不足 N 只照常开战，参赛的全倒立即判负；结果文本写明赛制、判定和未参赛名单。
+//       道馆 / NvN 自动按首发优先和队伍顺序取到名额上限；不足名额也照常开战，参赛的全倒立即判负；结果文本写明赛制、判定和未实际行动名单。
 // v1.3.9：① 和 NPC 对战（训练家 / 劲敌 / 火箭队 / 强敌）没约定几对几时两边全队：对方派出带着的全部，我方能战斗的都能轮换，只数可以不一样；
-//       剧情里约定了 NvN 也能在选人界面一键改成两边全队。道馆照旧按规矩（华蓝道馆改为 3v3：小霞的初始三只）。
+//       剧情里约定的 NvN 规则自动执行；NPC 未约定时仍按两边全队处理。道馆照旧按规矩（华蓝道馆改为 3v3：小霞的初始三只）。
 //       ② 和小智 / 小霞 / 小刚对战时，对战块漏写的伙伴宝可梦按原作进度补上（例：小智收服绿毛虫后 = 皮卡丘 + 绿毛虫）。
 //       ③ 对战画面的信息改准：顶部标签写对战类型和双方实际只数，敌方信息框写对手名字，战斗记录第一行写明赛制。
 // v1.3.7：精灵球可拖到屏幕任意位置；叫声可换成自己的动画配音（st-bridge/audio/cries/<id>.mp3）。
@@ -718,14 +718,15 @@ const TRAINER_ITEM_ZH_TO_ID={'力量强化':'xattack','防御强化':'xdefense',
 const REPEL_STEPS={'除虫喷雾':100,'白银喷雾':200};
 const GOLDEN_REPEL='黄金喷雾';
 function isRepelItem(name){return Object.hasOwn(REPEL_STEPS,name)||name===GOLDEN_REPEL;}
-function repelExpired(repel,timeValue){if(!repel||repel.item!==GOLDEN_REPEL)return false;const d=parseDate(timeValue);if(Number.isFinite(Number(repel.expiresOnDay))&&d)return d.day>=Number(repel.expiresOnDay);return Number.isFinite(Number(repel.expiresAt))&&Date.now()>=Number(repel.expiresAt);}
+function repelExpired(repel,timeValue){if(!repel||repel.item!==GOLDEN_REPEL)return false;const d=parseDate(timeValue),now=gameMinute(d),until=Number(repel.expiresAtGameMinute);if(Number.isFinite(now)&&Number.isFinite(until))return now>=until;if(Number.isFinite(Number(repel.expiresOnDay))&&d)return d.day>=Number(repel.expiresOnDay);return Number.isFinite(Number(repel.expiresAt))&&Date.now()>=Number(repel.expiresAt);}
+function repelCountdown(repel,timeValue){if(!repel||repel.item!==GOLDEN_REPEL)return '';const d=parseDate(timeValue),now=gameMinute(d),until=Number(repel.expiresAtGameMinute);if(Number.isFinite(now)&&Number.isFinite(until)){const left=Math.max(0,until-now),h=Math.floor(left/60),m=left%60;return left===0?'已到期':h?`剩余 ${h}小时${m?m+'分':''}`:`剩余 ${m}分钟`;}if(Number.isFinite(Number(repel.expiresOnDay))&&d){const left=Math.max(0,(Number(repel.expiresOnDay)-d.day)*1440-d.h*60-d.mi),h=Math.floor(left/60),m=left%60;return left===0?'已到期':h?`剩余 ${h}小时${m?m+'分':''}`:`剩余 ${m}分钟`;}if(Number.isFinite(Number(repel.expiresAt))){const left=Math.max(0,Number(repel.expiresAt)-Date.now()),h=Math.floor(left/3600000),m=Math.floor(left%3600000/60000);return left===0?'已到期':h?`剩余 ${h}小时${m?m+'分':''}`:`剩余 ${m}分钟`;}return '时效 1 天';}
 function expireRepel(pkm,timeValue){const repel=pkm?.world?.repel;if(!repelExpired(repel,timeValue))return false;delete pkm.world.repel;return true;}
 const CAVE_LOC_RE=/(?:洞窟|洞穴|地道|矿洞|地下|遗迹|月见山|双子岛|地鼠洞穴|冠军之路|胜利之路|岩山隧道)/;
 function worldItemUsable(name){return isRepelItem(name)||['穿洞绳','离洞绳','自行车'].includes(name)||name==='香水（30mL）';}
 function battleItemStock(pkm){return Object.fromEntries(Object.entries(TRAINER_ITEM_ZH_TO_ID).map(([zh,id])=>[id,Math.max(0,Math.floor(Number(pkm.player?.bag?.[zh])||0))]));}
 function repelBlocks(repel,wildLevel,timeValue){return !!(repel&&repel.item!==GOLDEN_REPEL&&!repelExpired(repel,timeValue)&&Number(repel.remaining)>0&&Number(wildLevel)<Number(repel.minLevel));}
 function goldenSprayLevel(level,repel,timeValue){const base=Math.max(2,Math.min(100,Math.floor(Number(level)||2)));if(!repel||repel.item!==GOLDEN_REPEL||repelExpired(repel,timeValue))return base;const rawFloor=repel.targetLevel==null?repel.minLevel:repel.targetLevel,floor=Math.max(1,Math.min(100,Math.floor(Number(rawFloor)||1)));return Math.max(base,floor);}
-function activateRepel(pkm,item,lead,initialSteps){const count=Number(pkm?.player?.bag?.[item])||0;if(!isRepelItem(item)||count<1||!lead)return false;const targetLevel=Math.max(1,Math.min(100,Math.floor(Number(lead.lv)||1)));pkm.world=isObj(pkm.world)?pkm.world:{};const repel={item,minLevel:targetLevel,startedAt:Date.now()};if(item===GOLDEN_REPEL){repel.targetLevel=targetLevel;repel.targetUid=String(lead.uid||'');repel.targetName=String(lead.nickname||lead.species||lead.name||'目标宝可梦');const now=parseDate(pkm.world.time||latestState()?.state?.時間);if(now)repel.expiresOnDay=now.day+1;else repel.expiresAt=Date.now()+86400000;}else{repel.remaining=REPEL_STEPS[item];if(Number.isFinite(Number(initialSteps)))pkm.world.travelSteps=Number(initialSteps);}pkm.world.repel=repel;pkm.player.bag[item]=count-1;if(!pkm.player.bag[item])delete pkm.player.bag[item];return true;}
+function activateRepel(pkm,item,lead,initialSteps){const count=Number(pkm?.player?.bag?.[item])||0;if(!isRepelItem(item)||count<1||!lead)return false;const targetLevel=Math.max(1,Math.min(100,Math.floor(Number(lead.lv)||1)));pkm.world=isObj(pkm.world)?pkm.world:{};const repel={item,minLevel:targetLevel,startedAt:Date.now()};if(item===GOLDEN_REPEL){repel.targetLevel=targetLevel;repel.targetUid=String(lead.uid||'');repel.targetName=String(lead.nickname||lead.species||lead.name||'目标宝可梦');const now=parseDate(latestState()?.state?.時間||pkm.world.time);if(now){repel.startedAtGameMinute=gameMinute(now);repel.expiresAtGameMinute=repel.startedAtGameMinute+1440;}else repel.expiresAt=Date.now()+86400000;}else{repel.remaining=REPEL_STEPS[item];if(Number.isFinite(Number(initialSteps)))pkm.world.travelSteps=Number(initialSteps);}pkm.world.encounterRefreshToken=Math.max(0,Math.floor(Number(pkm.world.encounterRefreshToken)||0))+1;pkm.wild=isObj(pkm.wild)?pkm.wild:{};pkm.wild.used={};pkm.world.repel=repel;pkm.player.bag[item]=count-1;if(!pkm.player.bag[item])delete pkm.player.bag[item];return true;}
 function advanceRepel(pkm,st,oldLoc,newLoc){const repel=pkm?.world?.repel;if(!repel)return 0;if(repel.item===GOLDEN_REPEL){expireRepel(pkm,(st&&(st['时间']||st['時間']))||pkm.world.time);return 0;}if(Number(repel.remaining)<=0)return 0;let spent=0;const raw=st?.步数??st?.行走步数??st?.steps,stepN=Number(String(raw??'').replace(/[^0-9.-]/g,''));if(raw!=null&&Number.isFinite(stepN)){const prev=Number(pkm.world.travelSteps);if(Number.isFinite(prev)&&stepN>prev)spent=stepN-prev;pkm.world.travelSteps=stepN;}else if(newLoc&&oldLoc&&newLoc!==oldLoc)spent=1;if(spent>0){repel.remaining=Math.max(0,Number(repel.remaining)-spent);if(repel.remaining<=0)delete pkm.world.repel;}return spent;}
 const SHOP_PRICE = {"mart":{"精灵球":200,"超级球":600,"高级球":1200,"伤药":200,"好伤药":700,"厉害伤药":1200,"全满药":2500,"全复药":3000,"活力碎片":1500,"解毒药":200,"解麻药":200,"解眠药":250,"解烧伤药":250,"解冻药":250,"万灵药":400,"除虫喷雾":350,"白银喷雾":500,"黄金喷雾":700,"穿洞绳":300,"宝可梦玩偶":100,"PP回复药":1000},"department":{"先机球":1000,"黑暗球":1000,"计时球":1000,"重复球":1000,"捕网球":1000,"巢穴球":1000,"潜水球":1000,"豪华球":1000,"治愈球":300,"HP增强剂":10000,"攻击增强剂":10000,"防御增强剂":10000,"特攻增强剂":10000,"特防增强剂":10000,"速度增强剂":10000,"力量强化":500,"防御强化":550,"特攻强化":350,"特防强化":350,"速度强化":350,"命中强化":1000,"能力防守":1500,"击中要害":1000,"火之石":2100,"水之石":2100,"雷之石":2100,"叶之石":2100,"觉醒之石":3000,"暗之石":3000,"光之石":3000,"月之石":3000,"日之石":3000},"bicycle":{"自行车":30000},"perfume":{"香水（30mL）":6600},"specialties":{"深灰米果":500},"reputation":{"联系绳":1000,"金属膜":3000,"王者之证":3000,"锐利之爪":3000,"锐利之牙":3000,"深海之鳞":3000,"深海之牙":3000}};
 function shopCityKey(value){return String(value||'').normalize('NFKC').replace(/常青市|常盤市/g,'常磐市').replace(/華藍市/g,'华蓝市').replace(/\s+/g,'').trim();}
@@ -954,7 +955,7 @@ function summaryText(pkm) {
   if (pkm.party.box.length) lines.push(`电脑：${pkm.party.box.length} 只（${pkm.party.box.slice(-12).map(monName).join('、')}）`);
   const bag = Object.entries(pl.bag).filter(([, n]) => Number(n) > 0).map(([k, n]) => `${k}×${n}`);
   lines.push('背包：' + (bag.join('、') || '空'));
-  const repel=pkm.world.repel;if(repel&&!(repel.item===GOLDEN_REPEL&&repelExpired(repel,pkm.world.time))&&(repel.item===GOLDEN_REPEL||Number(repel.remaining)>0))lines.push(repel.item===GOLDEN_REPEL?`遭遇喷雾：黄金喷雾以${esc(repel.targetName||'目标宝可梦')} Lv${Number(repel.targetLevel)||Math.max(1,(Number(repel.minLevel)||2)-1)}为基准；附近列表宝可梦等级至少 Lv${goldenSprayLevel(2,repel,pkm.world.time)}（不会低于目标等级），有效至当前游戏日期结束，进入次日自动失效。`:`遭遇喷雾：${repel.item}仍有效；阻止等级低于首发宝可梦 Lv${repel.minLevel} 的野生遭遇，剩余约 ${repel.remaining} 行走单位（系统没有逐格移动计数；若状态栏提供步数按步数扣，否则跨地图地点估算）。`);
+  const repel=pkm.world.repel;if(repel&&!(repel.item===GOLDEN_REPEL&&repelExpired(repel,pkm.world.time))&&(repel.item===GOLDEN_REPEL||Number(repel.remaining)>0))lines.push(repel.item===GOLDEN_REPEL?`遭遇喷雾：黄金喷雾以${esc(repel.targetName||'目标宝可梦')} Lv${Number(repel.targetLevel)||Math.max(1,(Number(repel.minLevel)||2)-1)}为基准；附近列表宝可梦等级至少 Lv${goldenSprayLevel(2,repel,pkm.world.time)}（不会低于目标等级），时效：${repelCountdown(repel,pkm.world.time)}（游戏内 24 小时，随正文时间推进）。`:`遭遇喷雾：${repel.item}仍有效；阻止等级低于首发宝可梦 Lv${repel.minLevel} 的野生遭遇，剩余约 ${repel.remaining} 行走单位（系统没有逐格移动计数；若状态栏提供步数按步数扣，否则跨地图地点估算）。`);
   if(pkm.world.bicycleActive)lines.push('骑行状态：已骑上自行车；可让步行/骑行剧情移动更快，地图仍由剧情与状态栏位置驱动。');
   if(pkm.world.escapePending)lines.push(`穿洞绳效果待叙述：从${pkm.world.escapePending.from}返回${pkm.world.escapePending.to}；下一条状态栏应更新地点。`);
   const seen = Object.keys(pkm.dex.seen);
@@ -1567,21 +1568,6 @@ html.pkm-kanto-native-fullscreen #pkm-kanto-modal>.bar,html.pkm-kanto-pseudo-ful
 #pkm-kanto-modal iframe{flex:1;width:100%;border:0;background:#141a33}
 #pkm-kanto-modal .bar .fmt{flex:none;font-size:12px;font-weight:800;padding:2px 10px;border-radius:999px;background:#ffcb05;color:#1b2a5c;white-space:nowrap}
 #pkm-kanto-modal .stage{flex:1;min-height:0}
-#pkm-kanto-modal .stage.pick{overflow:auto;padding:18px 12px;display:flex;justify-content:center;align-items:flex-start}
-#pkm-kanto-modal .pk-pickbox{width:min(660px,100%);background:#fff;border-radius:16px;border:3px solid #22201c;padding:14px 16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
-#pkm-kanto-modal .pk-pickbox h3{margin:0 0 4px;font-size:17px;color:#1b2a5c}
-#pkm-kanto-modal .pk-pickbox p{margin:0 0 10px;color:#4a5370;font-size:12.5px;line-height:1.65}
-#pkm-kanto-modal .pk-pickgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
-#pkm-kanto-modal .pk-pick{position:relative;display:flex;flex-direction:column;align-items:center;gap:1px;padding:8px 6px 10px;border-radius:14px;background:#f6f7fb;color:#1d2433;border:2px solid #e1e5ee;font-weight:650;text-align:center;box-shadow:none}
-#pkm-kanto-modal .pk-pick.on{border-color:#dc0a2d;background:#fff4f2;box-shadow:0 0 0 3px rgba(220,10,45,.15)}
-#pkm-kanto-modal .pk-pick em{position:absolute;left:6px;top:6px;width:22px;height:22px;border-radius:50%;background:#dc0a2d;color:#fff;font:800 12px/22px system-ui;font-style:normal}
-#pkm-kanto-modal .pk-pick small{color:#6b7385;font-size:11px;font-weight:500}
-#pkm-kanto-modal .pk-pick .hp{width:80%}
-#pkm-kanto-modal .pk-pick:disabled{opacity:.45}
-#pkm-kanto-modal .pk-pickfoot{display:flex;align-items:center;gap:8px;margin-top:12px;flex-wrap:wrap}
-#pkm-kanto-modal .pk-pickfoot span{margin-right:auto;color:#4a5370;font-weight:700}
-#pkm-kanto-modal .pk-pickalt{margin-top:10px;padding:8px 10px;border-radius:10px;background:#fff6e0;color:#6b4b00;font-size:12.5px;line-height:1.8}
-#pkm-kanto-modal .pk-pickalt button{margin:0 4px;padding:3px 10px;font-size:12px}
 #pkm-kanto-modal .res{max-width:560px;margin:40px auto;background:#fff;border-radius:16px;padding:18px;white-space:pre-wrap}
 #pkm-kanto-toast{position:fixed;left:50%;bottom:120px;transform:translateX(-50%) translateY(20px);opacity:0;z-index:5000;background:#1d2433;color:#fff;padding:9px 16px;border-radius:12px;font:13px system-ui;transition:.25s;pointer-events:none}
 #pkm-kanto-toast.show{opacity:1;transform:translateX(-50%)}
@@ -2587,7 +2573,7 @@ function nearbyList(pkm, st) {
   if(waterTable)table=waterTable;
   else if(node?.id!=='seafoam'){const aquaticOnly=new Set(['鲤鱼王','角金鱼','金鱼王','玛瑙水母','毒刺水母','墨海马','海刺龙','大舌贝','铁甲贝','海星星','宝石海星']);table=table.filter(t=>!aquaticOnly.has(t[0]));}
   const d = parseDate(st.时间 || pkm.world.time);
-  const seedKey = `${loc}|${d ? d.day : 0}|${d ? Math.floor(d.h / 4) : 0}`;
+  const seedKey = `${loc}|${d ? d.day : 0}|${d ? Math.floor(d.h / 4) : 0}|${Number(pkm.world?.encounterRefreshToken)||0}`;
   const total = table.reduce((a, t) => a + t[3], 0);
   const list = [];
   // v1.3.31-grind-batch-1：维持 6 个可选遭遇；每场结束后同地点/时段自动补位。
@@ -2620,7 +2606,7 @@ function dexNear(pkm, st, m) {
     habitat==='unknownWater'?`<button class="blue" disabled>钓鱼系统暂不可用</button>`:
     `<button class="blue" disabled>当前地点没有可识别水域</button>`;
   const intro=`<div class="pk-note" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap"><span>${water?`当前地点：${esc(loc)} · ${esc(HABITAT_LABELS[habitat]||'水域')}。水域遭遇必须先钓起，才会解锁这次遭遇的战斗与捕捉。`:`${habitat==='unknownWater'?'地点只写到水边，尚不能确认河流、湖泊或海域。请先把当前位置写具体。':'当前地点没有已识别的水域；到河边、湖边或海边后才能钓鱼。'}`}</span>${fishButton}</div>`;
-  const repel=pkm.world?.repel,repelNote=repel&&!(repel.item===GOLDEN_REPEL&&repelExpired(repel,st.时间||pkm.world.time))?(repel.item===GOLDEN_REPEL?`<div class="pk-note" style="color:#805500;background:#fff4cf;border:1px solid #e4c66d;border-radius:8px;padding:8px"><b>黄金喷雾已生效：</b>以${esc(repel.targetName||'目标宝可梦')} Lv${Math.max(1,Number(repel.targetLevel)||Number(repel.minLevel)||1)}为基准；下面附近名单里的宝可梦最低 Lv${goldenSprayLevel(2,repel,st.时间||pkm.world.time)}，不会低于目标。次日失效。</div>`:`<div class="pk-note" style="color:#346047;background:#e8f5eb;border:1px solid #b9ddc2;border-radius:8px;padding:8px"><b>${esc(repel.item)}已生效：</b>附近列表已过滤低于 Lv${Math.max(1,Number(repel.minLevel)||1)} 的遭遇；剩余 ${Math.max(0,Number(repel.remaining)||0)} 步。</div>`):'';
+  const repel=pkm.world?.repel,repelNote=repel&&!(repel.item===GOLDEN_REPEL&&repelExpired(repel,st.时间||pkm.world.time))?(repel.item===GOLDEN_REPEL?`<div class="pk-note" style="color:#805500;background:#fff4cf;border:1px solid #e4c66d;border-radius:8px;padding:8px"><b>黄金喷雾已生效：</b>以${esc(repel.targetName||'目标宝可梦')} Lv${Math.max(1,Number(repel.targetLevel)||Number(repel.minLevel)||1)}为基准；下面附近名单里的宝可梦最低 Lv${goldenSprayLevel(2,repel,st.时间||pkm.world.time)}，不会低于目标。<b>时效：${esc(repelCountdown(repel,st.时间||pkm.world.time))}</b>（游戏内 24 小时，随正文时间推进）。</div>`:`<div class="pk-note" style="color:#346047;background:#e8f5eb;border:1px solid #b9ddc2;border-radius:8px;padding:8px"><b>${esc(repel.item)}已生效：</b>附近列表已过滤低于 Lv${Math.max(1,Number(repel.minLevel)||1)} 的遭遇；剩余 ${Math.max(0,Number(repel.remaining)||0)} 步。</div>`):'';
   if(reason)return `${intro}${repelNote}<div class="empty">${esc(reason)}</div>`;
   const pending = Array.isArray(pkm.wild.pendingResults) ? pkm.wild.pendingResults.length : 0;
   const lockedCount=list.filter(w=>w.fishRequired&&!w.fishReady).length;
@@ -7556,7 +7542,7 @@ function tableFormat(cfg, type) {
   if (type === 'gym') { const who = `${cfg?.opponent || ''} ${cfg?.title || ''} ${cfg?.id || ''}`; return (K.GYM_RULES || []).find(r => r.re.test(who)) || null; }
   return null;
 }
-// opts.full：玩家在选人界面点了“改成两边全队”（只对和 NPC 的对战有效）
+// opts.full：兼容旧存档 / 旧调用的全队赛制覆盖；当前战前不再显示选人界面
 function battleFormat(cfg, healthy, opts = {}) {
   const type = String(cfg?.type || 'trainer').toLowerCase();
   const listed = Array.isArray(cfg?.team) ? cfg.team.length : 0;
@@ -7586,15 +7572,8 @@ function battleFormat(cfg, healthy, opts = {}) {
   return { type, wild: false, npc, full: false, name, playerMax: f.p, enemyMax: f.e, player, enemy, source, rule,
     tag: name + (short ? `（${short}）` : ''), label: name + (short ? ` · ${short}，照常开战` : '') };
 }
-// 参赛名单：开战前点选过就按点选顺序；否则首发优先、按队伍顺序取到上限
-function pickPlayers(entries, max, pick) {
-  if (Array.isArray(pick) && pick.length) {
-    const by = new Map(entries.map(e => [e.hostSlot, e])), out = [];
-    for (const i of pick) { const e = by.get(i); if (e && !out.includes(e)) out.push(e); if (out.length >= max) break; }
-    if (out.length) return out;
-  }
-  return entries.slice(0, max);
-}
+// 战前不再停留于选人界面：按首发优先与队伍顺序自动取到赛制上限。
+function pickPlayers(entries, max) { return entries.slice(0, max); }
 // 对手的简称（对战画面的标签 / 信息框用）：“华蓝道馆馆主 小霞” → “小霞”；太长就不写名字
 function shortOpponent(cfg) {
   const raw = String(cfg?.opponent || '').replace(/[（(][^）)]*[）)]/g, ' ').trim();
@@ -7640,7 +7619,7 @@ function engineConfig(spec, pkm, tag) {
     if (!natureZh(e.nature)) e.nature = rollNature(r);
     return e;
   });
-  const party = pickPlayers(entries, fmt.playerMax, spec.pick);
+  const party = pickPlayers(entries, fmt.playerMax);
   const tx = battleTexts(cfg, fmt, party.length, enemy.length);
   const balls = Object.fromEntries(Object.entries(K.BALL_ZH).map(([id, zh]) => [id, Math.max(0, Math.floor(Number(pkm.player.bag[zh]) || 0))]));
   const captureLocation=String(pkm.world?.location||cfg.location||''),captureTime=String(pkm.world?.time||'');
@@ -7819,8 +7798,7 @@ function openBattle(spec) {
     currentModal.launchStarted = true;
     clearTimeout(currentModal.fullscreenTimer); currentModal.fullscreenTimer = null;
     if (comp.added.length) toast(`${comp.who}现在带着 ${cfg.team.length} 只：对战块漏写的${comp.added.join('、')}已按原作进度补上`, 'info');
-    if (!fmt.wild && !fmt.full && entries.length > fmt.playerMax && !Array.isArray(spec.pick)) showPicker(currentModal, pkm, entries);
-    else launchBattle(currentModal, spec.pick || null);
+    launchBattle(currentModal);
   };
   currentModal.fullscreenTimer = P.setTimeout(() => {
     if (modal !== currentModal || currentModal.launchStarted) return;
@@ -7909,64 +7887,25 @@ function requestBattleFullscreen(m) {
     }).catch(fallback);
   } catch (e) { return Promise.resolve(fallback(e)); }
 }
-// 真正开战：建对战网页的 iframe 并发配置（选人之后才走到这里）
-function launchBattle(m, pick) {
+// 真正开战：按赛制与队伍顺序自动组队后创建对战 iframe
+function launchBattle(m) {
   if (modal !== m) return;
-  const pkm = readPkm(); // 选人期间变量可能变了，按最新的算
+  const pkm = readPkm();
   const tag = uid();
-  const { engine, balls, type, fmt } = engineConfig({ ...m.spec, cfg: m.cfg, pick }, pkm, tag);
+  const { engine, balls, type, fmt } = engineConfig({ ...m.spec, cfg: m.cfg }, pkm, tag);
   if (!engine.p1.entrants[0].party.length) { toast('队伍里的宝可梦都失去了战斗能力，先去宝可梦中心治疗吧。', 'warning'); closeBattle(true); return; }
   Object.assign(m, { tag, engine, balls, battleItems:engine.host?.battleItems||{}, type, fmt });
   const stage = m.el.querySelector('.stage');
   const frame = PD.createElement('iframe');
   frame.setAttribute('allow', 'autoplay; fullscreen'); frame.setAttribute('allowfullscreen', ''); frame.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
   frame.style.background = '#070a14';
-  frame.src = `${BASE}index.html?embed=1&v=${encodeURIComponent(VERSION)}&ui=20261030-all-requested-fixes-v7`;
+  frame.src = `${BASE}index.html?embed=1&v=${encodeURIComponent(VERSION)}&ui=20261030-all-requested-fixes-v8`;
   stage.replaceWith(frame);
   m.frame = frame;
   setBar(m.cfg.lines?.start ? '「' + m.cfg.lines.start + '」' : '正在连接对战系统……');
   const send = () => { if (modal !== m || m.sent) return; m.sent = true; try { m.frame.contentWindow.postMessage({ type: 'PKM_BATTLE_CONFIG', payload: engine }, '*'); } catch (err) { LOG(err); } };
   frame.addEventListener('load', () => setTimeout(send, 30));
   m.timer = setTimeout(() => { if (modal === m && !m.started && !m.done) setBar('对战网页加载较慢或失败：请确认网站已部署 v' + VERSION + '（页脚版本号），使用手机返回键／电脑 Esc 退出后重试。'); }, 15000);
-}
-// v1.3.8：我方能战斗的多于 N 只时，开战前点选参赛的 N 只（默认勾好首发 + 队伍顺序；点选顺序 = 出场顺序）
-function showPicker(m, pkm, entries) {
-  const n = m.fmt.playerMax, ok = new Set(entries.map(e => e.hostSlot));
-  let sel = entries.slice(0, n).map(e => e.hostSlot);
-  const stage = m.el.querySelector('.stage'); stage.className = 'stage pick';
-  const draw = () => {
-    const cards = pkm.party.slots.map((s, i) => {
-      if (!hasMon(s)) return '';
-      const can = ok.has(i), k = sel.indexOf(i), h = curHp(s);
-      return `<button type="button" class="pk-pick${k >= 0 ? ' on' : ''}" data-op="pick" data-i="${i}"${can ? '' : ' disabled'}>${k >= 0 ? `<em>${k + 1}</em>` : ''}${spriteImg(s.species || s.name, { shiny: s.shiny })}<b>${esc(monName(s))}</b><small>Lv${esc(s.lv ?? '?')} · ${can ? (h.max && !h.full ? `HP ${h.hp}/${h.max}` : 'HP 满') + (s.status ? '·' + esc(s.status) : '') : '濒死，不能参赛'}</small>${can ? hpBar(s) : ''}</button>`;
-    }).join('');
-    const npcOpt = m.fmt.npc ? `<div class="pk-pickalt">这是剧情里约定的 ${esc(m.fmt.name)}。不想按约定打？<button type="button" class="ghost" data-op="pick-full">改成两边全队</button>（对方派出全部 ${m.cfg.team.length} 只，我方能战斗的都上）</div>` : '';
-    stage.innerHTML = `<div class="pk-pickbox"><h3>选出参赛的 ${n} 只宝可梦</h3><p>${esc(m.fmt.rule)}。<br>${n === 1 ? '参赛的这 1 只失去战斗能力就判负' : `参赛的 ${n} 只全部失去战斗能力就判负`}；没选上的这场不上场，体力也不变。点选顺序就是出场顺序（①号首发）。</p><div class="pk-pickgrid">${cards}</div>${npcOpt}<div class="pk-pickfoot"><span>已选 ${sel.length} / ${n}</span><button type="button" class="ghost" data-op="pick-auto">按队伍顺序</button><button type="button" class="red" data-op="pick-go"${sel.length === n ? '' : ' disabled'}>开始对战（${esc(m.fmt.name)}）</button></div></div>`;
-  };
-  stage.addEventListener('click', e => {
-    const b = e.target.closest('button'); if (!b || b.disabled || modal !== m) return;
-    const op = b.dataset.op;
-    if (op === 'pick') {
-      const i = Number(b.dataset.i), k = sel.indexOf(i);
-      if (k >= 0) sel.splice(k, 1); else if (sel.length < n) sel.push(i); else if (n === 1) sel = [i]; else { toast(`最多选 ${n} 只：先点掉一只再换`); return; }
-      draw(); return;
-    }
-    if (op === 'pick-auto') { sel = entries.slice(0, n).map(e => e.hostSlot); draw(); return; }
-    if (op === 'pick-full' && m.fmt.npc) { // v1.3.9：和 NPC 的约定赛改成两边全队
-      m.spec.full = true; m.fmt = battleFormat(m.cfg, playerEntries(readPkm()).length, { full: true });
-      if (m.comp?.all?.length) { m.comp = { ...m.comp, added: m.comp.all }; toast(`${m.comp.who}派出现在带着的全部 ${m.cfg.team.length} 只（${m.comp.all.join('、')}按原作进度补上）`, 'info'); }
-      const f = m.el.querySelector('.bar .fmt'); if (f) { f.textContent = m.fmt.label; f.title = m.fmt.rule; }
-      stage.className = 'stage'; launchBattle(m, null); return;
-    }
-    if (op === 'pick-go' && sel.length === n) {
-      // 记 uid 再换回槽位：选人期间如果队伍顺序变了也不会选错
-      const uids = sel.map(i => pkm.party.slots[i]?.uid || null), fresh = readPkm();
-      const pick = sel.map((i, k) => { const u = uids[k]; const j = u ? fresh.party.slots.findIndex(x => x?.uid === u) : -1; return j >= 0 ? j : i; });
-      launchBattle(m, pick);
-    }
-  });
-  draw();
-  setBar(`${m.fmt.name}：先选出参赛的 ${n} 只`);
 }
 function setBar(text) { const s = modal?.el.querySelector('.bar .s'); if (s) s.textContent = text; if (/失败|有误|较慢/.test(text) && modal) {let error=modal.el.querySelector('.pkm-battle-error');if(!error){error=PD.createElement('div');error.className='pkm-battle-error';error.style.cssText='position:absolute;inset:20% 10% auto;z-index:9;background:#fff5ed;color:#6a2919;padding:20px;border:2px solid #cd7362;border-radius:12px;white-space:normal';modal.el.append(error);}error.textContent=text;} }
 function closeBattle(silent) {
@@ -8965,19 +8904,19 @@ function showItemUseMenu(name,mount){
 }
 function showGoldenRepelTargetMenu(mount){
  const pkm=readPkm(),mons=pkm.party.slots.map((m,i)=>({m,i})).filter(x=>hasMon(x.m));if(!mons.length){toast('队伍里没有可作为目标的宝可梦；黄金喷雾未消耗。','warning');return;}
- PD.getElementById('pkm-item-target')?.remove();const d=PD.createElement('div');d.id='pkm-item-target';d.className='pkb';d.innerHTML=`<div class="care-card"><h3>选择黄金喷雾目标</h3><p>${itemIcon(GOLDEN_REPEL)} 选择一只宝可梦作为等级基准；效果期间，附近列表中的宝可梦等级不会低于该目标。效果持续至当前游戏日期结束，次日失效。</p><div style="display:grid;gap:7px;margin:12px 0">${mons.map(({m,i})=>{const lv=Math.max(1,Math.floor(Number(m.lv)||1));return `<button type="button" class="ghost" data-target-index="${i}">${esc(monName(m))} · Lv${lv}</button>`;}).join('')}</div><div class="acts"><button type="button" class="ghost" data-item-cancel>取消</button></div></div>`;PD.body.append(d);
+ PD.getElementById('pkm-item-target')?.remove();const d=PD.createElement('div');d.id='pkm-item-target';d.className='pkb';d.innerHTML=`<div class="care-card"><h3>选择黄金喷雾目标</h3><p>${itemIcon(GOLDEN_REPEL)} 选择一只宝可梦作为等级基准；效果期间，附近列表中的宝可梦等级不会低于该目标。效果持续游戏内 24 小时；正文时间推进时倒计时同步变化，到时自动失效。</p><div style="display:grid;gap:7px;margin:12px 0">${mons.map(({m,i})=>{const lv=Math.max(1,Math.floor(Number(m.lv)||1));return `<button type="button" class="ghost" data-target-index="${i}">${esc(monName(m))} · Lv${lv}</button>`;}).join('')}</div><div class="acts"><button type="button" class="ghost" data-item-cancel>取消</button></div></div>`;PD.body.append(d);
  d.addEventListener('click',e=>{if(e.target.closest('[data-item-cancel]')){d.remove();return;}const b=e.target.closest('[data-target-index]');if(!b||b.disabled)return;const m=readPkm().party.slots[Number(b.dataset.targetIndex)];d.remove();if(m)showWorldItem(GOLDEN_REPEL,mount,m);});
 }
 function showWorldItem(name,mount,targetMon=null){
  const item=String(name||''),pkm=readPkm(),count=Number(pkm.player.bag[item])||0,loc=placeText(pkm),lead=targetMon||pkm.party.slots.find(x=>hasMon(x)&&x.isLead)||pkm.party.slots.find(hasMon),targetUid=targetMon?.uid||'',targetLevel=Math.max(1,Math.floor(Number(lead?.lv)||1));
  if(item==='香水（30mL）'){toast('香水（30mL）缺少可核实的主系列效果；没有消耗物品。','warning');return;}
  let title='',desc='',valid=count>0;
- if(isRepelItem(item)){title=item===GOLDEN_REPEL?'黄金喷雾':'遭遇喷雾';if(item===GOLDEN_REPEL){valid=valid&&!!lead;desc=`以${monName(lead||{})} Lv${targetLevel}为目标等级基准；效果期间，附近列表中的宝可梦等级至少为 Lv${targetLevel}，不会低于所选目标。持续至当前游戏日期结束，进入次日自动失效。`;}else desc=`持续 ${REPEL_STEPS[item]} 行走单位，阻止等级低于首发宝可梦当前等级（Lv${Number(lead?.lv)||1}）的野生战斗。项目没有逐格移动计数：优先读取状态栏步数；没有步数时按跨地点移动估算。`;
+ if(isRepelItem(item)){title=item===GOLDEN_REPEL?'黄金喷雾':'遭遇喷雾';if(item===GOLDEN_REPEL){valid=valid&&!!lead;desc=`以${monName(lead||{})} Lv${targetLevel}为目标等级基准；效果期间，附近列表中的宝可梦等级至少为 Lv${targetLevel}，不会低于所选目标。持续游戏内 24 小时；正文时间推进时倒计时同步变化，到时自动失效。`;}else desc=`持续 ${REPEL_STEPS[item]} 行走单位，阻止等级低于首发宝可梦当前等级（Lv${Number(lead?.lv)||1}）的野生战斗。项目没有逐格移动计数：优先读取状态栏步数；没有步数时按跨地点移动估算。`;
  }else if(item==='自行车'){title=pkm.world.bicycleActive?'收起自行车':'骑上自行车';desc='自行车可反复使用，不会从背包消失；骑行状态写入世界变量并提示剧情移动加快。地图本身没有格数速度系统。';
  }else if(['穿洞绳','离洞绳'].includes(item)){title='穿洞绳';const can=CAVE_LOC_RE.test(loc)&&!!pkm.world.lastSafeLocation;valid=valid&&can;desc=can?`从${loc}返回最近记录的洞窟外地点：${pkm.world.lastSafeLocation}。`:`仅在洞窟/地道内，且曾记录入口地点时可用；当前地点：${loc}。`;
  }else{toast(`${item}目前没有可用效果。`,'warning');return;}
  const d=PD.createElement('div');d.id='pkm-world-item-confirm';d.className='pkb';d.innerHTML=`<div class="care-card"><h3>${esc(title)}</h3><div class="care-line">${itemIcon(item)}<b>${esc(item)}</b>${item===GOLDEN_REPEL?` → ${spriteImg(lead?.species)}<b>${esc(monName(lead||{}))} · Lv${targetLevel}</b>`:''}</div><p>${esc(desc)}</p><p>${valid?'确认后立即生效。':`当前无法使用；背包不扣除。`}</p><div class="acts"><button type="button" class="ghost" data-world-cancel>取消</button><button type="button" class="blue" data-world-confirm ${valid?'':'disabled'}>确认使用</button></div></div>`;PD.body.append(d);
- d.addEventListener('click',async e=>{if(e.target.closest('[data-world-cancel]')){d.remove();return;}if(!e.target.closest('[data-world-confirm]')||!valid)return;let outcome='';try{await writePkm(p=>{const n=Number(p.player.bag[item])||0;if(item!=='自行车'&&n<1)return;if(isRepelItem(item)){let anchor=targetUid?p.party.slots.find(x=>x.uid===targetUid):null;if(item===GOLDEN_REPEL&&!anchor)anchor=lead?.uid?p.party.slots.find(x=>x.uid===lead.uid):p.party.slots.find(x=>hasMon(x)&&x.isLead)||p.party.slots.find(hasMon);if(!anchor)return;const st=latestState()?.state||{},step=Number(String(st.步数??st.行走步数??st.steps??'').replace(/[^0-9.-]/g,''));if(!activateRepel(p,item,anchor,step))return;outcome=item===GOLDEN_REPEL?`${item}生效：以${monName(anchor)} Lv${Math.floor(Number(anchor.lv)||1)}为基准，附近宝可梦等级至少 Lv${Math.floor(Number(anchor.lv)||1)}，不会低于目标；持续至当前游戏日期结束，次日失效。`:`${item}生效（${REPEL_STEPS[item]}行走单位，低等级遭遇受抑制）`;}
+ d.addEventListener('click',async e=>{if(e.target.closest('[data-world-cancel]')){d.remove();return;}if(!e.target.closest('[data-world-confirm]')||!valid)return;let outcome='';try{await writePkm(p=>{const n=Number(p.player.bag[item])||0;if(item!=='自行车'&&n<1)return;if(isRepelItem(item)){let anchor=targetUid?p.party.slots.find(x=>x.uid===targetUid):null;if(item===GOLDEN_REPEL&&!anchor)anchor=lead?.uid?p.party.slots.find(x=>x.uid===lead.uid):p.party.slots.find(x=>hasMon(x)&&x.isLead)||p.party.slots.find(hasMon);if(!anchor)return;const st=latestState()?.state||{},step=Number(String(st.步数??st.行走步数??st.steps??'').replace(/[^0-9.-]/g,''));if(!activateRepel(p,item,anchor,step))return;outcome=item===GOLDEN_REPEL?`${item}生效：以${monName(anchor)} Lv${Math.floor(Number(anchor.lv)||1)}为基准，附近宝可梦等级至少 Lv${Math.floor(Number(anchor.lv)||1)}，不会低于目标；持续游戏内 24 小时；正文时间推进时倒计时同步变化，到时自动失效。`:`${item}生效（${REPEL_STEPS[item]}行走单位，低等级遭遇受抑制）`;}
  else if(item==='自行车'){if(n<1)return;p.world.bicycleActive=!p.world.bicycleActive;outcome=p.world.bicycleActive?'已骑上自行车':'已收起自行车';}
  else{const from=placeText(p),to=String(p.world.lastSafeLocation||'');if(!CAVE_LOC_RE.test(from)||!to)return;p.world.escapePending={from,to,at:Date.now()};p.world.location=to;p.player.bag[item]=n-1;if(!p.player.bag[item])delete p.player.bag[item];outcome=`穿洞绳生效：返回${to}`;}});}catch(err){toast('道具使用失败：'+(err?.message||err),'warning');return;}d.remove();if(outcome){toast(outcome);if(mount?.root?.isConnected){if(isRepelItem(item)){mount.tab='near';mount.nearMode='list';}renderDex(mount);}for(const nearMount of dexMounts)if(nearMount!==mount&&nearMount.tab==='near'&&nearMount.nearMode==='list')renderDex(nearMount);}else toast('世界状态已变化，道具未消耗，请重试。','warning');});
 }

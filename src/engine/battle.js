@@ -478,7 +478,6 @@
       const p = this.cur(side, slot);
       if (!p || p.fainted) return;
       p.enteredTurn = this.turnCount;
-      p._participated = true;
       p._enteredThisTurn = !initial;
       p.choiceLockedMove = null;
       this.applyEntryHazards(side, p, slot);
@@ -1022,6 +1021,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       if (firstAction && !protectMove) user._protectStreak = 0;
       if (firstAction && !this.canMove(user, baseMove)) { if (protectMove) user._protectStreak = 0; if (shared) shared.cancelled = true; return; }
       if (firstAction) {
+        user._participated = true;
         this.moveCount++;
         if (baseMove.id === 'struggle') { this._struggled = true; this.say(`${user.name} 已经没有可以使用的招式了！`); }
         if (baseMove.ppLeft > 0 && baseMove.id !== 'struggle') baseMove.ppLeft--;
