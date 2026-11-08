@@ -1,5 +1,5 @@
 import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './sprite-recovery.js?v=1.3.31';
-import * as K from './kanto-data.js?v=20261105-battle-gear-v1';
+import * as K from './kanto-data.js?v=20261030-all-requested-fixes-v7';
 import './battle-mechanics.js';
 import '../src/engine/ability-choice.js?v=1.3.31';
 import {habitatAt, habitatPool, HABITAT_LABELS, indoorAt, isCenterLocation, completedTreatment} from './field-fixes.js?v=20261026-six-fixes-1';
@@ -7,7 +7,7 @@ import {habitatAt, habitatPool, HABITAT_LABELS, indoorAt, isCenterLocation, comp
 // 由角色卡的酒馆助手脚本加载：
 //   window.ST_BRIDGE_PACK='kanto-main';
 //   window.PKM_APP_BASE_URL='https://<你的用户名>.github.io/pokemon-battle/';
-//   await import(window.PKM_APP_BASE_URL+'st-bridge/bridge.js?v=20261105-battle-gear-v1');
+//   await import(window.PKM_APP_BASE_URL+'st-bridge/bridge.js?v=20261030-all-requested-fixes-v7');
 // 面板布局依 v1.3.0 机制修复卡恢复：蓝色队伍卡、绿色六列仓库；队伍／仓库操作仍读写实时 MVU 变量。
 // 负责：开局登记界面、图鉴状态栏（PKMKanto.mountDex）、右下角精灵球（队伍/仓库/跟随）、
 //       附近野生遭遇、对战窗口（pkm-modal-v1 通道 ↔ 自己的 pokemon-battle 网页）、
@@ -166,6 +166,8 @@ let STATS = null;
 fetch(BASE + 'st-bridge/kanto-stats.json?v=' + VERSION).then(r => (r.ok ? r.json() : null)).then(j => { if (j?.s) { STATS = j; refreshAll(); } }).catch(e => LOG('能力值表加载失败（不影响主要功能）', e));
 let EFFORT_YIELDS={};
 const EFFORT_YIELDS_READY=fetch(BASE+'st-bridge/effort-yields.json?v=20261106-ev-yield-v1',{cache:'force-cache'}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(d=>{if(!d?.yields)throw new Error('努力值表结构无效');EFFORT_YIELDS=d.yields;}).catch(e=>{LOG('努力值来源表加载失败；本次战斗不伪造努力值',e);EFFORT_YIELDS={};});
+let TM_COMPATIBILITY=null;const TM_COMPATIBILITY_READY=fetch(BASE+'st-bridge/tm-compatibility.json?v=20261030-tm-union-v1',{cache:'force-cache'}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(d=>{if(!Array.isArray(d?.moveIds)||!d?.compatibility||typeof d.compatibility!=='object')throw new Error('TM兼容表结构无效');TM_COMPATIBILITY=d;TM_MOVE_ID_SET=new Set(d.moveIds);return d;}).catch(e=>{LOG('招式学习器兼容表加载失败；禁止未核实的学习机招式',e);TM_COMPATIBILITY=null;TM_MOVE_ID_SET=new Set();return null;});
+let TM_MOVE_ID_SET=new Set();
 const FRIENDSHIP_DEFAULT=0,FRIENDSHIP_MAX=255,FRIENDSHIP_EVOLUTION_THRESHOLD=160;
 const FRIENDSHIP_OLD_KEYS=['trust','passion','insight','devotion'];
 const friendshipClamp=v=>Math.max(0,Math.min(FRIENDSHIP_MAX,Math.round(Number(v)||0)));
@@ -722,8 +724,8 @@ const CAVE_LOC_RE=/(?:洞窟|洞穴|地道|矿洞|地下|遗迹|月见山|双子
 function worldItemUsable(name){return isRepelItem(name)||['穿洞绳','离洞绳','自行车'].includes(name)||name==='香水（30mL）';}
 function battleItemStock(pkm){return Object.fromEntries(Object.entries(TRAINER_ITEM_ZH_TO_ID).map(([zh,id])=>[id,Math.max(0,Math.floor(Number(pkm.player?.bag?.[zh])||0))]));}
 function repelBlocks(repel,wildLevel,timeValue){return !!(repel&&repel.item!==GOLDEN_REPEL&&!repelExpired(repel,timeValue)&&Number(repel.remaining)>0&&Number(wildLevel)<Number(repel.minLevel));}
-function goldenSprayLevel(level,repel,timeValue){const base=Math.max(2,Math.min(100,Math.floor(Number(level)||2)));if(!repel||repel.item!==GOLDEN_REPEL||repelExpired(repel,timeValue))return base;const rawFloor=Math.floor(Number(repel.minLevel)||1),legacyFloor=repel.targetLevel==null?rawFloor+1:rawFloor,floor=Math.max(1,Math.min(100,legacyFloor));return Math.max(base,floor);}
-function activateRepel(pkm,item,lead,initialSteps){const count=Number(pkm?.player?.bag?.[item])||0;if(!isRepelItem(item)||count<1||!lead)return false;const targetLevel=Math.max(1,Math.min(100,Math.floor(Number(lead.lv)||1)));if(item===GOLDEN_REPEL&&targetLevel>=100)return false;pkm.world=isObj(pkm.world)?pkm.world:{};const repel={item,minLevel:item===GOLDEN_REPEL?targetLevel+1:targetLevel,startedAt:Date.now()};if(item===GOLDEN_REPEL){repel.targetLevel=targetLevel;repel.targetUid=String(lead.uid||'');repel.targetName=String(lead.nickname||lead.species||lead.name||'目标宝可梦');const now=parseDate(pkm.world.time||latestState()?.state?.時間);if(now)repel.expiresOnDay=now.day+1;else repel.expiresAt=Date.now()+86400000;}else{repel.remaining=REPEL_STEPS[item];if(Number.isFinite(Number(initialSteps)))pkm.world.travelSteps=Number(initialSteps);}pkm.world.repel=repel;pkm.player.bag[item]=count-1;if(!pkm.player.bag[item])delete pkm.player.bag[item];return true;}
+function goldenSprayLevel(level,repel,timeValue){const base=Math.max(2,Math.min(100,Math.floor(Number(level)||2)));if(!repel||repel.item!==GOLDEN_REPEL||repelExpired(repel,timeValue))return base;const rawFloor=repel.targetLevel==null?repel.minLevel:repel.targetLevel,floor=Math.max(1,Math.min(100,Math.floor(Number(rawFloor)||1)));return Math.max(base,floor);}
+function activateRepel(pkm,item,lead,initialSteps){const count=Number(pkm?.player?.bag?.[item])||0;if(!isRepelItem(item)||count<1||!lead)return false;const targetLevel=Math.max(1,Math.min(100,Math.floor(Number(lead.lv)||1)));pkm.world=isObj(pkm.world)?pkm.world:{};const repel={item,minLevel:targetLevel,startedAt:Date.now()};if(item===GOLDEN_REPEL){repel.targetLevel=targetLevel;repel.targetUid=String(lead.uid||'');repel.targetName=String(lead.nickname||lead.species||lead.name||'目标宝可梦');const now=parseDate(pkm.world.time||latestState()?.state?.時間);if(now)repel.expiresOnDay=now.day+1;else repel.expiresAt=Date.now()+86400000;}else{repel.remaining=REPEL_STEPS[item];if(Number.isFinite(Number(initialSteps)))pkm.world.travelSteps=Number(initialSteps);}pkm.world.repel=repel;pkm.player.bag[item]=count-1;if(!pkm.player.bag[item])delete pkm.player.bag[item];return true;}
 function advanceRepel(pkm,st,oldLoc,newLoc){const repel=pkm?.world?.repel;if(!repel)return 0;if(repel.item===GOLDEN_REPEL){expireRepel(pkm,(st&&(st['时间']||st['時間']))||pkm.world.time);return 0;}if(Number(repel.remaining)<=0)return 0;let spent=0;const raw=st?.步数??st?.行走步数??st?.steps,stepN=Number(String(raw??'').replace(/[^0-9.-]/g,''));if(raw!=null&&Number.isFinite(stepN)){const prev=Number(pkm.world.travelSteps);if(Number.isFinite(prev)&&stepN>prev)spent=stepN-prev;pkm.world.travelSteps=stepN;}else if(newLoc&&oldLoc&&newLoc!==oldLoc)spent=1;if(spent>0){repel.remaining=Math.max(0,Number(repel.remaining)-spent);if(repel.remaining<=0)delete pkm.world.repel;}return spent;}
 const SHOP_PRICE = {"mart":{"精灵球":200,"超级球":600,"高级球":1200,"伤药":200,"好伤药":700,"厉害伤药":1200,"全满药":2500,"全复药":3000,"活力碎片":1500,"解毒药":200,"解麻药":200,"解眠药":250,"解烧伤药":250,"解冻药":250,"万灵药":400,"除虫喷雾":350,"白银喷雾":500,"黄金喷雾":700,"穿洞绳":300,"宝可梦玩偶":100,"PP回复药":1000},"department":{"先机球":1000,"黑暗球":1000,"计时球":1000,"重复球":1000,"捕网球":1000,"巢穴球":1000,"潜水球":1000,"豪华球":1000,"治愈球":300,"HP增强剂":10000,"攻击增强剂":10000,"防御增强剂":10000,"特攻增强剂":10000,"特防增强剂":10000,"速度增强剂":10000,"力量强化":500,"防御强化":550,"特攻强化":350,"特防强化":350,"速度强化":350,"命中强化":1000,"能力防守":1500,"击中要害":1000,"火之石":2100,"水之石":2100,"雷之石":2100,"叶之石":2100,"觉醒之石":3000,"暗之石":3000,"光之石":3000,"月之石":3000,"日之石":3000},"bicycle":{"自行车":30000},"perfume":{"香水（30mL）":6600},"specialties":{"深灰米果":500},"reputation":{"联系绳":1000,"金属膜":3000,"王者之证":3000,"锐利之爪":3000,"锐利之牙":3000,"深海之鳞":3000,"深海之牙":3000}};
 function shopCityKey(value){return String(value||'').normalize('NFKC').replace(/常青市|常盤市/g,'常磐市').replace(/華藍市/g,'华蓝市').replace(/\s+/g,'').trim();}
@@ -952,7 +954,7 @@ function summaryText(pkm) {
   if (pkm.party.box.length) lines.push(`电脑：${pkm.party.box.length} 只（${pkm.party.box.slice(-12).map(monName).join('、')}）`);
   const bag = Object.entries(pl.bag).filter(([, n]) => Number(n) > 0).map(([k, n]) => `${k}×${n}`);
   lines.push('背包：' + (bag.join('、') || '空'));
-  const repel=pkm.world.repel;if(repel&&!(repel.item===GOLDEN_REPEL&&repelExpired(repel,pkm.world.time))&&(repel.item===GOLDEN_REPEL||Number(repel.remaining)>0))lines.push(repel.item===GOLDEN_REPEL?`遭遇喷雾：黄金喷雾以${esc(repel.targetName||'目标宝可梦')} Lv${Number(repel.targetLevel)||Math.max(1,(Number(repel.minLevel)||2)-1)}为基准；附近宝可梦等级至少 Lv${goldenSprayLevel(2,repel,pkm.world.time)}（高于目标至少 1 级），有效至当前游戏日期结束，进入次日自动失效。`:`遭遇喷雾：${repel.item}仍有效；阻止等级低于首发宝可梦 Lv${repel.minLevel} 的野生遭遇，剩余约 ${repel.remaining} 行走单位（系统没有逐格移动计数；若状态栏提供步数按步数扣，否则跨地图地点估算）。`);
+  const repel=pkm.world.repel;if(repel&&!(repel.item===GOLDEN_REPEL&&repelExpired(repel,pkm.world.time))&&(repel.item===GOLDEN_REPEL||Number(repel.remaining)>0))lines.push(repel.item===GOLDEN_REPEL?`遭遇喷雾：黄金喷雾以${esc(repel.targetName||'目标宝可梦')} Lv${Number(repel.targetLevel)||Math.max(1,(Number(repel.minLevel)||2)-1)}为基准；附近列表宝可梦等级至少 Lv${goldenSprayLevel(2,repel,pkm.world.time)}（不会低于目标等级），有效至当前游戏日期结束，进入次日自动失效。`:`遭遇喷雾：${repel.item}仍有效；阻止等级低于首发宝可梦 Lv${repel.minLevel} 的野生遭遇，剩余约 ${repel.remaining} 行走单位（系统没有逐格移动计数；若状态栏提供步数按步数扣，否则跨地图地点估算）。`);
   if(pkm.world.bicycleActive)lines.push('骑行状态：已骑上自行车；可让步行/骑行剧情移动更快，地图仍由剧情与状态栏位置驱动。');
   if(pkm.world.escapePending)lines.push(`穿洞绳效果待叙述：从${pkm.world.escapePending.from}返回${pkm.world.escapePending.to}；下一条状态栏应更新地点。`);
   const seen = Object.keys(pkm.dex.seen);
@@ -2009,6 +2011,16 @@ html.pkm-kanto-native-fullscreen #pkm-kanto-modal>.bar,html.pkm-kanto-pseudo-ful
 #pkm-kanto-panel .section-title{display:flex;align-items:center;gap:6px;margin:0 0 6px;color:#a42c3d;font-size:9px;font-weight:850;letter-spacing:.06em}
 #pkm-kanto-panel .section-title:before{content:"";width:3px;height:10px;border-radius:3px;background:#d73b4c;flex:none}
 #pkm-kanto-panel .facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
+#pkm-kanto-panel .effort-editor{padding:10px;border:1px solid #e5d6cc;border-radius:11px;background:#fffdfb;scroll-margin:12px}
+#pkm-kanto-panel .effort-editor .ev-preview{display:block;margin:0 0 7px;color:#32415f;font-size:12px;font-weight:750}
+#pkm-kanto-panel .effort-editor .ev-preview.invalid{color:#a51e32}
+#pkm-kanto-panel .effort-editor .pk-note{color:#4c566b;font-size:11px;line-height:1.45}
+#pkm-kanto-panel .effort-editor .fact{color:#253047;font-size:12px;font-weight:700}
+#pkm-kanto-panel .effort-editor .fact span{color:#485571;font-size:11px}
+#pkm-kanto-panel .effort-editor input[data-ev-stat]{display:block;width:100%;min-width:0;min-height:44px;padding:8px 10px;border:2px solid #aab5c8;border-radius:8px;background:#fff;color:#172033;-webkit-text-fill-color:#172033;opacity:1;font:700 16px/1.2 system-ui,"PingFang SC","Microsoft YaHei",sans-serif;outline-offset:2px}
+#pkm-kanto-panel .effort-editor input[data-ev-stat]:focus{border-color:#315db8;box-shadow:0 0 0 3px #315db82b}
+#pkm-kanto-panel .effort-editor .actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px}
+#pkm-kanto-panel .effort-editor .actions button{min-height:42px;flex:1 1 140px;font-size:12px}
 #pkm-kanto-panel .fact{border:1px solid #eee7e1;border-radius:8px;padding:6px 7px;background:#fff;font-size:9px;color:#403a3b;min-width:0;overflow-wrap:anywhere}
 #pkm-kanto-panel .fact span{display:block;color:#958884;font-size:8px;margin-bottom:2px}
 #pkm-kanto-panel .fact.wide{grid-column:1/-1}
@@ -2079,7 +2091,7 @@ html.pkm-kanto-native-fullscreen #pkm-kanto-modal>.bar,html.pkm-kanto-pseudo-ful
  #pkm-kanto-panel .slot-card img{width:42px;height:42px}
  #pkm-kanto-panel .slot-menu{right:4px;top:4px}
  #pkm-kanto-panel .tiny-action{font-size:7px;padding:3px 4px}
- #pkm-kanto-panel .detail-pane{padding:9px 10px 13px}
+ #pkm-kanto-panel .detail-pane{padding:9px 10px 13px;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
  #pkm-kanto-panel .detail-hero>img{width:52px;height:52px}
  #pkm-kanto-panel .detail-name b{font-size:13px}
  #pkm-kanto-panel .facts{gap:4px}
@@ -2583,7 +2595,9 @@ function nearbyList(pkm, st) {
     const r = rng(hash(seedKey + '#' + i));
     let x = r() * total, pick = table[0];
     for (const t of table) { x -= t[3]; if (x <= 0) { pick = t; break; } }
-    const lv = goldenSprayLevel(Math.max(2, Math.round(pick[1] + r() * (pick[2] - pick[1]))),pkm.world?.repel,st.时间||pkm.world.time);
+    const timeValue=st.时间||pkm.world.time,baseLv=Math.max(2,Math.round(pick[1]+r()*(pick[2]-pick[1])));
+    if(repelBlocks(pkm.world?.repel,baseLv,timeValue))continue;
+    const lv=goldenSprayLevel(baseLv,pkm.world?.repel,timeValue);
     const gender = pick[0] === '尼多兰' || pick[0] === '尼多娜' || pick[0] === '吉利蛋' ? 'F' : pick[0] === '尼多朗' || pick[0] === '尼多力诺' || pick[0] === '肯泰罗' ? 'M' : (r() < .5 ? 'M' : 'F');
     const key = 'w' + hash(seedKey + '#' + i).toString(36);
     if (pkm.wild.used[key]) continue;
@@ -2592,7 +2606,7 @@ function nearbyList(pkm, st) {
     list.push({ key, species, level: lv, gender, shiny: r() < 1 / 400, fishRequired:fishSpecies.has(pick[0]), fishReady:false });
   }
   const pending=Array.isArray(pkm.wild.fishingPending)?pkm.wild.fishingPending:[];
-  for(const f of pending){if(!f||f.location!==loc||f.habitat!==habitat||pkm.wild.used[f.key])continue;const level=Math.max(2,Math.min(100,Math.floor(Number(f.level)||2))),species=wildSpeciesAtLevel(pkm,f.species,level,f.gender,f.key),ready={key:f.key,species,level,gender:f.gender,shiny:!!f.shiny,fishRequired:true,fishReady:true,fishingCatch:true};const at=list.findIndex(x=>x.key===f.key);if(at>=0)list[at]=ready;else if(list.length<6)list.unshift(ready);}
+  for(const f of pending){if(!f||f.location!==loc||f.habitat!==habitat||pkm.wild.used[f.key])continue;const baseLevel=Math.max(2,Math.min(100,Math.floor(Number(f.level)||2)));if(repelBlocks(pkm.world?.repel,baseLevel,st.时间||pkm.world.time))continue;const level=goldenSprayLevel(baseLevel,pkm.world?.repel,st.时间||pkm.world.time),species=wildSpeciesAtLevel(pkm,f.species,level,f.gender,f.key),ready={key:f.key,species,level,gender:f.gender,shiny:!!f.shiny,fishRequired:true,fishReady:true,fishingCatch:true};const at=list.findIndex(x=>x.key===f.key);if(at>=0)list[at]=ready;else if(list.length<6)list.unshift(ready);}
   if(list.length>6)list.length=6;
   return { list, reason: '', loc, habitat, waterTable };
 }
@@ -2606,10 +2620,11 @@ function dexNear(pkm, st, m) {
     habitat==='unknownWater'?`<button class="blue" disabled>钓鱼系统暂不可用</button>`:
     `<button class="blue" disabled>当前地点没有可识别水域</button>`;
   const intro=`<div class="pk-note" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap"><span>${water?`当前地点：${esc(loc)} · ${esc(HABITAT_LABELS[habitat]||'水域')}。水域遭遇必须先钓起，才会解锁这次遭遇的战斗与捕捉。`:`${habitat==='unknownWater'?'地点只写到水边，尚不能确认河流、湖泊或海域。请先把当前位置写具体。':'当前地点没有已识别的水域；到河边、湖边或海边后才能钓鱼。'}`}</span>${fishButton}</div>`;
-  if(reason)return `${intro}<div class="empty">${esc(reason)}</div>`;
+  const repel=pkm.world?.repel,repelNote=repel&&!(repel.item===GOLDEN_REPEL&&repelExpired(repel,st.时间||pkm.world.time))?(repel.item===GOLDEN_REPEL?`<div class="pk-note" style="color:#805500;background:#fff4cf;border:1px solid #e4c66d;border-radius:8px;padding:8px"><b>黄金喷雾已生效：</b>以${esc(repel.targetName||'目标宝可梦')} Lv${Math.max(1,Number(repel.targetLevel)||Number(repel.minLevel)||1)}为基准；下面附近名单里的宝可梦最低 Lv${goldenSprayLevel(2,repel,st.时间||pkm.world.time)}，不会低于目标。次日失效。</div>`:`<div class="pk-note" style="color:#346047;background:#e8f5eb;border:1px solid #b9ddc2;border-radius:8px;padding:8px"><b>${esc(repel.item)}已生效：</b>附近列表已过滤低于 Lv${Math.max(1,Number(repel.minLevel)||1)} 的遭遇；剩余 ${Math.max(0,Number(repel.remaining)||0)} 步。</div>`):'';
+  if(reason)return `${intro}${repelNote}<div class="empty">${esc(reason)}</div>`;
   const pending = Array.isArray(pkm.wild.pendingResults) ? pkm.wild.pendingResults.length : 0;
   const lockedCount=list.filter(w=>w.fishRequired&&!w.fishReady).length;
-  return `${intro}${list.length ? list.map(w => {
+  return `${intro}${repelNote}${list.length ? list.map(w => {
     const locked=!!(w.fishRequired&&!w.fishReady), disabled=locked||!canFight;
     return `<div class="near-row near-wild ${locked?'near-fish-locked':''}" data-wild-cry="${w.key}" role="group" tabindex="0" aria-label="附近的${esc(w.species)}${locked?'，须先钓起':''}" title="${locked?'水域宝可梦需先钓获，才可进入战斗或捕捉':'点击可听叫声'}">${spriteImg(w.species, { anim: true, shiny: w.shiny })}<div class="grow"><b>${esc(w.species)}</b>${w.shiny ? '<span class="tag gold">✨</span>' : ''} <span class="muted">Lv${w.level} ${genderMark(w.gender)}</span>${w.fishReady?'<span class="tag green">已钓获</span>':''}<br><span class="muted" style="font-size:11.5px">${w.fishReady?'刚才钓起的这次遭遇 · 可进入捕捉流程':locked?'水域遭遇 · 先钓鱼再对战 / 捕捉':esc(habitat&&habitat!=='land'?'在'+(HABITAT_LABELS[habitat]||'水域')+'中活动……':'在草丛里窸窸窣窣……')}</span></div><div class="acts"><button class="red" data-wild="${w.key}" data-mode="fight" ${disabled ? 'disabled' : ''}>对战</button><button class="blue" data-wild="${w.key}" data-mode="catch" ${disabled ? 'disabled' : ''}>捕捉</button></div></div>`;
   }).join('') : '<div class="empty">暂时没有可挑战的遭遇，刷新图鉴或稍后再看。</div>'}
@@ -7275,7 +7290,7 @@ function panelDetailMarkup(pkm) {
   const moveMarkup=moves.length?moves.map(m=>{const id=moveIdOf(m),label=id?zhMove(id):m,pp=ppText(s,m);return `<div class="move"><span>${esc(label)}</span><small>${pp?`PP ${esc(pp)}`:'PP —'}</small></div>`;}).join(''):'<div class="move"><span>未记录招式</span><small>—</small></div>';
   const pendingMoveMarkup=Array.isArray(s.pendingMoves)&&s.pendingMoves.length?`<div class="pk-note" style="margin-top:8px"><b>待学习招式：${s.pendingMoves.map(x=>esc(x.name||zhMove(x.move)||x.move)).join('、')}</b><br>招式栏已满，选择要替换的旧招式。<button type="button" class="action primary" data-op="learn-pending" style="margin-top:6px">选择学习</button></div>`:'';
   const pCount=pkm.party.slots.filter(hasMon).length,voice=voiceRow(s,where,selection.index),evs=effortValues(s),evTotal=K.STAT_KEYS.reduce((n,k)=>n+evs[k],0);
-  const effortMarkup=`<section class="detail-section effort-editor"><h5 class="section-title">努力值 · ${evTotal}/510</h5><p class="pk-note">可手动分配，单项最多 252、合计最多 510；自动推荐按较高的攻击/特攻方向分配 252 + 速度 252 + HP 6。</p><div class="facts">${K.STAT_KEYS.map(k=>`<label class="fact"><span>${EFFORT_LABELS[k]}</span><input type="number" min="0" max="252" step="1" value="${evs[k]}" data-ev-stat="${k}" aria-label="${EFFORT_LABELS[k]}努力值"></label>`).join('')}</div><div class="actions"><button type="button" class="action" data-op="effort-recommend">自动推荐</button><button type="button" class="action primary" data-op="effort-save">保存手动分配</button></div></section>`;
+  const effortMarkup=`<section class="detail-section effort-editor"><h5 class="section-title">努力值 · ${evTotal}/510</h5><small class="ev-preview" data-ev-preview>当前输入合计：${evTotal}/510（保存后才写入）</small><p class="pk-note">可手动分配，单项最多 252、合计最多 510；“自动推荐”只填入建议值，不会立即获得，需点击“保存手动分配”后才写入。</p><div class="facts">${K.STAT_KEYS.map(k=>`<label class="fact"><span>${EFFORT_LABELS[k]}</span><input type="number" min="0" max="252" step="1" value="${evs[k]}" data-ev-stat="${k}" aria-label="${EFFORT_LABELS[k]}努力值"></label>`).join('')}</div><div class="actions"><button type="button" class="action" data-op="effort-recommend">自动推荐</button><button type="button" class="action primary" data-op="effort-save">保存手动分配</button></div></section>`;
   const acts=where==='party'
     ? `${s.isLead?'':`<button type="button" class="action" data-op="lead" data-i="${selection.index}">设为首发</button>`}<button type="button" class="action primary" data-op="follow" data-i="${selection.index}" data-w="party">${isFollowing(pkm,s.uid)?'收回随行':'出球跟随'}</button>${pCount>1?`<button type="button" class="action" data-op="tobox" data-i="${selection.index}">存进电脑</button>`:''}`
     : `<button type="button" class="action primary" data-op="toparty" data-i="${selection.index}" ${pCount>=6?'disabled title="队伍已满 6 只"':''}>加入队伍</button><button type="button" class="action" data-op="follow" data-i="${selection.index}" data-w="box">${isFollowing(pkm,s.uid)?'收回':'跟随（先入队）'}</button>`;
@@ -7320,17 +7335,19 @@ function renderPanel() {
   <nav class="tabbar"><button type="button" class="tab ${panelTab==='party'?'active on':''}" data-tab="party">队伍 <span class="tab-count">${count}/6</span></button><button type="button" class="tab ${panelTab==='box'?'active on':''}" data-tab="box">电脑仓库 <span class="tab-count">${pkm.party.box.length}</span></button></nav>
   <div class="panel-body pb-body"><section class="list-pane pb-left"><div class="pane-top"><strong>${panelTab==='party'?'队伍伙伴':'电脑仓库'}</strong><span>${panelTab==='party'?'选择宝可梦查看详情':`第 ${panelBoxPage+1} 页 · 每页 30 格`}</span></div>${panelTab==='party'?panelPartyMarkup(pkm):panelStorageMarkup(pkm)}</section><section class="detail-pane pb-right ${panelSelection?'show':''}">${panelDetailMarkup(pkm)}</section></div>
   <footer class="panel-foot pb-foot"><span>点击伙伴查看详细资料</span><span>队伍 ${count}/6 · 仓库 ${pkm.party.box.length} 只</span></footer><div class="toast"></div>`;
-  placePanel();
+  placePanel();updateEffortPreview();
   const restoreScroll=()=>{if(!keepScroll||!el.isConnected||el.dataset.viewKey!==viewKey)return;for(const[q,y]of scrolls){const n=el.querySelector(q);if(n)n.scrollTop=y;}};
   restoreScroll();if(keepScroll&&pageScroll&&PD.scrollingElement){PD.scrollingElement.scrollTop=pageScroll.y;PD.scrollingElement.scrollLeft=pageScroll.x;}P.requestAnimationFrame(restoreScroll);
   const mons=panelTab==='party'?pkm.party.slots.filter(hasMon):pkm.party.box.filter(hasMon);probePanel(mons);
 }
 // 叫声音量：拖动滑块实时记下，松手后用跟随（或首发）的宝可梦试听一声
+function effortInputValues(){return Object.fromEntries([...PD.querySelectorAll('[data-ev-stat]')].map(x=>[x.dataset.evStat,Number(x.value)]));}
+function updateEffortPreview(){const label=PD.querySelector('[data-ev-preview]');if(!label)return;const values=effortInputValues(),checked=validateEffortSpread(values),total=K.STAT_KEYS.reduce((n,k)=>n+(Number.isFinite(values[k])?values[k]:0),0);label.textContent=checked.ok?`当前输入合计：${total}/510（保存后写入）`:`输入无效：${checked.reason}`;label.classList.toggle('invalid',!checked.ok);const save=PD.querySelector('[data-op="effort-save"]');if(save)save.disabled=!checked.ok;}
 function onPanelInput(e) {
-  const t = e.target; if (t?.dataset?.op !== 'vol') return;
-  lsSet('pkmKantoCryVol', t.value); const v = t.parentElement?.querySelector('.vv'); if (v) v.textContent = t.value;
+  const t=e.target;if(t?.matches?.('[data-ev-stat]')){updateEffortPreview();return;}if(t?.dataset?.op!=='vol')return;
+  lsSet('pkmKantoCryVol',t.value);const v=t.parentElement?.querySelector('.vv');if(v)v.textContent=t.value;
 }
-function onPanelChange(e) { const t = e.target; if (t?.dataset?.op === 'vol') { lsSet('pkmKantoCryVol', t.value); previewCry(); } }
+function onPanelChange(e){const t=e.target;if(t?.matches?.('[data-ev-stat]')){updateEffortPreview();return;}if(t?.dataset?.op==='vol'){lsSet('pkmKantoCryVol',t.value);previewCry();}}
 function previewMon() {
  const p=readPkm();
  const selected=panelSelection && (panelSelection.scope==='box'?p.party.box:p.party.slots)[panelSelection.index];
@@ -7393,11 +7410,14 @@ async function onPanelClick(e) {
     if(op==='center-heal'){try{await healAtCenter();}catch(err){toast(err.message,'warning');}return;}
     if(op==='learn-pending'){const sel=panelSelection,pk=readPkm(),list=sel?.scope==='party'?pk.party.slots:pk.party.box,mon=list?.[sel?.index];if(mon?.uid)showPendingMovePrompt(mon.uid);return;}
     if(op==='move-adjust'){const sel=panelSelection,pk=readPkm(),list=sel?.scope==='party'?pk.party.slots:pk.party.box,mon=list?.[sel?.index];if(mon?.uid)showMoveAdjust(mon.uid);return;}
-    if(op==='effort-recommend'||op==='effort-save'){
-      const sel=panelSelection;if(!sel)return;const source=sel.scope==='party'?'party':'box',inputs=[...PD.querySelectorAll('[data-ev-stat]')],values=op==='effort-save'?Object.fromEntries(inputs.map(x=>[x.dataset.evStat,Number(x.value)])):null;
-      if(op==='effort-save'){const checked=validateEffortSpread(values||{});if(!checked.ok){toast(checked.reason,'warning');return;}}
-      let saved=false,reason='';try{await writePkm(pkm=>{const list=source==='party'?pkm.party.slots:pkm.party.box,mon=list?.[sel.index];if(!hasMon(mon))return;const next=op==='effort-recommend'?recommendEfforts(mon):values,checked=validateEffortSpread(next);if(!checked.ok){reason=checked.reason;return;}if(!isObj(mon.stats_meta))mon.stats_meta={ivs:{},ev_level:0};mon.stats_meta.evs={...next};saved=true;});}catch(err){toast('努力值写回失败：'+(err?.message||err),'warning');return;}
-      if(!saved){toast(reason||'宝可梦已变化，努力值未保存。','warning');return;}renderPanel();toast(op==='effort-recommend'?'已应用推荐努力值方案；可继续手动微调。':'手动努力值分配已保存。');return;
+    if(op==='effort-recommend'){
+      const sel=panelSelection;if(!sel)return;const pkm=readPkm(),source=sel.scope==='party'?pkm.party.slots:pkm.party.box,mon=source?.[sel.index];if(!hasMon(mon)){toast('宝可梦已变化，请重新选择。','warning');return;}
+      const plan=recommendEfforts(mon),inputs=[...PD.querySelectorAll('[data-ev-stat]')];for(const input of inputs){const value=plan[input.dataset.evStat];if(Number.isInteger(value))input.value=String(value);}updateEffortPreview();toast('推荐方案已填入输入框，尚未获得努力值；确认后请点击“保存手动分配”。');return;
+    }
+    if(op==='effort-save'){
+      const sel=panelSelection;if(!sel)return;const source=sel.scope==='party'?'party':'box',values=effortInputValues(),checked=validateEffortSpread(values);if(!checked.ok){toast(checked.reason,'warning');return;}
+      let saved=false;try{await writePkm(pkm=>{const list=source==='party'?pkm.party.slots:pkm.party.box,mon=list?.[sel.index];if(!hasMon(mon))return;if(!isObj(mon.stats_meta))mon.stats_meta={ivs:{},ev_level:0};mon.stats_meta.evs={...values};saved=true;});}catch(err){toast('努力值写回失败：'+(err?.message||err),'warning');return;}
+      if(!saved){toast('宝可梦已变化，努力值未保存。','warning');return;}renderPanel();toast('努力值分配已保存。');return;
     }
     if(op==='tm-shop'){showMoveMachineShop();return;}
 
@@ -7901,7 +7921,7 @@ function launchBattle(m, pick) {
   const frame = PD.createElement('iframe');
   frame.setAttribute('allow', 'autoplay; fullscreen'); frame.setAttribute('allowfullscreen', ''); frame.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
   frame.style.background = '#070a14';
-  frame.src = `${BASE}index.html?embed=1&v=${encodeURIComponent(VERSION)}&ui=20261030-all-requested-fixes-v6`;
+  frame.src = `${BASE}index.html?embed=1&v=${encodeURIComponent(VERSION)}&ui=20261030-all-requested-fixes-v7`;
   stage.replaceWith(frame);
   m.frame = frame;
   setBar(m.cfg.lines?.start ? '「' + m.cfg.lines.start + '」' : '正在连接对战系统……');
@@ -8034,6 +8054,7 @@ function levelEvolutionEligible(pkm,mon,e,level){
   return true;
 }
 const MOVE_MACHINE_PREFIX='学习机·';
+function machineMoveCompatible(mon,moveId){if(!TM_COMPATIBILITY||!moveId||!TM_MOVE_ID_SET.has(moveId))return false;const id=speciesId(mon?.species||mon?.name);return !!(id&&TM_COMPATIBILITY.compatibility[id]?.includes(moveId));}
 function moveCandidates(mon,pkm){
  const out=new Map(),add=(name,source='已学会')=>{const n=String(name||'').trim();if(!n)return;const id=moveIdOf(n),key=id||n.toLowerCase();if(!out.has(key))out.set(key,{id,name:id?(ZH?.moves?.[id]||MOVE_ZH_BY_ID[id]||n):n,source});};
  (Array.isArray(mon?.moves)?mon.moves:[]).forEach(n=>add(n,'当前招式'));
@@ -8041,7 +8062,7 @@ function moveCandidates(mon,pkm){
  const id=speciesId(mon?.species||mon?.name),rows=LEVEL_UP_LEARNSETS?.learnsets?.[id]||[],lv=Math.max(1,Number(mon?.lv)||1);
  for(const row of rows)if(Number(row.level)<=lv){const mid=String(row.move||''),name=ZH?.moves?.[mid]||MOVE_ZH_BY_ID[mid]||row.name;if(name)add(name,'等级可回忆');}
  const state=pkm||(typeof readPkm==='function'?readPkm():null),bag=state?.player?.bag||{};
- for(const [sku,count] of Object.entries(bag))if(sku.startsWith(MOVE_MACHINE_PREFIX)&&Number(count)>0)add(sku.slice(MOVE_MACHINE_PREFIX.length),'学习机（购后可重复使用）');
+ for(const [sku,count] of Object.entries(bag))if(sku.startsWith(MOVE_MACHINE_PREFIX)&&Number(count)>0){const name=sku.slice(MOVE_MACHINE_PREFIX.length),mid=moveIdOf(name);if(machineMoveCompatible(mon,mid))add(name,'学习机（本宝可梦兼容，可重复使用）');}
  return [...out.values()];
 }
 function applyMoveLoadout(mon,selectedNames,pkm){
@@ -8880,17 +8901,18 @@ async function applyCare(){
 function findMonByUid(pkm,id){return [...(pkm?.party?.slots||[]),...(pkm?.party?.box||[])].find(m=>m?.uid===id)||null;}
 function schedulePendingMovePrompt(){setTimeout(()=>{if(modal)return;const pkm=readPkm(),mon=[...(pkm.party.slots||[]),...(pkm.party.box||[])].find(m=>Array.isArray(m?.pendingMoves)&&m.pendingMoves.length);if(mon?.uid)showPendingMovePrompt(mon.uid);},120);}
 function machineMoveRows(){
- const out=new Map();for(const [id0,name0] of Object.entries(MOVE_ZH_BY_ID||{})){const id=String(id0||'').trim().toLowerCase(),name=String(name0||'').trim();if(!id||!name||id.startsWith('max')||id.startsWith('gmax')||/极巨|Ｚ招式|Z招式|Z-Move/i.test(name))continue;if(!moveIdOf(name))continue;if(!out.has(id))out.set(id,{id,name});}return [...out.values()].sort((a,b)=>a.name.localeCompare(b.name,'zh-CN'));
+ if(!TM_COMPATIBILITY)return[];const out=new Map();for(const id0 of TM_COMPATIBILITY.moveIds||[]){const id=String(id0||'').trim().toLowerCase(),name=String(MOVE_ZH_BY_ID?.[id]||ZH?.moves?.[id]||'').trim();if(!id||!name||!moveIdOf(name)||!TM_MOVE_ID_SET.has(id))continue;if(!out.has(id))out.set(id,{id,name});}return [...out.values()].sort((a,b)=>a.name.localeCompare(b.name,'zh-CN'));
 }
 function purchaseMoveMachine(pkm,moveName){
- const name=String(moveName||'').trim();if(!name||!pkm?.player)return{ok:false,reason:'invalid'};
+ const name=String(moveName||'').trim(),id=moveIdOf(name);if(!name||!pkm?.player||!TM_COMPATIBILITY||!TM_MOVE_ID_SET.has(id))return{ok:false,reason:'invalid'};
  const sku=MOVE_MACHINE_PREFIX+name,bag=isObj(pkm.player.bag)?pkm.player.bag:{},count=Math.max(0,Number(bag[sku])||0),rep=Math.max(0,Number(pkm.player.reputation)||0);
  if(count)return{ok:false,reason:'owned'};if(rep<1000)return{ok:false,reason:'funds'};
  pkm.player.bag=bag;pkm.player.bag[sku]=1;pkm.player.reputation=rep-1000;return{ok:true,sku,balance:pkm.player.reputation};
 }
-function showMoveMachineShop(){
+async function showMoveMachineShop(){
+ try{await TM_COMPATIBILITY_READY;}catch(_){}if(!TM_COMPATIBILITY){toast('招式学习器兼容表未加载；为避免出现非列表招式或不兼容招式，商店暂不可用。','warning');return;}
  const rows=machineMoveRows(),d=PD.createElement('div');d.id='pkm-machine-shop';d.className='pkb';
- d.innerHTML=`<div class="care-card" style="max-width:720px;max-height:88vh;overflow:hidden;display:flex;flex-direction:column"><h3>学习机商店</h3><p>每种招式各售一台学习机，1000 声望。购买后永久保留，可重复使用、不消耗；在宝可梦详情的“调整招式”中选择。</p><input type="search" data-tm-search placeholder="搜索招式名称" style="width:100%;box-sizing:border-box;padding:9px;border:1px solid #ccd3df;border-radius:9px;margin:6px 0"><div data-tm-list style="overflow:auto;min-height:120px;max-height:55vh;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px"></div><div class="acts"><span data-tm-balance>声望：${Number(readPkm().player?.reputation)||0}</span><button type="button" class="ghost" data-tm-close>关闭</button></div></div>`;PD.body.append(d);
+ d.innerHTML=`<div class="care-card" style="max-width:720px;max-height:88vh;overflow:hidden;display:flex;flex-direction:column"><h3>学习机商店</h3><p>只列出52poke招式学习器大全中的TM招式。每种各售一台、1000声望；购买后可重复使用。学习招式时会按宝可梦与TM兼容表过滤，不能让不兼容的宝可梦学习。</p><input type="search" data-tm-search placeholder="搜索招式名称" style="width:100%;box-sizing:border-box;padding:9px;border:1px solid #ccd3df;border-radius:9px;margin:6px 0"><div data-tm-list style="overflow:auto;min-height:120px;max-height:55vh;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px"></div><div class="acts"><span data-tm-balance>声望：${Number(readPkm().player?.reputation)||0}</span><button type="button" class="ghost" data-tm-close>关闭</button></div></div>`;PD.body.append(d);
  const draw=()=>{const q=String(d.querySelector('[data-tm-search]')?.value||'').trim().toLowerCase(),pkm=readPkm(),bag=pkm.player?.bag||{},list=d.querySelector('[data-tm-list]');if(!list)return;const filtered=rows.filter(x=>!q||x.name.toLowerCase().includes(q)||x.id.includes(q));list.innerHTML=filtered.map(x=>{const sku=MOVE_MACHINE_PREFIX+x.name,owned=Number(bag[sku])>0;return `<div style="border:1px solid #d8deea;border-radius:9px;padding:7px;display:flex;align-items:center;justify-content:space-between;gap:6px"><span><b>${esc(x.name)}</b><small style="display:block;opacity:.7">${esc(x.id)}</small></span><button type="button" class="${owned?'ghost':'blue'}" data-tm-buy="${esc(x.id)}" ${owned?'disabled':''}>${owned?'已购买':'1000 声望'}</button></div>`;}).join('')||'<div class="pk-note">没有匹配的招式。</div>';const balance=d.querySelector('[data-tm-balance]');if(balance)balance.textContent=`声望：${Number(pkm.player?.reputation)||0} · 每台 1000`};
  d.addEventListener('input',e=>{if(e.target.matches('[data-tm-search]'))draw();});d.addEventListener('click',async e=>{if(e.target.closest('[data-tm-close]')||e.target===d){d.remove();return;}const b=e.target.closest('[data-tm-buy]');if(!b)return;const row=rows.find(x=>x.id===b.dataset.tmBuy);if(!row)return;let result='';try{await writePkm(pkm=>{const tx=purchaseMoveMachine(pkm,row.name);result=tx.ok?'ok':tx.reason;});}catch(err){toast('学习机购买失败：'+(err?.message||err),'warning');return;}draw();if(result==='ok')toast(`已购买${row.name}学习机；可重复使用，不会消耗。`);else if(result==='funds')toast('声望不足，需要 1000 声望。','warning');else toast('这台学习机已经购买过。','info');});draw();
 }
@@ -8943,21 +8965,21 @@ function showItemUseMenu(name,mount){
 }
 function showGoldenRepelTargetMenu(mount){
  const pkm=readPkm(),mons=pkm.party.slots.map((m,i)=>({m,i})).filter(x=>hasMon(x.m));if(!mons.length){toast('队伍里没有可作为目标的宝可梦；黄金喷雾未消耗。','warning');return;}
- PD.getElementById('pkm-item-target')?.remove();const d=PD.createElement('div');d.id='pkm-item-target';d.className='pkb';d.innerHTML=`<div class="care-card"><h3>选择黄金喷雾目标</h3><p>${itemIcon(GOLDEN_REPEL)} 选择一只宝可梦作为等级基准；附近宝可梦将至少比它高 1 级。效果持续至当前游戏日期结束，次日失效。</p><div style="display:grid;gap:7px;margin:12px 0">${mons.map(({m,i})=>{const lv=Math.max(1,Math.floor(Number(m.lv)||1)),blocked=lv>=100;return `<button type="button" class="ghost" data-target-index="${i}" ${blocked?'disabled':''}>${esc(monName(m))} · Lv${lv}${blocked?' · 已到Lv.100，无法生成更高等级':''}</button>`;}).join('')}</div><div class="acts"><button type="button" class="ghost" data-item-cancel>取消</button></div></div>`;PD.body.append(d);
+ PD.getElementById('pkm-item-target')?.remove();const d=PD.createElement('div');d.id='pkm-item-target';d.className='pkb';d.innerHTML=`<div class="care-card"><h3>选择黄金喷雾目标</h3><p>${itemIcon(GOLDEN_REPEL)} 选择一只宝可梦作为等级基准；效果期间，附近列表中的宝可梦等级不会低于该目标。效果持续至当前游戏日期结束，次日失效。</p><div style="display:grid;gap:7px;margin:12px 0">${mons.map(({m,i})=>{const lv=Math.max(1,Math.floor(Number(m.lv)||1));return `<button type="button" class="ghost" data-target-index="${i}">${esc(monName(m))} · Lv${lv}</button>`;}).join('')}</div><div class="acts"><button type="button" class="ghost" data-item-cancel>取消</button></div></div>`;PD.body.append(d);
  d.addEventListener('click',e=>{if(e.target.closest('[data-item-cancel]')){d.remove();return;}const b=e.target.closest('[data-target-index]');if(!b||b.disabled)return;const m=readPkm().party.slots[Number(b.dataset.targetIndex)];d.remove();if(m)showWorldItem(GOLDEN_REPEL,mount,m);});
 }
 function showWorldItem(name,mount,targetMon=null){
  const item=String(name||''),pkm=readPkm(),count=Number(pkm.player.bag[item])||0,loc=placeText(pkm),lead=targetMon||pkm.party.slots.find(x=>hasMon(x)&&x.isLead)||pkm.party.slots.find(hasMon),targetUid=targetMon?.uid||'',targetLevel=Math.max(1,Math.floor(Number(lead?.lv)||1));
  if(item==='香水（30mL）'){toast('香水（30mL）缺少可核实的主系列效果；没有消耗物品。','warning');return;}
  let title='',desc='',valid=count>0;
- if(isRepelItem(item)){title=item===GOLDEN_REPEL?'黄金喷雾':'遭遇喷雾';if(item===GOLDEN_REPEL){valid=valid&&!!lead&&targetLevel<100;desc=`以${monName(lead||{})} Lv${targetLevel}为目标等级基准；效果期间，附近宝可梦等级至少为 Lv${targetLevel+1}（高于目标至少 1 级）。持续至当前游戏日期结束，进入次日自动失效。${targetLevel>=100?'目标已达 Lv.100，无法产生更高等级的附近宝可梦，因此不能使用。':''}`;}else desc=`持续 ${REPEL_STEPS[item]} 行走单位，阻止等级低于首发宝可梦当前等级（Lv${Number(lead?.lv)||1}）的野生战斗。项目没有逐格移动计数：优先读取状态栏步数；没有步数时按跨地点移动估算。`;
+ if(isRepelItem(item)){title=item===GOLDEN_REPEL?'黄金喷雾':'遭遇喷雾';if(item===GOLDEN_REPEL){valid=valid&&!!lead;desc=`以${monName(lead||{})} Lv${targetLevel}为目标等级基准；效果期间，附近列表中的宝可梦等级至少为 Lv${targetLevel}，不会低于所选目标。持续至当前游戏日期结束，进入次日自动失效。`;}else desc=`持续 ${REPEL_STEPS[item]} 行走单位，阻止等级低于首发宝可梦当前等级（Lv${Number(lead?.lv)||1}）的野生战斗。项目没有逐格移动计数：优先读取状态栏步数；没有步数时按跨地点移动估算。`;
  }else if(item==='自行车'){title=pkm.world.bicycleActive?'收起自行车':'骑上自行车';desc='自行车可反复使用，不会从背包消失；骑行状态写入世界变量并提示剧情移动加快。地图本身没有格数速度系统。';
  }else if(['穿洞绳','离洞绳'].includes(item)){title='穿洞绳';const can=CAVE_LOC_RE.test(loc)&&!!pkm.world.lastSafeLocation;valid=valid&&can;desc=can?`从${loc}返回最近记录的洞窟外地点：${pkm.world.lastSafeLocation}。`:`仅在洞窟/地道内，且曾记录入口地点时可用；当前地点：${loc}。`;
  }else{toast(`${item}目前没有可用效果。`,'warning');return;}
  const d=PD.createElement('div');d.id='pkm-world-item-confirm';d.className='pkb';d.innerHTML=`<div class="care-card"><h3>${esc(title)}</h3><div class="care-line">${itemIcon(item)}<b>${esc(item)}</b>${item===GOLDEN_REPEL?` → ${spriteImg(lead?.species)}<b>${esc(monName(lead||{}))} · Lv${targetLevel}</b>`:''}</div><p>${esc(desc)}</p><p>${valid?'确认后立即生效。':`当前无法使用；背包不扣除。`}</p><div class="acts"><button type="button" class="ghost" data-world-cancel>取消</button><button type="button" class="blue" data-world-confirm ${valid?'':'disabled'}>确认使用</button></div></div>`;PD.body.append(d);
- d.addEventListener('click',async e=>{if(e.target.closest('[data-world-cancel]')){d.remove();return;}if(!e.target.closest('[data-world-confirm]')||!valid)return;let outcome='';try{await writePkm(p=>{const n=Number(p.player.bag[item])||0;if(item!=='自行车'&&n<1)return;if(isRepelItem(item)){let anchor=targetUid?p.party.slots.find(x=>x.uid===targetUid):null;if(item===GOLDEN_REPEL&&!anchor)anchor=lead?.uid?p.party.slots.find(x=>x.uid===lead.uid):p.party.slots.find(x=>hasMon(x)&&x.isLead)||p.party.slots.find(hasMon);if(!anchor||item===GOLDEN_REPEL&&Math.floor(Number(anchor.lv)||1)>=100)return;const st=latestState()?.state||{},step=Number(String(st.步数??st.行走步数??st.steps??'').replace(/[^0-9.-]/g,''));if(!activateRepel(p,item,anchor,step))return;outcome=item===GOLDEN_REPEL?`${item}生效：以${monName(anchor)} Lv${Math.floor(Number(anchor.lv)||1)}为基准，附近宝可梦等级至少 Lv${Math.floor(Number(anchor.lv)||1)+1}；持续至当前游戏日期结束，次日失效。`:`${item}生效（${REPEL_STEPS[item]}行走单位，低等级遭遇受抑制）`;}
+ d.addEventListener('click',async e=>{if(e.target.closest('[data-world-cancel]')){d.remove();return;}if(!e.target.closest('[data-world-confirm]')||!valid)return;let outcome='';try{await writePkm(p=>{const n=Number(p.player.bag[item])||0;if(item!=='自行车'&&n<1)return;if(isRepelItem(item)){let anchor=targetUid?p.party.slots.find(x=>x.uid===targetUid):null;if(item===GOLDEN_REPEL&&!anchor)anchor=lead?.uid?p.party.slots.find(x=>x.uid===lead.uid):p.party.slots.find(x=>hasMon(x)&&x.isLead)||p.party.slots.find(hasMon);if(!anchor)return;const st=latestState()?.state||{},step=Number(String(st.步数??st.行走步数??st.steps??'').replace(/[^0-9.-]/g,''));if(!activateRepel(p,item,anchor,step))return;outcome=item===GOLDEN_REPEL?`${item}生效：以${monName(anchor)} Lv${Math.floor(Number(anchor.lv)||1)}为基准，附近宝可梦等级至少 Lv${Math.floor(Number(anchor.lv)||1)}，不会低于目标；持续至当前游戏日期结束，次日失效。`:`${item}生效（${REPEL_STEPS[item]}行走单位，低等级遭遇受抑制）`;}
  else if(item==='自行车'){if(n<1)return;p.world.bicycleActive=!p.world.bicycleActive;outcome=p.world.bicycleActive?'已骑上自行车':'已收起自行车';}
- else{const from=placeText(p),to=String(p.world.lastSafeLocation||'');if(!CAVE_LOC_RE.test(from)||!to)return;p.world.escapePending={from,to,at:Date.now()};p.world.location=to;p.player.bag[item]=n-1;if(!p.player.bag[item])delete p.player.bag[item];outcome=`穿洞绳生效：返回${to}`;}});}catch(err){toast('道具使用失败：'+(err?.message||err),'warning');return;}d.remove();if(outcome){toast(outcome);if(mount?.root?.isConnected)renderDex(mount);}else toast('世界状态已变化，道具未消耗，请重试。','warning');});
+ else{const from=placeText(p),to=String(p.world.lastSafeLocation||'');if(!CAVE_LOC_RE.test(from)||!to)return;p.world.escapePending={from,to,at:Date.now()};p.world.location=to;p.player.bag[item]=n-1;if(!p.player.bag[item])delete p.player.bag[item];outcome=`穿洞绳生效：返回${to}`;}});}catch(err){toast('道具使用失败：'+(err?.message||err),'warning');return;}d.remove();if(outcome){toast(outcome);if(mount?.root?.isConnected){if(isRepelItem(item)){mount.tab='near';mount.nearMode='list';}renderDex(mount);}for(const nearMount of dexMounts)if(nearMount!==mount&&nearMount.tab==='near'&&nearMount.nearMode==='list')renderDex(nearMount);}else toast('世界状态已变化，道具未消耗，请重试。','warning');});
 }
 function installBagDrag(win,root){
  if(root.__pkmCareBinding?.owner===instance)return;root.__pkmCareBinding?.controller.abort();

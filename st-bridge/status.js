@@ -1,5 +1,5 @@
 import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.js?v=1.3.31';
-// External status runtime 20261030-all-requested-fixes-v6; original card UI retained.
+// External status runtime 20261030-all-requested-fixes-v7; original card UI retained.
 // v1.3.17 + v1.2.1 状态栏：只读 UI，独立命名空间，保留现有外置桥接。
 (function () {
  'use strict';
