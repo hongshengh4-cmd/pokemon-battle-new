@@ -209,6 +209,9 @@ function ensureIndividual(mon, rand = Math.random) {
   if (!isObj(mon.stats_meta.ivs)) { mon.stats_meta.ivs = {}; ch = true; }
   if (!isObj(mon.stats_meta.evs)) { mon.stats_meta.evs = {}; ch = true; }
   let evTotal=0;for(const k of K.STAT_KEYS){const v=Number(mon.stats_meta.evs[k]),cap=Number.isFinite(v)?Math.max(0,Math.min(252,Math.floor(v))):0,c=Math.min(cap,Math.max(0,510-evTotal));if(mon.stats_meta.evs[k]!==c){mon.stats_meta.evs[k]=c;ch=true;}evTotal+=c;}
+  // 努力值额度：只能由战斗结算与六项增强剂获得（上限 510）；这里只做兜底与迁移。
+  const rawEarned=Number(mon.stats_meta.ev_earned),earned=Number.isFinite(rawEarned)?Math.max(0,Math.min(510,Math.floor(rawEarned))):evTotal,earnedFix=Math.max(earned,evTotal);
+  if(mon.stats_meta.ev_earned!==earnedFix){mon.stats_meta.ev_earned=earnedFix;ch=true;}
   const iv = mon.stats_meta.ivs;
   for (const k of K.STAT_KEYS) if (iv[k] != null && iv[k] !== '' && !ivOk(iv[k]) && ivOk(Number(iv[k]))) { iv[k] = Number(iv[k]); ch = true; }
   if (!K.STAT_KEYS.every(k => ivOk(iv[k]))) {
@@ -226,6 +229,7 @@ function ensureIndividual(mon, rand = Math.random) {
   if (mon.pp !== undefined && mon.pp !== null && !isObj(mon.pp)) { mon.pp = null; ch = true; }
   if (isObj(mon.pp)) for (const [move,left] of Object.entries(mon.pp)) { const n=Number(left),max=maxPP(move); if(left==null||left===''||!Number.isFinite(n)){delete mon.pp[move];ch=true;} else if(max!=null){const fixed=Math.max(0,Math.min(max,Math.floor(n)));if(fixed!==n){mon.pp[move]=fixed;ch=true;}} }
   if (mon.hp == null && mon.pp) { mon.pp = null; ch = true; } // hp=null 表示刚治疗过（满体力），招式点数也一起回满
+  if (mon.hp == null && isObj(mon.movePPArchive)) { delete mon.movePPArchive; ch = true; } // 满体力视为已治疗：替换表里的旧 PP 也要回满
   return ch;
 }
 function ensureAllIndividuals(pkm) {
@@ -730,6 +734,37 @@ function activateRepel(pkm,item,lead,initialSteps){const count=Number(pkm?.playe
 function advanceRepel(pkm,st,oldLoc,newLoc){const repel=pkm?.world?.repel;if(!repel)return 0;if(repel.item===GOLDEN_REPEL){expireRepel(pkm,(st&&(st['时间']||st['時間']))||pkm.world.time);return 0;}if(Number(repel.remaining)<=0)return 0;let spent=0;const raw=st?.步数??st?.行走步数??st?.steps,stepN=Number(String(raw??'').replace(/[^0-9.-]/g,''));if(raw!=null&&Number.isFinite(stepN)){const prev=Number(pkm.world.travelSteps);if(Number.isFinite(prev)&&stepN>prev)spent=stepN-prev;pkm.world.travelSteps=stepN;}else if(newLoc&&oldLoc&&newLoc!==oldLoc)spent=1;if(spent>0){repel.remaining=Math.max(0,Number(repel.remaining)-spent);if(repel.remaining<=0)delete pkm.world.repel;}return spent;}
 const SHOP_PRICE = {"mart":{"精灵球":200,"超级球":600,"高级球":1200,"伤药":200,"好伤药":700,"厉害伤药":1200,"全满药":2500,"全复药":3000,"活力碎片":1500,"解毒药":200,"解麻药":200,"解眠药":250,"解烧伤药":250,"解冻药":250,"万灵药":400,"除虫喷雾":350,"白银喷雾":500,"黄金喷雾":700,"穿洞绳":300,"宝可梦玩偶":100,"PP回复药":1000},"department":{"先机球":1000,"黑暗球":1000,"计时球":1000,"重复球":1000,"捕网球":1000,"巢穴球":1000,"潜水球":1000,"豪华球":1000,"治愈球":300,"HP增强剂":10000,"攻击增强剂":10000,"防御增强剂":10000,"特攻增强剂":10000,"特防增强剂":10000,"速度增强剂":10000,"力量强化":500,"防御强化":550,"特攻强化":350,"特防强化":350,"速度强化":350,"命中强化":1000,"能力防守":1500,"击中要害":1000,"火之石":2100,"水之石":2100,"雷之石":2100,"叶之石":2100,"觉醒之石":3000,"暗之石":3000,"光之石":3000,"月之石":3000,"日之石":3000},"bicycle":{"自行车":30000},"perfume":{"香水（30mL）":6600},"specialties":{"深灰米果":500},"reputation":{"联系绳":1000,"金属膜":3000,"王者之证":3000,"锐利之爪":3000,"锐利之牙":3000,"深海之鳞":3000,"深海之牙":3000}};
 function shopCityKey(value){return String(value||'').normalize('NFKC').replace(/常青市|常盤市/g,'常磐市').replace(/華藍市/g,'华蓝市').replace(/\s+/g,'').trim();}
+// 同一地点的不同译名/写法归一到同一把钥匙，避免“红莲岛 vs 红莲镇”这类名字差异把购买和进店全部拦死。
+const PLACE_ALIAS_GROUPS=[['常磐市','常青市','常盤市','トキワ'],['深灰市','尼比市','ニビ'],['华蓝市','華藍市','ハナダ'],['枯叶市','クチバ'],['玉虹市','タマムシ'],['紫苑镇','シオン'],['金黄市','ヤマブキ'],['浅红市','セキチク'],['红莲镇','红莲岛','紅蓮島','グレン'],['真新镇','マサラ']];
+function placeKey(value){let s=String(value||'').normalize('NFKC').replace(/\s+/g,'').replace(/[·・]/g,'');for(const group of PLACE_ALIAS_GROUPS){if(group.some(n=>s.includes(n)))return group[0];}return shopCityKey(s);}
+function placeMatches(actual,expected){
+ const a=placeKey(actual),b=placeKey(expected);
+ if(!a||!b)return false;
+ if(a===b)return true;
+ const strip=v=>v.replace(/市$|镇$|村$|街$|岛$/,'');
+ return a.includes(b)||b.includes(a)||(strip(a).length>1&&strip(a)===strip(b));
+}
+const MAP_POINT_TTL_MS=90*60*1000;
+// 地图位置：优先用本次会话内存里的值（地图 UI 的点击），避免为了记位置而频繁写变量；
+// 只有进入商店/宝可梦中心这类需要持久校验的场景才镜像到存档。
+let MAP_POINT_MEM=null;
+function mapPointFresh(mp){if(!isObj(mp))return false;const at=Number(mp.at);return !(Number.isFinite(at)&&at>0&&Date.now()-at>MAP_POINT_TTL_MS);}
+function mapPointOf(pkm){const mem=mapPointFresh(MAP_POINT_MEM)?MAP_POINT_MEM:null;const saved=mapPointFresh(pkm?.world?.mapPoint)?pkm.world.mapPoint:null;if(mem&&saved)return Number(mem.at||0)>=Number(saved.at||0)?mem:saved;return mem||saved;}
+function mapPointText(pkm){const mp=mapPointOf(pkm);if(!mp)return '';return [mp.city,mp.poi,mp.room].filter(Boolean).join(' · ');}
+function recordMapPoint(payload){
+ if(!isObj(payload)||payload.level!=null&&Number(payload.level)!==3)return Promise.resolve(false);
+ const city=String(payload.city||'').trim(),poi=String(payload.poi||'').trim(),room=String(payload.room||'').trim();
+ if(!city&&!poi)return Promise.resolve(false);
+ const prev=MAP_POINT_MEM||{};
+ const next={place:String(payload.place||prev.place||''),city:city||prev.city||'',poi:poi||prev.poi||'',room,in:String(payload.in||prev.in||''),at:Date.now()};
+ MAP_POINT_MEM=next;
+ // 只有商店与宝可梦中心会参与结账/治疗校验，才值得写进存档；其余地图浏览只记在内存里。
+ const worthPersist=next.in==='mart'||/(?:宝可梦|精灵|神奇宝贝)中心/.test(next.poi);
+ if(!worthPersist)return Promise.resolve(true);
+ return writePkm(pkm=>{pkm.world=isObj(pkm.world)?pkm.world:{};const saved=pkm.world.mapPoint;
+  if(isObj(saved)&&saved.city===next.city&&saved.poi===next.poi&&saved.room===next.room&&saved.place===next.place)return false;
+  pkm.world.mapPoint={...next};return true;}).catch(e=>{LOG('记录地图位置失败',e);return false;});
+}
 function purchaseItems(store, rows, context) {
   const key=String(store||''),catalog=key==='reputation'?SHOP_PRICE.reputation:Object.assign({},...Object.entries(SHOP_PRICE).filter(([k])=>k!=='reputation').map(([,v])=>v)),city=String(context?.city||'').trim(),sourceStore=String(context?.store||''),shop=String(context?.shop||'').trim();
   if(!catalog||!Array.isArray(rows)||!rows.length)return Promise.resolve({ok:false,reason:'invalid'});
@@ -740,7 +775,15 @@ function purchaseItems(store, rows, context) {
   const counts={};
   for(const row of rows){const name=String(row?.name||'').trim(),count=Number(row?.count);if(!Object.prototype.hasOwnProperty.call(catalog,name)||!Number.isInteger(count)||count<1||count>99)return Promise.resolve({ok:false,reason:'invalid'});counts[name]=(counts[name]||0)+count;if(counts[name]>99)return Promise.resolve({ok:false,reason:'invalid'});}
   const total=Object.entries(counts).reduce((n,[name,count])=>n+catalog[name]*count,0),usesReputation=key==='reputation';
-  return writePkm(pkm=>{const actual=shopCityKey(placeText(pkm)),expected=canonicalCity;if(!actual.includes(expected))return {ok:false,reason:'location',city,location:placeText(pkm),message:`当前位置 ${placeText(pkm)} 与地图所选商店城市 ${city} 不一致。`};const balance=Math.max(0,Number(usesReputation?pkm.player.reputation:pkm.player.money)||0);if(balance<total)return {ok:false,reason:usesReputation?'reputation':'funds',balance,total};pkm.player.bag=isObj(pkm.player.bag)?pkm.player.bag:{};for(const [name,count] of Object.entries(counts))pkm.player.bag[name]=Math.max(0,Number(pkm.player.bag[name])||0)+count;if(usesReputation)pkm.player.reputation=balance-total;else pkm.player.money=balance-total;return {ok:true,total,currency:usesReputation?'reputation':'money',money:pkm.player.money,reputation:pkm.player.reputation,items:Object.entries(counts).map(([name,count])=>({name,count}))};});
+  return writePkm(pkm=>{
+   const actual=shopCityKey(placeText(pkm)),expected=canonicalCity;
+   const narrativeOk=actual.includes(expected)||placeMatches(placeText(pkm),city);
+   const mp=mapPointOf(pkm);
+   // 地图（三级内部场景）已经确认玩家正站在该城市的商店里时，以地图位置为准；
+   // 剧情文本的地点经常滞后一两条消息，不能让“只能进店、无法购买”再次出现。
+   const mapOk=!!mp&&placeMatches(mp.city,city);
+   const locationOk=narrativeOk||mapOk;
+   if(!locationOk){const where=mapPointText(pkm)||placeText(pkm);return {ok:false,reason:'location',city,location:where,message:`当前位置 ${where} 与地图所选商店城市 ${city} 不一致；请在地图上进入该城市的商店后再结账。`};}const balance=Math.max(0,Number(usesReputation?pkm.player.reputation:pkm.player.money)||0);if(balance<total)return {ok:false,reason:usesReputation?'reputation':'funds',balance,total};pkm.player.bag=isObj(pkm.player.bag)?pkm.player.bag:{};for(const [name,count] of Object.entries(counts))pkm.player.bag[name]=Math.max(0,Number(pkm.player.bag[name])||0)+count;if(usesReputation)pkm.player.reputation=balance-total;else pkm.player.money=balance-total;return {ok:true,total,currency:usesReputation?'reputation':'money',money:pkm.player.money,reputation:pkm.player.reputation,items:Object.entries(counts).map(([name,count])=>({name,count}))};});
 }
 function readPkm() { const f = findStat(); return normalize(f ? clone(f.vars.stat_data.pkm) : defaultPkm()); }
 let writeChain = Promise.resolve();
@@ -944,7 +987,7 @@ function summaryText(pkm) {
     const moves = (s.moves || []).filter(Boolean).map(m => { const t = ppText(s, m); return t && t !== `${maxPP(m)}/${maxPP(m)}` ? `${m}(PP ${t})` : m; });
     const friendship=friendshipValue(s),ev=s.stats_meta?.evs||{},evTotal=K.STAT_KEYS.reduce((n,k)=>n+Math.max(0,Math.min(252,Math.floor(Number(ev[k])||0))),0);
     return `${i + 1}. ${monName(s)}${s.nickname ? '（' + s.species + '）' : ''} Lv${s.lv ?? '?'}${genderMark(s.gender)}${!h.full && h.max ? ` HP ${h.hp}/${h.max}` : ' HP 满'}${s.status ? '·' + s.status : ''} 招式：${moves.join('/') || '—'}${s.isLead ? ' [首发]' : ''}${isFollowing(pkm,s.uid) ? ' [在身边跟随]' : ''}`
-      + `｜${s.nature ? '性格' + (natureZh(s.nature) || s.nature) : ''}｜亲密度 ${friendship}/255｜努力值 ${evTotal}/510（HP ${Number(ev.hp)||0}/攻击 ${Number(ev.atk)||0}/防御 ${Number(ev.def)||0}/特攻 ${Number(ev.spa)||0}/特防 ${Number(ev.spd)||0}/速度 ${Number(ev.spe)||0}）｜叫声${cryText(s)}`;
+      + `｜${s.nature ? '性格' + (natureZh(s.nature) || s.nature) : ''}｜亲密度 ${friendship}/255｜努力值 已获得 ${effortEarned(s)}/510（单项上限 252、合计 510；HP ${Number(ev.hp)||0}/攻击 ${Number(ev.atk)||0}/防御 ${Number(ev.def)||0}/特攻 ${Number(ev.spa)||0}/特防 ${Number(ev.spd)||0}/速度 ${Number(ev.spe)||0}）｜叫声${cryText(s)}`;
   }).filter(Boolean);
   lines.push('队伍：' + (party.length ? '\n  ' + party.join('\n  ') : '（还没有宝可梦，不能发起对战）'));
   // v1.3.8：能战斗的只数（对战名额按这个算，不要默认写成 6 只）
@@ -988,7 +1031,7 @@ function bondRules(pkm, st) {
     `- key 必须用英文 key，不能用中文名${keys.length ? '。上一幕在场人物：' + keys.join('、') : ''}。`,
     `- 宝可梦只保留一个亲密值：范围 0~255，默认 0，160 为亲密进化最低线。亲密低于160时，只有正文明确写出这只宝可梦参与了实际互动，才可写 +1；每条助手回复最多 +1。160及以上摸头、喂食、同行等日常交互不再增加。不得因每句台词、跟随、日常移动自动加值；不得再创建信任/热情/默契字段。`,
     `- 战斗胜利时脚本给实际出战的宝可梦 +1（达到160后停止），未出战不加。首次获得道馆徽章时脚本给本场出战者 +3。获得联盟冠军将荣誉设为 {\"op\":\"replace\",\"path\":\"/pkm/player/honors/leagueChampion\",\"value\":true}；获得地区冠军则写 {\"op\":\"replace\",\"path\":\"/pkm/player/honors/regionalChampion\",\"value\":true}；桥接器按实际出战队伍分别奖励 +5/+10，两项同次获得则累加，不能手动改友情数值。`,
-    '- 努力值由脚本按宝可梦种族、战斗出场/经验分享和六项规则结算；仅六项增强剂各加 10，单项上限 252、合计上限 510。剧情生成不得手动改写 stats_meta.evs.',
+    '- 努力值只能由脚本结算：击败宝可梦按种族产出（出场/经验分享规则）或使用六项增强剂各加 10，单项上限 252、合计上限 510。剧情生成不得手动改写 stats_meta.evs 或 stats_meta.ev_earned（后者是已获得额度，手动改写等于免费发努力值）。',
     '- 角色扮演不要自动增加宝可梦亲密值；亲密值的战斗增长由脚本结算，日常亲密值需有明确的重要互动。',
     '【宝可梦叫声】宝可梦（会说话的喵喵除外）只会喊自己的名字或名字的音节，队伍里的叫法见上面的“叫声”。不要把名字截成不存在的叫法（例如小火龙不叫“小火小火”，应是“小火龙～！”“小～火龙！”）。',
     '【能力与 PP】宝可梦的个体值、性格、能力值和招式剩余 PP 由脚本维护；只有实际完成宝可梦中心治疗后才将队伍每只 hp、status、pp replace 为 null（全部回满）；正文要明确说明治疗完成，路过、预约或治疗中不能回满。局部治疗只更新实际治疗对象。'].join('\n');
@@ -1285,6 +1328,9 @@ function applyPassiveRegen(pkm,timeValue){
 }
 // Center recovery writes explicit numeric full HP and clears status/PP, so the stored roster cannot keep a stale fainted flag.
 function centerLocation(pkm){return latestState()?.state?.地点||pkm.world.location||'';}
+// 玩家在地图上走进宝可梦中心内部（90 分钟内有效）也视为在中心，避免剧情地点滞后导致“无法恢复”。
+function mapCenterLocation(pkm){return mapPointText(pkm);}
+function canHealAtCenter(pkm){return isCenterLocation(centerLocation(pkm))||isCenterLocation(mapCenterLocation(pkm));}
 function healParty(pkm,plan={all:true,targets:[]}){
  let changed=false;
  const targets=new Set((plan.targets||[]).map(x=>String(x)));
@@ -1297,6 +1343,8 @@ function healParty(pkm,plan={all:true,targets:[]}){
   if(m.hp!==max){m.hp=max;changed=true;}
   if(m.status!==null){m.status=null;changed=true;}
   if(m.pp!==null){m.pp=null;changed=true;}
+  // 替换表（已换下的招式）会保存其剩余 PP；中心治疗必须一并清空，否则重新换上时仍是 0 PP。
+  if(isObj(m.movePPArchive)){delete m.movePPArchive;changed=true;}
   setHpRegenBaseline(pkm,m);
  }
  return changed;
@@ -1318,7 +1366,7 @@ function applyCenterHealing(pkm,mesid){
 async function healAtCenter(){
  await writePkm(pkm=>{
   if(PD.getElementById('pkm-kanto-modal'))throw Error('请先结束当前对战，再接受中心治疗。');
-  if(!isCenterLocation(centerLocation(pkm)))throw Error('请先进入宝可梦中心；门口、路过或前往途中不能治疗。');
+  if(!canHealAtCenter(pkm))throw Error('请先进入宝可梦中心；门口、路过或前往途中不能治疗。');
   if(!pkm.party.slots.some(hasMon))throw Error('队伍里还没有宝可梦。');
   applyCenterHealing(pkm,lastAiId());healParty(pkm);
  });
@@ -2496,7 +2544,7 @@ function dexTrainer(pkm, st) {
     <div style="grid-column:1/-1"><b>剧情</b>${esc(st.剧情 || '—')}</div>${st.在场 ? `<div style="grid-column:1/-1"><b>在场</b>${esc(st.在场)}</div>` : ''}</div>
     <div class="badges">${K.BADGES.map(b => `<span class="badge ${pl.badges.includes(b) ? 'on' : ''}" title="${esc(b)} · ${esc(K.BADGE_GYM[b])}" style="background:${K.BADGE_COLORS[b]}">${esc(b[0])}</span>`).join('')}<span class="muted" style="align-self:center;font-size:12px">徽章 ${pl.badges.length}/8</span></div>
     ${party.length ? party.map(s => `<div class="mon-row">${spriteImg(s.species || s.name, { shiny: s.shiny })}<div class="grow">${monLine(s, pkm)}<small>${esc((s.moves || []).filter(Boolean).join(' / ') || '—')}${s.hp != null && s.maxHp ? ` · HP ${s.hp}/${s.maxHp}` : ''}</small>${hpBar(s)}</div></div>`).join('') : '<div class="empty">还没有宝可梦。</div>'}
-    ${isCenterLocation(centerLocation(pkm))?'<div class="pk-note"><button type="button" class="blue" data-center-heal="1">宝可梦中心 · 治疗全队</button> 恢复 HP、状态与 PP，不消耗物品。</div>':''}<div class="pk-note">队伍管理、换首发、跟随：点右下角的精灵球。</div>`;
+    ${canHealAtCenter(pkm)?'<div class="pk-note"><button type="button" class="blue" data-center-heal="1">宝可梦中心 · 治疗全队</button> 恢复 HP、状态与 PP，不消耗物品。</div>':''}<div class="pk-note">队伍管理、换首发、跟随：点右下角的精灵球。</div>`;
 }
 function dexDex(pkm) {
   const seen = Object.entries(pkm.dex.seen), caught = new Set(pkm.dex.caught);
@@ -7116,7 +7164,7 @@ function statBlock(s) {
   const [up,down]=K.NATURE_EFFECT[natureZh(s.nature)]||[];
   const cells=K.STAT_KEYS.map(k=>`<span class="${k===up?'up':k===down?'down':''}"><b>${K.STAT_ZH[k]}</b>${st?st[k]:'—'}${k===up?'↑':k===down?'↓':''}<em>个体 ${ivOk(iv[k])?iv[k]:'?'} · 努力 ${Math.max(0,Math.min(252,Math.floor(Number(ev[k])||0)))}/252</em></span>`).join('');
   const evTotal=K.STAT_KEYS.reduce((n,k)=>n+Math.max(0,Math.min(252,Math.floor(Number(ev[k])||0))),0);
-  const bars=`<span><b>亲密度</b><i><u style="width:${friendship/FRIENDSHIP_MAX*100}%"></u></i>${friendship}/255</span><span><b>努力值</b><i><u style="width:${evTotal/510*100}%"></u></i>${evTotal}/510</span>`;
+  const bars=`<span><b>亲密度</b><i><u style="width:${friendship/FRIENDSHIP_MAX*100}%"></u></i>${friendship}/255</span><span><b>努力值</b><i><u style="width:${evTotal/510*100}%"></u></i>${evTotal}/510 · 已获得 ${effortEarned(s)}</span>`;
   return `<details class="stx" open><summary>能力 · 努力值 · 亲密度 <span class="muted">${evTotal}/510 · ${friendship}/255（进化线 160）${esc(K.QUALITY_ZH[s.quality]||'')}${cryLines(s.species||s.name)[0]?' · 叫声「'+esc(cryLines(s.species||s.name)[0])+'」':''}</span></summary><div class="sg">${cells}</div><div class="bd2">${bars}</div></details>`;
 }
 function closePanel() {
@@ -7261,8 +7309,17 @@ function battleGearMarkup(mon,pkm,index){
 const EFFORT_LABELS={hp:'HP',atk:'攻击',def:'防御',spa:'特攻',spd:'特防',spe:'速度'};
 function effortValues(mon){const raw=mon?.stats_meta?.evs||{},out={};for(const k of K.STAT_KEYS)out[k]=Math.max(0,Math.min(252,Math.floor(Number(raw[k])||0)));return out;}
 function effortTotal(mon){return K.STAT_KEYS.reduce((n,k)=>n+effortValues(mon)[k],0);}
-function recommendEfforts(mon){const stats=monStats(mon)||{},physical=Number(stats.atk)||0,special=Number(stats.spa)||0,primary=special>physical?'spa':'atk',out={hp:0,atk:0,def:0,spa:0,spd:0,spe:0};out[primary]=252;out.spe=252;out.hp=6;return out;}
-function validateEffortSpread(values){let total=0;for(const k of K.STAT_KEYS){const v=values[k];if(!Number.isInteger(v)||v<0||v>252)return{ok:false,reason:`${EFFORT_LABELS[k]}努力值必须是 0–252 的整数。`};total+=v;}return total>510?{ok:false,reason:'六项努力值总和不能超过 510。'}:{ok:true,total};}
+function recommendEfforts(mon,budget=510){
+ const stats=monStats(mon)||{},physical=Number(stats.atk)||0,special=Number(stats.spa)||0,primary=special>physical?'spa':'atk',out={hp:0,atk:0,def:0,spa:0,spd:0,spe:0};
+ let left=Math.max(0,Math.min(510,Math.floor(Number(budget)||0)));
+ for(const [k,want] of [[primary,252],['spe',252],['hp',6]]){const give=Math.min(want,left);if(give<=0)continue;out[k]=give;left-=give;}
+ return out;
+}
+function validateEffortSpread(values,budget=510){
+ let total=0;for(const k of K.STAT_KEYS){const v=values[k];if(!Number.isInteger(v)||v<0||v>252)return{ok:false,reason:`${EFFORT_LABELS[k]}努力值必须是 0–252 的整数。`};total+=v;}
+ const cap=Math.max(0,Math.min(510,Math.floor(Number(budget)||0)));
+ return total>cap?{ok:false,reason:`目前只获得过 ${cap} 点努力值，输入合计 ${total} 超出额度。`,budget:cap,total}:{ok:true,total,budget:cap};
+}
 function panelDetailMarkup(pkm) {
   const selection=panelSelection;
   const empty='<div class="detail-hero"><div class="detail-name"><b>选择一只宝可梦</b><small>点击队伍或仓库里的伙伴查看详细资料</small></div></div>';
@@ -7276,7 +7333,8 @@ function panelDetailMarkup(pkm) {
   const moveMarkup=moves.length?moves.map(m=>{const id=moveIdOf(m),label=id?zhMove(id):m,pp=ppText(s,m);return `<div class="move"><span>${esc(label)}</span><small>${pp?`PP ${esc(pp)}`:'PP —'}</small></div>`;}).join(''):'<div class="move"><span>未记录招式</span><small>—</small></div>';
   const pendingMoveMarkup=Array.isArray(s.pendingMoves)&&s.pendingMoves.length?`<div class="pk-note" style="margin-top:8px"><b>待学习招式：${s.pendingMoves.map(x=>esc(x.name||zhMove(x.move)||x.move)).join('、')}</b><br>招式栏已满，选择要替换的旧招式。<button type="button" class="action primary" data-op="learn-pending" style="margin-top:6px">选择学习</button></div>`:'';
   const pCount=pkm.party.slots.filter(hasMon).length,voice=voiceRow(s,where,selection.index),evs=effortValues(s),evTotal=K.STAT_KEYS.reduce((n,k)=>n+evs[k],0);
-  const effortMarkup=`<section class="detail-section effort-editor"><h5 class="section-title">努力值 · ${evTotal}/510</h5><small class="ev-preview" data-ev-preview>当前输入合计：${evTotal}/510（保存后才写入）</small><p class="pk-note">可手动分配，单项最多 252、合计最多 510；“自动推荐”只填入建议值，不会立即获得，需点击“保存手动分配”后才写入。</p><div class="facts">${K.STAT_KEYS.map(k=>`<label class="fact"><span>${EFFORT_LABELS[k]}</span><input type="number" min="0" max="252" step="1" value="${evs[k]}" data-ev-stat="${k}" aria-label="${EFFORT_LABELS[k]}努力值"></label>`).join('')}</div><div class="actions"><button type="button" class="action" data-op="effort-recommend">自动推荐</button><button type="button" class="action primary" data-op="effort-save">保存手动分配</button></div></section>`;
+  const evEarnedTotal=effortEarned(s),evUnspent=Math.max(0,evEarnedTotal-evTotal);
+  const effortMarkup=`<section class="detail-section effort-editor" data-ev-budget="${evEarnedTotal}"><h5 class="section-title">努力值 · 已分配 ${evTotal}/510 · 已获得 ${evEarnedTotal}/510</h5><small class="ev-preview" data-ev-preview>当前输入合计：${evTotal} · 未分配 ${evUnspent}</small><p class="pk-note">努力值只能通过<b>战斗结算</b>（击败宝可梦按种族产出）和六项<b>增强剂</b>（每瓶 +10）获得；这里只是把已获得的额度重新分配到六项上，不会凭空增加。单项最多 252、合计最多 510，未分配的额度会保留。</p><div class="facts">${K.STAT_KEYS.map(k=>`<label class="fact"><span>${EFFORT_LABELS[k]}</span><input type="number" min="0" max="252" step="1" value="${evs[k]}" data-ev-stat="${k}" aria-label="${EFFORT_LABELS[k]}努力值"></label>`).join('')}</div><div class="actions"><button type="button" class="action" data-op="effort-recommend">自动推荐</button><button type="button" class="action" data-op="effort-clear">清空分配</button><button type="button" class="action primary" data-op="effort-save">保存分配</button></div></section>`;
   const acts=where==='party'
     ? `${s.isLead?'':`<button type="button" class="action" data-op="lead" data-i="${selection.index}">设为首发</button>`}<button type="button" class="action primary" data-op="follow" data-i="${selection.index}" data-w="party">${isFollowing(pkm,s.uid)?'收回随行':'出球跟随'}</button>${pCount>1?`<button type="button" class="action" data-op="tobox" data-i="${selection.index}">存进电脑</button>`:''}`
     : `<button type="button" class="action primary" data-op="toparty" data-i="${selection.index}" ${pCount>=6?'disabled title="队伍已满 6 只"':''}>加入队伍</button><button type="button" class="action" data-op="follow" data-i="${selection.index}" data-w="box">${isFollowing(pkm,s.uid)?'收回':'跟随（先入队）'}</button>`;
@@ -7317,7 +7375,7 @@ function renderPanel() {
   const resetIcon='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-6.6 8-13A8 8 0 1 0 4 9c0 6.4 8 13 8 13Z" fill="#ff557c"/><circle cx="12" cy="9" r="2.5" fill="#fff"/></svg>';
   const soundIcon=muted?'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3Z" fill="currentColor"/><path d="m16 9 5 6m0-6-5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>':'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3Z" fill="currentColor"/><path d="M16 8a6 6 0 0 1 0 8M18.5 5.5a9.5 9.5 0 0 1 0 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
   const closeIcon='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>';
-  el.innerHTML=`<header class="panel-head pb-head"><span class="head-ball" aria-hidden="true"></span><div class="title"><b>宝可梦队伍</b><small>队伍、仓库与伙伴资料</small></div><div class="header-actions"><button type="button" class="head-action pb-x" data-op="center-heal" ${isCenterLocation(centerLocation(pkm))?'':'disabled'} title="仅在宝可梦中心治疗全队">治疗</button><button type="button" class="head-action pb-x reset-action" data-op="resetpos" title="把精灵球放回右下角">${resetIcon}</button><button type="button" class="head-action pb-x" data-op="mute" title="切换跟随叫声">${muted?'声音：关':'声音：开'}</button></div><button type="button" class="close-btn pb-x" data-op="close" aria-label="关闭队伍栏">×</button></header>
+  el.innerHTML=`<header class="panel-head pb-head"><span class="head-ball" aria-hidden="true"></span><div class="title"><b>宝可梦队伍</b><small>队伍、仓库与伙伴资料</small></div><div class="header-actions"><button type="button" class="head-action pb-x" data-op="center-heal" ${canHealAtCenter(pkm)?'':'disabled'} title="仅在宝可梦中心治疗全队">治疗</button><button type="button" class="head-action pb-x reset-action" data-op="resetpos" title="把精灵球放回右下角">${resetIcon}</button><button type="button" class="head-action pb-x" data-op="mute" title="切换跟随叫声">${muted?'声音：关':'声音：开'}</button></div><button type="button" class="close-btn pb-x" data-op="close" aria-label="关闭队伍栏">×</button></header>
   <nav class="tabbar"><button type="button" class="tab ${panelTab==='party'?'active on':''}" data-tab="party">队伍 <span class="tab-count">${count}/6</span></button><button type="button" class="tab ${panelTab==='box'?'active on':''}" data-tab="box">电脑仓库 <span class="tab-count">${pkm.party.box.length}</span></button></nav>
   <div class="panel-body pb-body"><section class="list-pane pb-left"><div class="pane-top"><strong>${panelTab==='party'?'队伍伙伴':'电脑仓库'}</strong><span>${panelTab==='party'?'选择宝可梦查看详情':`第 ${panelBoxPage+1} 页 · 每页 30 格`}</span></div>${panelTab==='party'?panelPartyMarkup(pkm):panelStorageMarkup(pkm)}</section><section class="detail-pane pb-right ${panelSelection?'show':''}">${panelDetailMarkup(pkm)}</section></div>
   <footer class="panel-foot pb-foot"><span>点击伙伴查看详细资料</span><span>队伍 ${count}/6 · 仓库 ${pkm.party.box.length} 只</span></footer><div class="toast"></div>`;
@@ -7328,7 +7386,8 @@ function renderPanel() {
 }
 // 叫声音量：拖动滑块实时记下，松手后用跟随（或首发）的宝可梦试听一声
 function effortInputValues(){return Object.fromEntries([...PD.querySelectorAll('[data-ev-stat]')].map(x=>[x.dataset.evStat,Number(x.value)]));}
-function updateEffortPreview(){const label=PD.querySelector('[data-ev-preview]');if(!label)return;const values=effortInputValues(),checked=validateEffortSpread(values),total=K.STAT_KEYS.reduce((n,k)=>n+(Number.isFinite(values[k])?values[k]:0),0);label.textContent=checked.ok?`当前输入合计：${total}/510（保存后写入）`:`输入无效：${checked.reason}`;label.classList.toggle('invalid',!checked.ok);const save=PD.querySelector('[data-op="effort-save"]');if(save)save.disabled=!checked.ok;}
+function effortBudgetFromPanel(){const box=PD.querySelector('[data-ev-budget]'),n=Number(box?.dataset?.evBudget);return Number.isFinite(n)?Math.max(0,Math.min(510,n)):510;}
+function updateEffortPreview(){const label=PD.querySelector('[data-ev-preview]');if(!label)return;const values=effortInputValues(),budget=effortBudgetFromPanel(),checked=validateEffortSpread(values,budget),total=K.STAT_KEYS.reduce((n,k)=>n+(Number.isFinite(values[k])?values[k]:0),0);label.textContent=checked.ok?`当前输入合计：${total}/${budget} · 未分配 ${Math.max(0,budget-total)}`:`输入无效：${checked.reason}`;label.classList.toggle('invalid',!checked.ok);const save=PD.querySelector('[data-op="effort-save"]');if(save)save.disabled=!checked.ok;}
 function onPanelInput(e) {
   const t=e.target;if(t?.matches?.('[data-ev-stat]')){updateEffortPreview();return;}if(t?.dataset?.op!=='vol')return;
   lsSet('pkmKantoCryVol',t.value);const v=t.parentElement?.querySelector('.vv');if(v)v.textContent=t.value;
@@ -7398,12 +7457,20 @@ async function onPanelClick(e) {
     if(op==='move-adjust'){const sel=panelSelection,pk=readPkm(),list=sel?.scope==='party'?pk.party.slots:pk.party.box,mon=list?.[sel?.index];if(mon?.uid)showMoveAdjust(mon.uid);return;}
     if(op==='effort-recommend'){
       const sel=panelSelection;if(!sel)return;const pkm=readPkm(),source=sel.scope==='party'?pkm.party.slots:pkm.party.box,mon=source?.[sel.index];if(!hasMon(mon)){toast('宝可梦已变化，请重新选择。','warning');return;}
-      const plan=recommendEfforts(mon),inputs=[...PD.querySelectorAll('[data-ev-stat]')];for(const input of inputs){const value=plan[input.dataset.evStat];if(Number.isInteger(value))input.value=String(value);}updateEffortPreview();toast('推荐方案已填入输入框，尚未获得努力值；确认后请点击“保存手动分配”。');return;
+      const budget=effortEarned(mon);
+      if(budget<=0){toast('这只宝可梦还没获得过努力值：先战斗或使用六项增强剂，再来分配。','warning');return;}
+      const plan=recommendEfforts(mon,budget),inputs=[...PD.querySelectorAll('[data-ev-stat]')];for(const input of inputs){const value=plan[input.dataset.evStat];if(Number.isInteger(value))input.value=String(value);}updateEffortPreview();toast(`推荐方案已在 ${budget} 点已获额度内填入；确认后点击“保存分配”。`);return;
+    }
+    if(op==='effort-clear'){
+      for(const input of PD.querySelectorAll('[data-ev-stat]'))input.value='0';
+      updateEffortPreview();toast('输入框已清空为 0；点击“保存分配”才会写入。');return;
     }
     if(op==='effort-save'){
-      const sel=panelSelection;if(!sel)return;const source=sel.scope==='party'?'party':'box',values=effortInputValues(),checked=validateEffortSpread(values);if(!checked.ok){toast(checked.reason,'warning');return;}
-      let saved=false;try{await writePkm(pkm=>{const list=source==='party'?pkm.party.slots:pkm.party.box,mon=list?.[sel.index];if(!hasMon(mon))return;if(!isObj(mon.stats_meta))mon.stats_meta={ivs:{},ev_level:0};mon.stats_meta.evs={...values};saved=true;});}catch(err){toast('努力值写回失败：'+(err?.message||err),'warning');return;}
-      if(!saved){toast('宝可梦已变化，努力值未保存。','warning');return;}renderPanel();toast('努力值分配已保存。');return;
+      const sel=panelSelection;if(!sel)return;const source=sel.scope==='party'?'party':'box',values=effortInputValues();
+      let saved='',error='';
+      try{await writePkm(pkm=>{const list=source==='party'?pkm.party.slots:pkm.party.box,mon=list?.[sel.index];if(!hasMon(mon)){error='missing';return;}if(!isObj(mon.stats_meta))mon.stats_meta={ivs:{},ev_level:0,ev_earned:0};const budget=effortEarned(mon),checked=validateEffortSpread(values,budget);if(!checked.ok){error=checked.reason;return;}mon.stats_meta.evs={...values};mon.stats_meta.ev_earned=budget;saved='ok';});}catch(err){toast('努力值写回失败：'+(err?.message||err),'warning');return;}
+      if(error){toast(error,'warning');return;}
+      if(!saved){toast('宝可梦已变化，努力值未保存。','warning');return;}renderPanel();toast('努力值分配已保存（未使用已获得额度以外的点数）。');return;
     }
     if(op==='tm-shop'){showMoveMachineShop();return;}
 
@@ -8083,7 +8150,28 @@ function learnLevelMovesAt(mon,level){
  }
  return{learned,pending,unavailable:false};
 }
-function addEffortYield(mon,yields){if(!hasMon(mon)||!isObj(yields))return[];ensureIndividual(mon);const ev=mon.stats_meta.evs,changes=[];let total=K.STAT_KEYS.reduce((n,k)=>n+Math.max(0,Math.min(252,Math.floor(Number(ev[k])||0))),0);for(const k of K.STAT_KEYS){const amount=Math.max(0,Math.floor(Number(yields[k])||0)),current=Math.max(0,Math.min(252,Math.floor(Number(ev[k])||0))),gain=Math.max(0,Math.min(amount,252-current,510-total));if(gain){ev[k]=current+gain;total+=gain;changes.push({stat:k,gain,total:ev[k]});}}return changes;}
+function effortEarned(mon){
+ const raw=Number(mon?.stats_meta?.ev_earned),total=K.STAT_KEYS.reduce((n,k)=>n+Math.max(0,Math.min(252,Math.floor(Number(mon?.stats_meta?.evs?.[k])||0))),0);
+ if(!Number.isFinite(raw))return total;
+ return Math.min(510,Math.max(total,Math.max(0,Math.floor(raw))));
+}
+function addEffortYield(mon,yields){
+ if(!hasMon(mon)||!isObj(yields))return[];
+ ensureIndividual(mon);
+ const ev=mon.stats_meta.evs,changes=[];
+ let total=K.STAT_KEYS.reduce((n,k)=>n+Math.max(0,Math.min(252,Math.floor(Number(ev[k])||0))),0);
+ let earned=effortEarned(mon);
+ for(const k of K.STAT_KEYS){
+  const amount=Math.max(0,Math.floor(Number(yields[k])||0));if(!amount)continue;
+  const current=Math.max(0,Math.min(252,Math.floor(Number(ev[k])||0)));
+  const gain=Math.max(0,Math.min(amount,252-current,510-total,510-earned));
+  if(!gain)continue;
+  ev[k]=current+gain;total+=gain;earned+=gain;
+  changes.push({stat:k,gain,total:ev[k]});
+ }
+ if(changes.length)mon.stats_meta.ev_earned=Math.min(510,earned);
+ return changes;
+}
 function awardBattleEffort(pkm,payload,outcome,battleType){if(outcome!=='victory'||!EFFORT_YIELDS||!isObj(EFFORT_YIELDS))return[];const defeated={};for(const enemy of payload.enemyTeam||[]){const id=speciesId(enemy.species||enemy.baseSpecies),y=EFFORT_YIELDS[id]||EFFORT_YIELDS[speciesId(enemy.baseSpecies||enemy.species)];if(!y)continue;for(const k of K.STAT_KEYS)defeated[k]=(defeated[k]||0)+(Number(y[k])||0);}if(!K.STAT_KEYS.some(k=>defeated[k]>0))return[];const participated=new Set((payload.playerTeam||[]).filter(p=>p.participated!==false&&Number.isInteger(Number(p.hostSlot))).map(p=>Number(p.hostSlot))),recipients=new Set(participated);if(battleType==='wild'){(pkm.party.slots||[]).forEach((m,i)=>{if(hasMon(m))recipients.add(i);});}else if(['学习装置','经验分享','经验分享器'].some(n=>Number(pkm.player?.bag?.[n])>0)){(pkm.party.slots||[]).forEach((m,i)=>{if(hasMon(m))recipients.add(i);});}const gains=[];for(const i of recipients){const mon=pkm.party.slots[i];if(!hasMon(mon))continue;const changes=addEffortYield(mon,defeated);if(changes.length)gains.push({name:monName(mon),changes,total:K.STAT_KEYS.reduce((n,k)=>n+Number(mon.stats_meta?.evs?.[k]||0),0)});}return gains;}
 function awardBattleExperience(pkm, payload, outcome, battleType, eventId='自由') {
   const gained=[],sideMons=[]; if(outcome!=='victory')return gained;
@@ -8758,7 +8846,7 @@ function careInfo(name,mon,pkm){
  const h=panelHpInfo(mon),max=h.max||monStats(mon)?.hp||1,n=canonicalCareItem(name),status=careStatusKey(mon.status),faint=!!h.faint||status==='faint';
  const hp=faint?0:Math.max(0,Number(h.hp??max)||0);let nextHp=hp,nextStatus=mon.status??null,revive=false,cured=false,curedConfusion=false,healed=0,valid=false,reason='该道具对当前目标无效果。';
  if(n==='神奇糖果'){const lv=Math.max(1,Math.min(100,Math.floor(Number(mon.lv)||5)));return{hp,max,heal:0,nextHp,nextStatus,revive,cured,valid:!faint&&lv<100,reason:faint?'濒死宝可梦不能使用神奇糖果。':lv>=100?'已经达到 Lv.100。':'等级提升 1 级',status:mon.status??null,item:n,levelUp:!faint&&lv<100};}
- if(Object.hasOwn(CARE_VITAMINS,n)){const evStat=CARE_VITAMINS[n],evs=mon.stats_meta?.evs||{},keys=K.STAT_KEYS||['hp','atk','def','spa','spd','spe'],current=Math.max(0,Math.min(252,Math.floor(Number(evs[evStat])||0))),total=keys.reduce((sum,k)=>sum+Math.max(0,Math.floor(Number(evs[k])||0)),0),evGain=Math.max(0,Math.min(10,252-current,510-total));return{hp,max,heal:0,nextHp,nextStatus,revive,cured,curedConfusion:false,evStat,evGain,evNow:current+evGain,evTotal:total+evGain,valid:evGain>0,reason:evGain?'努力值增加 '+evGain:current>=252?'该项努力值已达到 252。':'总努力值已达到 510。',status:mon.status??null,item:n};}
+ if(Object.hasOwn(CARE_VITAMINS,n)){const evStat=CARE_VITAMINS[n],evs=mon.stats_meta?.evs||{},keys=K.STAT_KEYS||['hp','atk','def','spa','spd','spe'],current=Math.max(0,Math.min(252,Math.floor(Number(evs[evStat])||0))),total=keys.reduce((sum,k)=>sum+Math.max(0,Math.floor(Number(evs[k])||0)),0),evGain=Math.max(0,Math.min(10,252-current,510-total,510-effortEarned(mon)));return{hp,max,heal:0,nextHp,nextStatus,revive,cured,curedConfusion:false,evStat,evGain,evNow:current+evGain,evTotal:total+evGain,valid:evGain>0,reason:evGain?'努力值增加 '+evGain:current>=252?'该项努力值已达到 252。':'总努力值已达到 510。',status:mon.status??null,item:n};}
  if(CARE_REVIVE_HALF.has(n)||CARE_REVIVE_FULL.has(n)){  
   if(faint){nextHp=CARE_REVIVE_HALF.has(n)?Math.max(1,Math.ceil(max/2)):max;nextStatus=null;revive=true;cured=mon.status!=null;healed=nextHp;valid=true;reason='复苏并恢复 HP';}
   else reason='目标未濒死，复活道具不会消耗。';
@@ -8785,7 +8873,7 @@ function careBatchInfo(name,mon,pkm,requested=1){
  for(let i=0;i<count;i++){
   const ef=careInfo(name,sim,pkm);if(!ef.valid){last=ef;break;}used++;last=ef;heal+=Number(ef.heal)||0;friendshipLoss+=Number(ef.friendshipLoss)||0;evGain+=Number(ef.evGain)||0;revive=revive||!!ef.revive;cured=cured||!!ef.cured;curedConfusion=curedConfusion||!!ef.curedConfusion;
   sim.hp=ef.nextHp;sim.maxHp=ef.max;if(ef.cured||ef.revive)sim.status=ef.nextStatus;if(ef.curedConfusion){sim.confused=false;sim.confusion=false;}
-  if(ef.evStat){if(!isObj(sim.stats_meta))sim.stats_meta={ivs:{},ev_level:0};if(!isObj(sim.stats_meta.evs))sim.stats_meta.evs={};sim.stats_meta.evs[ef.evStat]=Math.max(0,Math.min(252,Math.floor(Number(sim.stats_meta.evs[ef.evStat])||0)+ef.evGain));}
+  if(ef.evStat){if(!isObj(sim.stats_meta))sim.stats_meta={ivs:{},ev_level:0};if(!isObj(sim.stats_meta.evs))sim.stats_meta.evs={};sim.stats_meta.evs[ef.evStat]=Math.max(0,Math.min(252,Math.floor(Number(sim.stats_meta.evs[ef.evStat])||0)+ef.evGain));sim.stats_meta.ev_earned=Math.min(510,effortEarned(sim)+ef.evGain);}
   if(ef.friendshipLoss){if(!isObj(sim.friendship))sim.friendship={official:FRIENDSHIP_DEFAULT};const f=Number(sim.friendship.official),current=Number.isFinite(f)?Math.max(0,Math.min(255,f)):FRIENDSHIP_DEFAULT;sim.friendship.official=Math.max(0,current-ef.friendshipLoss);}
  }
  const keys=K.STAT_KEYS||['hp','atk','def','spa','spd','spe'],evs=sim.stats_meta?.evs||{},evTotal=keys.reduce((sum,k)=>sum+Math.max(0,Math.floor(Number(evs[k])||0)),0);
@@ -8824,7 +8912,7 @@ async function applyCare(){
   const equipId=(op.evolutionUse||op.directUse)?'':(op.equipId||heldItemId(op.name)),selected=Math.max(1,Math.floor(Number(op.quantity)||1));requestedCount=isCareItem(op.name)&&!equipId?Math.min(selected,bagCount):1;let ef=equipId?{valid:heldItemId(m.item)!==equipId,equipment:true,used:1}:isCareItem(op.name)?careBatchInfo(op.name,m,pkm,requestedCount):careInfo(op.name,m,pkm);if(!ef.valid)return;usedCount=Math.max(1,Math.min(bagCount,Math.floor(Number(ef.used)||1)));
   if(ef.equipment){const oldId=heldItemId(m.item),oldItem=String(m.item||'').trim();if(oldItem){const oldName=oldId?(HELD_ITEM_ZH_BY_ID[oldId]||oldItem):oldItem;giveBagItem(pkm,oldName,1);}if(m.battleGear?.itemName){giveBagItem(pkm,m.battleGear.itemName,1);delete m.battleGear;}m.item=HELD_ITEM_ZH_BY_ID[equipId]||canonicalCareItem(op.name);equipped={to:m.item,from:oldItem};}
   else if(ef.levelUp){const from=Math.max(1,Math.min(100,Math.floor(Number(m.lv)||5))),to=from+1,oldMax=Number(m.maxHp)>0?Number(m.maxHp):(monStats(m)?.hp||1),oldHp=m.hp;m.lv=to;m.exp=experienceThreshold(m,to);const newMax=monStats(m)?.hp||oldMax;m.maxHp=newMax;if(oldHp==null)m.hp=null;else if(oldHp===0||m.status==='濒死')m.hp=0;else m.hp=Math.min(newMax,Number(oldHp)+Math.max(0,newMax-oldMax));const lr=learnLevelMovesAt(m,to);levelLearned=lr.learned;levelPending=lr.pending;levelLearnsetUnavailable=lr.unavailable;const ev=applyLevelEvolutions(pkm,m,from,to,'自由');levelEvolutions=ev.records;for(const side of ev.sideMons){if(pkm.party.slots.some(s=>!hasMon(s))){placeMon(pkm,side);pkm.dex=isObj(pkm.dex)?pkm.dex:{};if(!Array.isArray(pkm.dex.caught))pkm.dex.caught=[];if(!pkm.dex.caught.includes(side.species))pkm.dex.caught.push(side.species);addSeen(pkm,side.species,'自由');}}leveled={from,to};}
-  else if(ef.evStat){if(!isObj(m.stats_meta))m.stats_meta={ivs:{},ev_level:0};if(!isObj(m.stats_meta.evs))m.stats_meta.evs={};const keys=K.STAT_KEYS||['hp','atk','def','spa','spd','spe'];for(const k of keys)if(!Number.isFinite(Number(m.stats_meta.evs[k])))m.stats_meta.evs[k]=0;m.stats_meta.evs[ef.evStat]=Math.max(0,Math.min(252,Math.floor(Number(m.stats_meta.evs[ef.evStat])||0)+ef.evGain));evChange={stat:ef.evStat,gain:ef.evGain,total:ef.evTotal};const oldHp=m.hp,newMax=monStats(m)?.hp||ef.max;m.maxHp=newMax;if(oldHp==null)m.hp=null;else m.hp=Math.max(0,Math.min(newMax,Number(oldHp)||0));}
+  else if(ef.evStat){if(!isObj(m.stats_meta))m.stats_meta={ivs:{},ev_level:0};if(!isObj(m.stats_meta.evs))m.stats_meta.evs={};const keys=K.STAT_KEYS||['hp','atk','def','spa','spd','spe'];for(const k of keys)if(!Number.isFinite(Number(m.stats_meta.evs[k])))m.stats_meta.evs[k]=0;m.stats_meta.evs[ef.evStat]=Math.max(0,Math.min(252,Math.floor(Number(m.stats_meta.evs[ef.evStat])||0)+ef.evGain));m.stats_meta.ev_earned=Math.min(510,effortEarned(m));evChange={stat:ef.evStat,gain:ef.evGain,total:ef.evTotal};const oldHp=m.hp,newMax=monStats(m)?.hp||ef.max;m.maxHp=newMax;if(oldHp==null)m.hp=null;else m.hp=Math.max(0,Math.min(newMax,Number(oldHp)||0));}
   else if(ef.evolution?.valid)evolved=applyDirectEvolution(pkm,m,ef.evolution);else{m.hp=ef.nextHp;m.maxHp=ef.max;if(ef.cured)m.status=null;}
   if(ef.curedConfusion){m.confused=false;m.confusion=false;}
   if(ef.friendshipLoss){if(!isObj(m.friendship))m.friendship={official:FRIENDSHIP_DEFAULT};const raw=Number(m.friendship.official),current=Number.isFinite(raw)?Math.max(0,Math.min(255,raw)):FRIENDSHIP_DEFAULT;const next=Math.max(0,current-ef.friendshipLoss);m.friendship.official=next;friendshipChange=current-next;}
@@ -9046,7 +9134,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261105-battle-gear-v1", base: BASE, mountDex, installBagDrag, healAtCenter, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, version: VERSION, fixVersion: "20261111-ev-pp-shop-v9", base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
