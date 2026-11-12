@@ -21,6 +21,11 @@ import {habitatAt, habitatPool, HABITAT_LABELS, indoorAt, isCenterLocation, comp
 //       ② 和小智 / 小霞 / 小刚对战时，对战块漏写的伙伴宝可梦按原作进度补上（例：小智收服绿毛虫后 = 皮卡丘 + 绿毛虫）。
 //       ③ 对战画面的信息改准：顶部标签写对战类型和双方实际只数，敌方信息框写对手名字，战斗记录第一行写明赛制。
 // v1.3.7：精灵球可拖到屏幕任意位置；叫声可换成自己的动画配音（st-bridge/audio/cries/<id>.mp3）。
+// v1.3.57 修复①②③：① 同一只宝可梦（uid 相同）的身份字段（性格/特性/个体值/资质/球种/来源/昵称/王牌）以脚本写入为准，
+//       AI 的整槽 UpdateVariable 不再把它悄悄换成另一套（修复"正文说固执、面板却显示慎重"）；进化时物种变化，特性允许随进化更新，性别只在原本为空时采纳 AI 补充。
+//       ② 亲密度跟随 uid 搬家：换兽/存取电脑时旧亲密值跟着宝可梦走，整槽模板覆盖不再清零（吉利蛋 21→0 之类）；正式下降仍走细粒度路径与照顾道具。
+//       ③ 修掉"亲密度恰好等于 70 会被旧版迁移清零"的问题（70 是正常游玩完全能达到的数值，不再是旧版默认值的特征）。
+//       ④ 变量摘要里电脑仓库每只附带性格/资质，收服摘要附带完整个体信息，AI 叙述与变量不再出现两套数值。
 
 const VERSION = K.VERSION;
 const W = window;
@@ -210,7 +215,7 @@ function legacyFriendshipValue(data){const old=data?.avs||{};const vals=FRIENDSH
 function friendshipValue(mon){const f=mon?.friendship||{},raw=f.official;if(raw!=null&&raw!==''&&Number.isFinite(Number(raw)))return friendshipClamp(raw);return legacyFriendshipValue(f);}
 function ensureFriendship(mon){let changed=false;if(!isObj(mon.friendship)){mon.friendship={official:FRIENDSHIP_DEFAULT};return true;}const value=friendshipValue(mon);if(mon.friendship.official!==value){mon.friendship.official=value;changed=true;}if(Object.prototype.hasOwnProperty.call(mon.friendship,'avs')){delete mon.friendship.avs;changed=true;}return changed;}
 const FRIENDSHIP_SCHEMA_VERSION=2;
-function migrateFriendshipDefaults(pkm){if(!isObj(pkm.integration))pkm.integration={};if(Number(pkm.integration.friendshipSchema)>=FRIENDSHIP_SCHEMA_VERSION)return false;for(const mon of [...(pkm.party?.slots||[]),...(pkm.party?.box||[])]){if(!hasMon(mon))continue;if(!isObj(mon.friendship))mon.friendship={};const f=mon.friendship,raw=Number(f.official);if(Number.isFinite(raw)&&raw===70){f.official=Object.hasOwn(f,'avs')?legacyFriendshipValue(f):FRIENDSHIP_DEFAULT;}else if(f.official==null||f.official===''){f.official=legacyFriendshipValue(f);}if(Object.hasOwn(f,'avs'))delete f.avs;}pkm.integration.friendshipSchema=FRIENDSHIP_SCHEMA_VERSION;return true;}
+function migrateFriendshipDefaults(pkm){if(!isObj(pkm.integration))pkm.integration={};if(Number(pkm.integration.friendshipSchema)>=FRIENDSHIP_SCHEMA_VERSION)return false;for(const mon of [...(pkm.party?.slots||[]),...(pkm.party?.box||[])]){if(!hasMon(mon))continue;if(!isObj(mon.friendship))mon.friendship={};const f=mon.friendship;if(Object.hasOwn(f,'avs')){f.official=legacyFriendshipValue(f);delete f.avs;}else if(f.official==null||f.official===''){f.official=FRIENDSHIP_DEFAULT;}}pkm.integration.friendshipSchema=FRIENDSHIP_SCHEMA_VERSION;return true;}
 
 const FRIENDSHIP_INTERACTION_RE=/(?:摸头|轻拍|拍拍|抚摸|蹭|贴过来|喂食|喂给|喂了|投喂|一起吃|拥抱|抱住|亲吻|击掌|握手|梳理|清理|照料|照顾|治疗|包扎|安慰|鼓励|守护|保护|挡下|救下|救助|训练|并肩|玩耍|交流|交谈|互动|陪伴|陪它|牵着|握爪|分享|递给|抚慰|回应)/;
 function hasExplicitPokemonInteraction(body,mon){const names=[mon?.nickname,mon?.species,mon?.name].map(x=>String(x||'').trim()).filter(Boolean);if(!names.length)return false;return String(body||'').split(/[。！？!?\n]+/).some(sentence=>names.some(n=>sentence.includes(n))&&FRIENDSHIP_INTERACTION_RE.test(sentence));}
@@ -1149,7 +1154,7 @@ function summaryText(pkm) {
     const ready = pkm.party.slots.filter(s => hasMon(s) && s.status !== '濒死' && s.hp !== 0);
     lines.push(`能战斗：${ready.length} 只${ready.length ? '（' + ready.map(monName).join('、') + '）' : '，全部失去战斗能力，先去宝可梦中心'}。野外遭遇时这 ${ready.length} 只都能轮换上场（对方只有 1 只）；和 NPC 对战没约定几对几时两边全队（对方带着的全部 vs 这 ${ready.length} 只，只数可以不一样）；道馆或约定 NvN 时最多上 N 只，不足 N 只也照常开战，参赛的全倒就判负。`);
   }
-  if (pkm.party.box.length) lines.push(`电脑：${pkm.party.box.length} 只（${pkm.party.box.slice(-12).map(monName).join('、')}）`);
+  if (pkm.party.box.length) lines.push(`电脑：${pkm.party.box.length} 只（${pkm.party.box.slice(-12).map(m => `${monName(m)}${m.nature ? '·性格' + (natureZh(m.nature) || m.nature) : ''}${m.quality ? '·资质' + (K.QUALITY_ZH[m.quality] || m.quality) : ''}`).join('、')}）；仓库宝可梦的性格/资质以变量为准，正文不得另编一套`);
   const bag = Object.entries(pl.bag).filter(([, n]) => Number(n) > 0).map(([k, n]) => `${k}×${n}`);
   lines.push('背包：' + (bag.join('、') || '空'));
   const repel=pkm.world.repel;if(repel&&!(repelKind(repel)===GOLDEN_REPEL&&repelExpired(repel,pkm))&&(repelKind(repel)===GOLDEN_REPEL||Number(repel.remaining)>0))lines.push(repelKind(repel)===GOLDEN_REPEL?`遭遇喷雾：黄金喷雾以${esc(repel.targetName||'目标宝可梦')} Lv${Number(repel.targetLevel)||Math.max(1,(Number(repel.minLevel)||2)-1)}为基准；附近列表宝可梦等级至少 Lv${goldenSprayLevel(2,repel,pkm)}（不会低于目标等级），时效：${repelCountdown(repel,pkm)}（游戏内 24 小时，随正文时间推进；已到期请不要再写效果）。`:`遭遇喷雾：${repel.item}仍有效；阻止等级低于首发宝可梦 Lv${repel.minLevel} 的野生遭遇，剩余约 ${repel.remaining} 行走单位（系统没有逐格移动计数；若状态栏提供步数按步数扣，否则跨地图地点估算）。`);
@@ -1410,7 +1415,7 @@ function reconcileBonds(pkm, mesid, presentKeys) {
 
 // 兼容旧存档中的 AVS 路径，但只迁移为单一亲密值；每条对话的正向提升最多 +1。
   const expFriend={};
-  const friendBase=m=>Number(base.integration?.friendshipSchema)<FRIENDSHIP_SCHEMA_VERSION&&Number(m?.friendship?.official)===70?(Object.hasOwn(m.friendship,'avs')?legacyFriendshipValue(m.friendship):FRIENDSHIP_DEFAULT):friendshipValue(m);
+  const friendBase=m=>friendshipValue(m);
   for(const o of ops){
     const g=o.segs;if(g[0]!=='pkm'||g[1]!=='party'||!['slots','box'].includes(g[2])||g[4]!=='friendship')continue;
     const i=Number(g[3]),bm=base.party[g[2]]?.[i];if(!Number.isInteger(i)||!hasMon(bm))continue;
@@ -1584,7 +1589,7 @@ function applySync(pkm, mesid, opts = {}) {
   const st = parseState(chat()[mesid]?.mes);
   changed = applyCenterHealing(pkm, mesid) || changed;
   const present = [];
-  if (!st) { changed=applyPassiveRegen(pkm,pkm.world.time)||changed; if(revalidateRepel(pkm,null))changed=true; return reconcileBonds(pkm, mesid, present) || changed; }
+  if (!st) { changed=applyPassiveRegen(pkm,pkm.world.time)||changed; if(revalidateRepel(pkm,null))changed=true; changed=repairSlotIdentity(pkm, mesid) || changed; return reconcileBonds(pkm, mesid, present) || changed; }
   const set = (obj, k, v) => { if (v != null && v !== '' && obj[k] !== v) { obj[k] = v; changed = true; } };
   const oldLoc=String(pkm.world.location||''),newLoc=String(st.地点||'');
   if(newLoc&&newLoc!==oldLoc&&CAVE_LOC_RE.test(newLoc)&&!CAVE_LOC_RE.test(oldLoc)){pkm.world.lastSafeLocation=oldLoc;changed=true;}
@@ -1605,10 +1610,52 @@ function applySync(pkm, mesid, opts = {}) {
       if (r.lastInteraction !== mesid) { r.lastInteraction = mesid; changed = true; }
     }
   }
+  if (repairSlotIdentity(pkm, mesid)) changed = true;
   if (reconcileBonds(pkm, mesid, present)) changed = true;
   // 关键：mergeMissingPatch 可能把旧快照里的 world.repel 补回来（钓鱼等脚本的提前写入最容易触发），
   // 所以同步流程结束前必须再按当前正文时间判定一次。
   if (revalidateRepel(pkm, st)) changed = true;
+  return changed;
+}
+// v1.3.57：身份字段保护 + 亲密度跟随 uid。只在本楼 AI 补丁确实写了队伍/仓库时才跑，照顾道具等脚本内部写值不受影响；重复执行结果不变。
+function repairSlotIdentity(pkm, mesid) {
+  const msg = chat()[mesid]; if (!msg || msg.is_user) return false;
+  const ops = parsePatchOps(msg.mes);
+  if (!ops.some(o => { const g = o.segs || []; return g[0] === 'pkm' && g[1] === 'party'; })) return false;
+  const base = prevPkm(mesid); if (!base) return false;
+  let changed = false;
+  const ivsOkAll = iv => isObj(iv) && K.STAT_KEYS.every(k => ivOk(Number(iv[k])));
+  const prevByUid = new Map();
+  for (const m of [...(base.party?.slots || []), ...(base.party?.box || [])]) if (hasMon(m) && m.uid) prevByUid.set(String(m.uid), m);
+  for (const m of [...(pkm.party?.slots || []), ...(pkm.party?.box || [])]) {
+    if (!hasMon(m) || !m.uid) continue;
+    const bm = prevByUid.get(String(m.uid));
+    if (bm) {
+      const evolved = String(m.species || m.name) !== String(bm.species || bm.name);
+      const put = k => { if (same(m[k], bm[k])) return; m[k] = bm[k] === undefined ? null : clone(bm[k]); changed = true; };
+      if (natureZh(bm.nature) && natureZh(m.nature) !== natureZh(bm.nature)) put('nature'); // 性格终身不变，战斗收服时已掷定
+      if (!evolved && bm.ability && m.ability !== bm.ability) put('ability');               // 进化后特性可能变化，允许更新
+      if (bm.shiny === true && m.shiny !== true) put('shiny');
+      if (bm.isAce === true && m.isAce !== true) put('isAce');
+      if (ivsOkAll(bm.stats_meta?.ivs)) { if (!same(m.stats_meta?.ivs, bm.stats_meta.ivs)) { if (!isObj(m.stats_meta)) m.stats_meta = {}; m.stats_meta.ivs = clone(bm.stats_meta.ivs); changed = true; }
+        if (bm.quality && m.quality !== bm.quality) put('quality'); }
+      if (bm.ball && m.ball !== bm.ball) put('ball');
+      if (bm.met && m.met !== bm.met) put('met');
+      if (bm.nickname && !m.nickname) put('nickname');
+      if (!m.notes && bm.notes) put('notes');
+      if (bm.gender && m.gender !== bm.gender) put('gender');                                // 性别只在原本为空时采纳 AI 的补充
+    }
+    const prevFriend = bm ? friendshipValue(bm) : null;
+    if (prevFriend != null) {
+      const cur = friendshipValue(m);
+      if (cur < prevFriend && cur <= 1) {                                                    // 整槽模板把亲密度写成 0/1 = 覆盖事故，回滚
+        if (!isObj(m.friendship)) m.friendship = {};
+        m.friendship.official = prevFriend;
+        if (Object.prototype.hasOwnProperty.call(m.friendship, 'avs')) delete m.friendship.avs;
+        changed = true;
+      }
+    }
+  }
   return changed;
 }
 function needsSync(mesid, opts) { const pkm = readPkm(); const a = applySync(pkm, mesid, opts); return ensureAllIndividuals(pkm) || a; }
@@ -8440,12 +8487,12 @@ async function applyResult(m, payload) {
   const fmt = m.fmt || battleFormat(cfg, (payload.playerTeam || []).length);
   const pN = (payload.playerTeam || []).length, eN = (payload.enemyTeam || []).length;
   const fmtText = fmt.wild ? `野外 · ${fmt.tag}` : fmt.full ? `两边全队（我方${pN}只 vs 对方${eN}只）` : fmt.name;
-  let placed = null, capturedName = null, gymBadgeAward = null;
+  let placed = null, capturedName = null, gymBadgeAward = null, capturedDetail = null;
   let summaryParts = [];
   let xpGains = [],evGains=[];
   const bondNotes = [], honorNotes=[];
   const result = await writePkm(pkm => {
-    summaryParts = []; bondNotes.length = 0; honorNotes.length=0; placed = null; capturedName = null; gymBadgeAward = null; evGains=[]; // writePkm 可能重算
+    summaryParts = []; bondNotes.length = 0; honorNotes.length=0; placed = null; capturedName = null; gymBadgeAward = null; capturedDetail = null; evGains=[]; // writePkm 可能重算
     const won = outcome === 'victory' || outcome === 'captured';
     // 1) 我方体力 / 异常状态
     for (const p of payload.playerTeam || []) {
@@ -8478,6 +8525,12 @@ async function applyResult(m, payload) {
     if (outcome === 'captured' && payload.capture) {
       const mon = monFromCapture(payload.capture, payload.enemyTeam?.[0], cfgTeam[0], pkm);
       capturedName = mon.species;
+      // v1.3.57：把收服掷定的个体信息写进摘要，AI 叙述从此有据可依（正文/变量/面板三处一致）
+      capturedDetail = [mon.nature ? `性格${natureZh(mon.nature) || mon.nature}` : null,
+        mon.ability ? `特性${mon.ability}` : null,
+        mon.quality ? `资质${K.QUALITY_ZH[mon.quality] || mon.quality}` : null,
+        isObj(mon.stats_meta?.ivs) ? `个体值 ${K.STAT_KEYS.map(k => `${K.STAT_ZH[k]}${Number(mon.stats_meta.ivs[k]) || 0}`).join('/')}` : null,
+        mon.gender ? `性别${({'M':'雄性','F':'雌性','N':'无性别'})[mon.gender] || mon.gender}` : null].filter(Boolean).join('，');
       placed = placeMon(pkm, mon);
       if (!pkm.dex.caught.includes(mon.species)) pkm.dex.caught.push(mon.species);
       if (mon.shiny) pkm.dex.shiny[mon.species] = [eventId, placeText(pkm), dateText(pkm), true];
@@ -8487,7 +8540,7 @@ async function applyResult(m, payload) {
     // 5) 战绩
     pkm.battle.count += 1; if (outcome === 'victory') pkm.battle.wins += 1;
     summaryParts.push(`${OUTCOME_ZH[outcome] || '结束'} · ${fmtText}${cfg.opponent ? ' · 对手：' + cfg.opponent : ''} · ${payload.turns || 0} 回合`);
-    if (capturedName) summaryParts.push(`收服了${capturedName}（${placed}）`);
+    if (capturedName) summaryParts.push(`收服了${capturedName}（${placed}${capturedDetail ? '；' + capturedDetail : ''}）`);
     if(bondNotes.length)summaryParts.push('战斗亲密值：'+bondNotes.join('，'));if(honorNotes.length)summaryParts.push('徽章荣誉亲密值：'+honorNotes.join('，'));
     if(evGains.length)summaryParts.push('努力值：'+evGains.map(x=>`${x.name} ${x.changes.map(c=>`${K.STAT_ZH[c.stat]}+${c.gain}`).join('、')}（合计 ${x.total}/510）`).join('；'));
     const summary = summaryParts.join('；');
