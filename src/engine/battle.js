@@ -60,11 +60,23 @@
   }
 
   let DEX = {}, MOVES = {};
-  function setData(dex, moves) { DEX = dex || {}; MOVES = moves || {}; }
+  // 数据包里没有描述的“自我替换 / 强制替换 / 无视地面免疫”，在装载数据时补上
+  const MOVE_EFFECT_PATCH = {
+    voltswitch: { selfSwitch: true }, uturn: { selfSwitch: true }, flipturn: { selfSwitch: true },
+    partingshot: { selfSwitch: true }, chillyreception: { selfSwitch: true }, shedtail: { selfSwitch: true },
+    teleport: { selfSwitch: true }, batonpass: { selfSwitch: 'copyvolatile' },
+    roar: { forceSwitch: true }, whirlwind: { forceSwitch: true },
+    dragontail: { forceSwitch: true }, circlethrow: { forceSwitch: true },
+    thousandarrows: { ignoreImmunity: { Ground: true } }, thousandwaves: { ignoreImmunity: { Ground: true } },
+  };
+  function setData(dex, moves) {
+    DEX = dex || {}; MOVES = moves || {};
+    for (const [id, extra] of Object.entries(MOVE_EFFECT_PATCH)) if (MOVES[id]) Object.assign(MOVES[id], extra);
+  }
   const normId = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const MECH = root.PKMMechanics || null;
   const TYPE_ITEMS = MECH?.TYPE_ITEMS || {};
-  const abilityId = p => normId(p?.ability || '');
+  const abilityId = p => p?._abilitySuppressed ? '' : normId(p?.ability || '');
   const itemId = p => normId(p?.item || '');
   const hasAbility = (p, ...ids) => ids.includes(abilityId(p));
   const STAT_LABELS = { atk: '攻击', def: '防御', spa: '特攻', spd: '特防', spe: '速度', accuracy: '命中率', evasion: '闪避率' };
@@ -72,9 +84,14 @@
   const STATUS_BY_ABILITY = { static: 'par', flamebody: 'brn', poisonpoint: 'psn' };
   const newSideField = () => ({ stealthrock: false, spikes: 0, toxicspikes: 0, stickyweb: false, reflect: 0, lightscreen: 0, auroraveil: 0, tailwind: 0, safeguard: 0, wideguard: false, quickguard: false, matblock: false });
 
+  // 千箭齐发 / 千波激荡：数据里带 ignoreImmunity，可以打中飞行系与飘浮特性
+  const ignoresImmunity = (move, type) => !!move && (move.ignoreImmunity === true
+    || !!(move.ignoreImmunity && type && move.ignoreImmunity[type]));
   function isGrounded(p) {
     if (!p) return false;
     if (p._battle?.field?.gravity > 0) return true;
+    if (p.volatile?.smackdown || p.volatile?.ingrain) return true;   // 被击落 / 扎根
+    if (p.volatile?.magnetrise || p.volatile?.telekinesis) return false; // 电磁飘浮 / 念力挪移
     return !p.types?.includes('Flying') && abilityId(p) !== 'levitate';
   }
   const MAJOR_STATUSES = new Set(['par', 'brn', 'psn', 'tox', 'slp', 'frz']);
@@ -253,6 +270,79 @@
     return { id: 'struggle', ...m, target: 'normal', ppLeft: 1, pp: 1 };
   }
 
+  // —— v1.3.55：脚本化招式的“代打执行”——在选择行动时替换成真正要用的招式对象 ——
+  const BANNED_SCRIPTED = new Set(['metronome', 'struggle', 'assist', 'copycat', 'mirrormove', 'sleeptalk', 'naturepower',
+    'mefirst', 'instruct', 'quash', 'afteryou', 'allyswitch', 'snatch', 'imprison', 'magiccoat', 'bide', 'spitup',
+    'swallow', 'destinybond', 'grudge', 'transform', 'sketch', 'mimic', 'counter', 'mirrorcoat', 'metalburst',
+    'comeuppance', 'finalgambit', 'revivalblessing', 'healingwish', 'lunardance']);
+  const FLING_POWER = { ironball: 100, toxicorb: 30, flameorb: 30, lifeorb: 30, lightball: 30, kingsrock: 30,
+    razorfang: 30, leftovers: 10, choiceband: 10, choicespecs: 10, choicescarf: 10, whiteherb: 10, focusband: 10,
+    clearamulet: 10, loadeddice: 10, sitrusberry: 80, oranberry: 60 };
+  const NATURAL_GIFT_TYPE = { cheriberry: 'Fire', chestoberry: 'Water', pechaberry: 'Electric', oranberry: 'Poison',
+    sitrusberry: 'Psychic', rawstberry: 'Grass', aspearberry: 'Ice', leppaberry: 'Fighting' };
+  function resolveScriptedMove(battle, p, base) {
+    const id = base?.id;
+    if (!id) return base;
+    if (p.volatile?.afteryou) delete p.volatile.afteryou; // 请客：优先度加成用完即消耗
+    // 号令：被号令的宝可梦这一回合自动重复上一招
+    if (p.volatile?.instructMove) {
+      const mid = p.volatile.instructMove;
+      if (MOVES[mid] && mid !== 'instruct') {
+        delete p.volatile.instructMove;
+        battle.say(`${p.name} 被号令，重复使用了 ${MOVES[mid].name}！`);
+        return { ...MOVES[mid], id: mid, ppLeft: 99 };
+      }
+    }
+    const okMove = m => m && !m.isZ && !m.isMax && !BANNED_SCRIPTED.has(m.id);
+    const pickFrom = arr => arr.length ? arr[Math.floor(battle.rng() * arr.length)] : null;
+    const copy = m => ({ ...m, ppLeft: 99 });
+    if (id === 'metronome') {
+      const pool = Object.keys(MOVES).map(k => ({ ...MOVES[k], id: k })).filter(okMove);
+      const m = pickFrom(pool);
+      if (m) { battle.say(`${p.name} 挥动手指，选中了 ${m.name}！`); return { ...m, ppLeft: 99 }; }
+      battle.say('但是失败了！'); return base;
+    }
+    if (id === 'sleeptalk') {
+      const mine = (p.moves || []).filter(m => okMove(m) && m.id !== 'sleeptalk' && m.id !== 'rest' && m.ppLeft > 0);
+      const m = pickFrom(mine);
+      if (m) { battle.say(`${p.name} 在梦中使用了 ${m.name}！`); return { ...m, ppLeft: 99 }; }
+      battle.say('但是失败了！'); return base;
+    }
+    if (id === 'assist') {
+      const side = battle.sideOf(p);
+      const pool = [];
+      for (const q of battle.teams[side] || []) if (q !== p) for (const m of q.moves || []) if (okMove(m) && m.basePower) pool.push(m);
+      const m = pickFrom(pool);
+      if (m) { battle.say(`${p.name} 借助队友的招式，使用了 ${m.name}！`); return copy(m); }
+      battle.say('但是失败了！'); return base;
+    }
+    if (id === 'copycat') {
+      const last = battle._lastExecutedMove;
+      if (last && MOVES[last] && okMove({ ...MOVES[last], id: last })) { battle.say(`${p.name} 仿效了 ${MOVES[last].name}！`); return { ...MOVES[last], id: last, ppLeft: 99 }; }
+      battle.say('但是失败了！'); return base;
+    }
+    if (id === 'mirrormove') {
+      const last = p._moveAgainst;
+      if (last && MOVES[last] && okMove({ ...MOVES[last], id: last })) { battle.say(`${p.name} 用 ${MOVES[last].name} 反击了！`); return { ...MOVES[last], id: last, ppLeft: 99 }; }
+      battle.say('但是失败了！'); return base;
+    }
+    if (id === 'mefirst') {
+      const foe = battle.cur(battle.other(battle.sideOf(p)));
+      const last = foe?._lastMoveId;
+      if (last && MOVES[last] && MOVES[last].basePower && okMove(MOVES[last])) {
+        battle.say(`${p.name} 抢先使用了 ${MOVES[last].name}！`);
+        return { ...MOVES[last], id: last, basePower: Math.floor(MOVES[last].basePower * 1.5), ppLeft: 99 };
+      }
+      battle.say('但是失败了！'); return base;
+    }
+    if (id === 'naturepower') {
+      const mid = { electric: 'thunderbolt', grassy: 'energyball', misty: 'moonblast', psychic: 'psychic' }[battle.field?.terrain] || 'triattack';
+      const m = MOVES[mid];
+      if (m) { battle.say(`自然之力变成了 ${m.name}！`); return { ...m, id: mid, ppLeft: 99 }; }
+      return base;
+    }
+    return base;
+  }
   function stabMultiplier(attacker, move) {
     if (!move?.type) return 1;
     const adaptable = hasAbility(attacker, 'adaptability');
@@ -315,7 +405,7 @@
 
   // v1.3.5：威力为 0 的特殊伤害招式（固定伤害 / 按体重、速度、体力计算威力 / 一击必杀）
   const FIXED_DAMAGE_IDS = ['seismictoss', 'nightshade', 'sonicboom', 'dragonrage', 'superfang', 'naturesmadness', 'ruination', 'psywave', 'endeavor', 'finalgambit'];
-  const VARIABLE_POWER_IDS = ['lowkick', 'grassknot', 'heavyslam', 'heatcrash', 'gyroball', 'electroball', 'flail', 'reversal', 'present', 'return', 'frustration'];
+  const VARIABLE_POWER_IDS = ['lowkick', 'grassknot', 'heavyslam', 'heatcrash', 'gyroball', 'electroball', 'flail', 'reversal', 'present', 'return', 'frustration', 'hardpress', 'crushgrip', 'wringout', 'magnitude', 'beatup', 'punishment', 'trumpcard', 'spitup', 'fling', 'naturalgift'];
   const weightOf = p => DEX[p.speciesId]?.weightkg || 50;
   function specialDamageInfo(user, target, move, rnd = 0.5) {
     if (!move || move.basePower || move.category === 'Status') return null;
@@ -341,24 +431,60 @@
       else if (id === 'flail' || id === 'reversal') { const x = Math.floor(48 * user.hp / user.maxHp); bp = x <= 1 ? 200 : x <= 4 ? 150 : x <= 9 ? 100 : x <= 16 ? 80 : x <= 32 ? 40 : 20; }
       else if (id === 'present') bp = rnd < 0.4 ? 40 : rnd < 0.7 ? 80 : 120;
       else if (id === 'return' || id === 'frustration') bp = 102;
-      return { kind: 'power', basePower: bp };
+      else if (id === 'hardpress') bp = Math.max(1, Math.floor(100 * target.hp / Math.max(1, target.maxHp)));
+      else if (id === 'crushgrip' || id === 'wringout') bp = Math.max(1, Math.floor(120 * target.hp / Math.max(1, target.maxHp)));
+      else if (id === 'magnitude') { const r = rnd * 100; let n = 10; if (r < 5) n = 4; else if (r < 15) n = 5; else if (r < 35) n = 6; else if (r < 65) n = 7; else if (r < 85) n = 8; else if (r < 95) n = 9; bp = [10, 30, 50, 70, 90, 110, 150][n - 4]; user._magN = n; }
+      else if (id === 'beatup') { const team = user._battle?.teams?.[user._side] || [user]; bp = 10 * Math.max(1, team.filter(x => !x.fainted).length); }
+      else if (id === 'punishment') { const n = Object.values(target.stages || {}).filter(v => v > 0).length; bp = Math.min(200, 60 + 20 * n); }
+      else if (id === 'trumpcard') { const pp = move.ppLeft == null ? 1 : move.ppLeft; bp = pp === 0 ? 200 : pp === 1 ? 70 : pp === 2 ? 60 : pp === 3 ? 50 : 40; }
+      else if (id === 'spitup') { const n = user.volatile?.stockpile || 0; if (n <= 0) return { kind: 'fixed', damage: 0 }; bp = 100 * n; }
+      else if (id === 'fling') { if (!user.item) return { kind: 'fixed', damage: 0 }; bp = FLING_POWER[itemId(user)] || 30; }
+      else if (id === 'naturalgift') { const it = itemId(user); if (!it || !it.endsWith('berry')) return { kind: 'fixed', damage: 0 }; bp = 80; }
+      return { kind: 'power', basePower: bp, label: id === 'magnitude' ? `震级 ${user._magN || 7}！` : null, type: id === 'naturalgift' ? (NATURAL_GIFT_TYPE[itemId(user)] || 'Normal') : null };
+    }
+    if (id === 'counter' || id === 'mirrorcoat' || id === 'metalburst' || id === 'comeuppance') {
+      const rec = user._lastTaken;
+      const ok = rec && rec.turn === user._battle?.turnCount && rec.by && !rec.by.fainted;
+      const catOk = id === 'counter' ? rec?.cat === 'Physical' : id === 'mirrorcoat' ? rec?.cat === 'Special' : true;
+      if (!ok || !catOk) return { kind: 'fixed', damage: 0 };
+      const mult = { counter: 2, mirrorcoat: 2, metalburst: 1.5, comeuppance: 1.5 }[id];
+      return { kind: 'fixed', damage: Math.max(1, Math.floor(rec.amount * mult)), counterHit: true };
     }
     return null;
   }
 
   function estimateDamage(attacker, defender, move, rngVal = 0.925, opts = {}) {
     if (!move.basePower) return { damage: 0, eff: 1, crit: false };
-    if (abilityMoveInteraction(attacker, defender, move)) return { damage: 0, eff: 0, crit: false };
+    const abilityBlock = abilityMoveInteraction(attacker, defender, move);
+    // 千箭齐发 / 千波激荡 可以打中“飘浮”“食土”的免疫
+    const groundPierce = (move.type === 'Ground' && ignoresImmunity(move, 'Ground'));
+    if (abilityBlock && !(groundPierce && abilityBlock.kind === 'immune' && ['漂浮', '食土'].includes(abilityBlock.label)))
+      return { damage: 0, eff: 0, crit: false };
     const isPhys = move.category === 'Physical';
     const atk = battleStat(attacker, isPhys ? 'atk' : 'spa', { ignoreStages: hasAbility(defender, 'unaware'), crit: !!opts.crit, isAttackStat: true });
-    const def = battleStat(defender, isPhys ? 'def' : 'spd', { ignoreStages: hasAbility(attacker, 'unaware'), crit: !!opts.crit, isAttackStat: false });
-    const power = modifiedPower(attacker, defender, move);
+    const _wr = !!(attacker._battle?.field?.wonderRoom); // 奇妙空间：防御/特防互换
+    const def = battleStat(defender, _wr ? (isPhys ? 'spd' : 'def') : (isPhys ? 'def' : 'spd'), { ignoreStages: hasAbility(attacker, 'unaware'), crit: !!opts.crit, isAttackStat: false });
+    let power = modifiedPower(attacker, defender, move);
+    // v1.3.54：玩水 / 玩泥巴 —— 火电威力减半
+    const _pw = attacker._battle?.field.pseudoWeather || null;
+    if (_pw?.watersport && move.type === 'Fire') power = Math.max(1, Math.floor(power / 2));
+    if (_pw?.mudsport && move.type === 'Electric') power = Math.max(1, Math.floor(power / 2));
     const level = attacker.level;
     let dmg = Math.floor(((Math.floor((2 * level / 5 + 2) * power * atk / def)) / 50)) + 2;
-    const eff = effectiveness(move.type, defender.types);
+    // v1.3.54：输电（目标被 electrify）/ 等离子浴 —— 一般属性攻击招式变成电属性
+    let effType = move.type;
+    if (move.category !== 'Status') {
+      if (attacker.volatile?.electrify) effType = 'Electric';
+      else if (_pw?.iondeluge && effType === 'Normal') effType = 'Electric';
+    }
+    let eff = effectiveness(effType, defender.types);
+    // 千箭齐发这类招式对“本来免疫该属性”的宝可梦依然造成等倍伤害
+    if (eff === 0 && ignoresImmunity(move, move.type)) eff = 1;
+    if (eff === 0 && defender.volatile?.foresight && ['Normal', 'Fighting'].includes(move.type) && defender.types.includes('Ghost')) eff = 1;
+    if (eff === 0 && defender.volatile?.miracleeye && move.type === 'Dark' && defender.types.includes('Psychic')) eff = 1;
     let mult = eff * rngVal;
     if (move._spreadTargets > 1) mult *= 0.75;
-    mult *= stabMultiplier(attacker, move); // STAB (incl. Terastal rules)
+    mult *= stabMultiplier(attacker, { ...move, type: effType }); // STAB (incl. Terastal rules; v1.3.54 输电/等离子浴)
     if (isPhys && attacker.status === 'brn' && !hasAbility(attacker, 'guts')) mult *= 0.5;
     mult *= defenderDamageMultiplier(attacker, defender, move, eff);
     if ((move._isZ || move._isMax) && defender.volatile?.protect) mult *= 0.25;
@@ -477,6 +603,13 @@
     onEnter(side, initial = false, slot = 0) {
       const p = this.cur(side, slot);
       if (!p || p.fainted) return;
+      // v1.3.54：治愈之愿 / 新月舞 —— 换上来的宝可梦完全回复
+      const _se = this._slotEffect?.[side]?.[slot];
+      if (_se && !initial) {
+        delete this._slotEffect[side][slot];
+        p.status = null; delete p.volatile.confusion; delete p.toxicCounter;
+        this.heal(p, p.maxHp, `${p.name} 继承了${_se === 'healingwish' ? '治愈之愿' : '新月舞'}的祝福！`);
+      }
       p.enteredTurn = this.turnCount;
       p._enteredThisTurn = !initial;
       p.choiceLockedMove = null;
@@ -561,6 +694,8 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     }
     changeStages(p, boosts, source = p, opts = {}) {
       if (!p || p.fainted || !boosts) return false;
+      // v1.3.54：白雾 —— 对手造成的能力下降无效
+      if (source && source._side != null && p._side != null && source._side !== p._side && !opts.abilityBoost && (this.field.sides[p._side]?.mist > 0)) { this.say(`白雾保护了${p.name}，能力不会被降低！`); return false; }
       let changed = false, lowered = false;
       for (const [k, raw] of Object.entries(boosts)) {
         if (!(k in p.stages) || !raw) continue;
@@ -600,6 +735,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     }
     tryStatus(p, status, source = null, opts = {}) {
       if (!p || p.fainted || p.status || !status) return false;
+      if (p.volatile?.substitute && source && source !== p) { this.say(`${p.name} 的替身挡住了效果！`); return false; }
       const st = String(status || '').toLowerCase();
       const immunity = statusImmunityReason(p, st, this);
       if (immunity === 'ability') { this.say(`${p.name} 的特性使其不会陷入该异常状态！`); return false; }
@@ -618,9 +754,11 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       this.checkItemTrigger(p, 'status');
       return true;
     }
-    consumeItem(p) { const old = p.item; p.item = null; return old; }
+    consumeItem(p) { const old = p.item; p.item = null; if (old) p._lastConsumed = old; return old; }
     checkItemTrigger(p, event, ctx = {}) {
       if (!p || p.fainted || !p.item) return;
+      // v1.3.55：查封 / 魔法空间 —— 道具（树果/装备自动触发）无效
+      if (p.volatile?.embargo || this.field?.magicRoom) return;
       const item = itemId(p), healFrac = f => this.heal(p, Math.max(1, Math.floor(p.maxHp * f)), '道具生效');
       if (item === 'mentalherb' && p.volatile.confusion) { delete p.volatile.confusion; this.consumeItem(p); this.say(`${p.name} 的心灵香草治愈了混乱！`); return; }
       if (item === 'lumberry' && (p.status || p.volatile.confusion)) { p.status = null; delete p.volatile.confusion; this.consumeItem(p); this.say(`${p.name} 吃下木子果，状态痊愈了！`); return; }
@@ -647,10 +785,24 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     }
     applyMoveDamage(p, amount, attacker, move) {
       let dmg = Math.max(0, amount);
+      // 替身先替本体承受伤害（声音类招式无视替身）
+      if (p.volatile?.substitute && !(move && move.flags?.sound)) {
+        const sub = p.volatile.substitute;
+        if (dmg >= sub) {
+          delete p.volatile.substitute;
+          this.say(`${p.name} 的替身被打倒了！`);
+          const extra = dmg - sub, before = p.hp;
+          p.hp = Math.max(0, p.hp - extra);
+          return sub + (before - p.hp);
+        }
+        p.volatile.substitute = sub - dmg; this.say(`${p.name} 的替身承受了伤害（替身剩余 ${p.volatile.substitute}）！`);
+        return dmg;
+      }
       if (dmg >= p.hp && p.hp > 1) {
         if (hasAbility(p, 'sturdy') && p.hp === p.maxHp) { dmg = p.hp - 1; this.say(`${p.name} 用结实撑住了攻击！`); }
         else if (itemId(p) === 'focussash' && p.hp === p.maxHp) { dmg = p.hp - 1; this.consumeItem(p); this.say(`${p.name} 用气势披带撑住了攻击！`); }
         else if (itemId(p) === 'focusband' && this.rng() < 0.1) { dmg = p.hp - 1; this.say(`${p.name} 用气势头带撑住了攻击！`); }
+        else if (p.volatile?.endure) { dmg = p.hp - 1; delete p.volatile.endure; this.say(`${p.name} 忍耐住了攻击！`); }
       }
       const before = p.hp;
       p.hp = Math.max(0, p.hp - dmg);
@@ -658,6 +810,20 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     }
     onDamagingHit(attacker, target, move, damage, crit, eff, beforeHp) {
       if (!target || target.fainted || damage <= 0) return;
+      // v1.3.54：记录最后一次受到的伤害（双倍奉还/镜面反射/金属爆炸/复仇用）
+      target._lastTaken = { amount: damage, cat: move.category, by: attacker, turn: this.turnCount };
+      // v1.3.55：忍耐 —— 积蓄受到的伤害
+      if (target.volatile?.bideTurns > 0) target.volatile.bideDamage = (target.volatile.bideDamage || 0) + damage;
+      // v1.3.55：怨念 —— 直接受到攻击致死时，对手该招式的 PP 归零
+      if (target.hp <= 0 && target.volatile?.grudge && !attacker.fainted) {
+        const _gm = (attacker.moves || []).find(m => m.id === move.id);
+        if (_gm && _gm.ppLeft > 0) { _gm.ppLeft = 0; this.say(`${target.name} 的怨念使 ${attacker.name} 的 ${move.name} 的 PP 变成了 0！`); }
+      }
+      // v1.3.54：同命 —— 直接受到攻击致死时，把对手一起带走
+      if (target.hp <= 0 && target.volatile?.destinybond && !attacker.fainted) {
+        attacker.hp = 0;
+        this.say(`${target.name} 发动了同命，把 ${attacker.name} 一起带走了！`);
+      }
       if (move.category === 'Physical') {
         if (hasAbility(target, 'stamina')) this.changeStages(target, { def: 1 }, target);
         if (hasAbility(target, 'weakarmor')) this.changeStages(target, { def: -1, spe: 2 }, target);
@@ -790,14 +956,37 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       const old = this.cur(side, slot);
       const foes = this.activeMons(this.other(side));
       if (!opts.forced && foes.some(foe => hasAbility(foe, 'shadowtag')) && !old.types.includes('Ghost')) { this.say(`${old.name} 被踩影困住，无法交换！`); return false; }
+      // v1.3.54：妖精之锁 / 被盯住（黑色目光、挡路、蛛网） / 蛸固 —— 无法交换
+      if (!opts.forced && (this.field.pseudoWeather?.fairylock > 0)) { this.say('妖精之锁封住了场地，无法交换！'); return false; }
+      if (!opts.forced && (old.volatile?.cannotEscape || old.volatile?.octolock)) { this.say(`${old.name} 被盯住，无法逃走！`); return false; }
       if (old.dynamaxed && !old.fainted) this.endDynamax(old);
       if (!old.fainted && hasAbility(old, 'regenerator')) this.heal(old, Math.floor(old.maxHp / 3), '再生力回复了体力');
       if (!old.fainted && hasAbility(old, 'naturalcure') && old.status) { old.status = null; this.say(`${old.name} 的自然回复治愈了异常状态。`); }
+      // v1.3.55：下场时还原被互换/覆盖的能力值、特性、变身
+      if (old._transformed && old._transformBackup) {
+        const _tb = old._transformBackup;
+        old.speciesId = _tb.speciesId; old.stats = _tb.stats; old.types = _tb.types; old.ability = _tb.ability; old.moves = _tb.moves;
+        delete old._transformed; delete old._transformBackup;
+        this.say(`${old.name} 变回了原形。`);
+      }
+      if (old._statBackup) { old.stats = old._statBackup; delete old._statBackup; }
+      if (old._abilityBackup) { old.ability = old._abilityBackup; delete old._abilityBackup; }
+      old._abilitySuppressed = false;
+      old._moveAgainst = null;
       old.stages = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, accuracy: 0, evasion: 0 };
       old.volatile = {};
       old._protectStreak = 0;
       old.choiceLockedMove = null;
+      old._lastMoveId = null;
       this.setActive(side, slot, index);
+      // 接力棒：把能力变化与部分持续效果交给换上来的宝可梦
+      if (this._batonPass && side === this.sideOf(p)) {
+        const bp = this._batonPass; this._batonPass = null;
+        p.stages = { ...p.stages, ...bp.stages };
+        const keep = ['substitute', 'focusenergy', 'critBoost', 'magnetrise', 'aquaring', 'ingrain', 'leechseed'];
+        for (const k of keep) if (bp.volatile?.[k]) p.volatile[k] = bp.volatile[k];
+        this.say(`${p.name} 接过了接力棒，继承了能力变化！`);
+      }
       this.say(`${side === 0 ? '我方' : '敌方'}收回了 ${old.name}，换上 ${p.name}！`);
       this.onEnter(side, false, slot);
       return true;
@@ -858,8 +1047,8 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         // v1.3.4：PP 会跨战斗继承，招式点数全部用完时改用“挣扎”（反伤 1/4 最大体力）
         const usable = p.moves.filter(m => m.ppLeft > 0 && p.volatile.disableMove !== m.id);
         const picked = p.moves[a.action.index];
-        const move = (a.action.struggle || !usable.length) ? struggleMove() : (picked || p.moves[0]);
-        const prio = this.movePriority(p, move, this.cur(this.other(a.side)));
+        const move = (a.action.struggle || !usable.length) ? struggleMove() : resolveScriptedMove(this, p, picked || p.moves[0]);
+        const prio = p.volatile?.quash ? -9 : (p.volatile?.afteryou ? 3 : this.movePriority(p, move, this.cur(this.other(a.side))));
         const speed = effStat(p, 'spe');
         return { ...a, move, prio, speed, tie: this.rng(), mechanic: a.action.mechanic || null };
       });
@@ -916,7 +1105,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       let target = selected && targets.includes(selected) ? selected : targets[0];
       // Follow Me / Rage Powder and the classic drawing abilities redirect only single-target moves.
       if (targets.includes(target) && target._side !== side && !['self', 'adjacentAlly', 'adjacentAllyOrSelf'].includes(move.target)) {
-        const redirected = foes.find(p => p.volatile?.followme || p.volatile?.ragepowder
+        const redirected = foes.find(p => p.volatile?.followme || p.volatile?.ragepowder || (p.volatile?.spotlight && target !== p)
           || (move.type === 'Electric' && hasAbility(p, 'lightningrod'))
           || (move.type === 'Water' && hasAbility(p, 'stormdrain')));
         if (redirected) target = redirected;
@@ -944,12 +1133,13 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         const p = this.cur(a.side, a.slot);
         const usable = p.moves.filter(m => m.ppLeft > 0 && p.volatile.disableMove !== m.id);
         const locked = p.choiceLockedMove ? p.moves.findIndex(m => m.id === p.choiceLockedMove && m.ppLeft > 0) : -1;
-        const picked = p.moves[locked >= 0 ? locked : a.action.index];
-        const base = (a.action.struggle || !usable.length) ? struggleMove() : (picked || p.moves[0]);
+        const encIdx = p.volatile?.encore ? p.moves.findIndex(m => m.id === p.volatile.encore.moveId && m.ppLeft > 0) : -1;
+        const picked = p.moves[locked >= 0 ? locked : (encIdx >= 0 ? encIdx : a.action.index)];
+        const base = (a.action.struggle || !usable.length) ? struggleMove() : resolveScriptedMove(this, p, picked || p.moves[0]);
         const move = { ...base };
         const targets = this.doubleTargets(a.side, a.slot, move, a.action.target);
         move._spreadTargets = targets.length > 1 ? targets.length : 0;
-        return { ...a, move, base, targets, prio: this.movePriority(p, move, targets[0] || p), speed: effStat(p, 'spe'), tie: this.rng(), mechanic: a.action.mechanic || null };
+        return { ...a, move, base, targets, prio: p.volatile?.quash ? -9 : (p.volatile?.afteryou ? 3 : this.movePriority(p, move, targets[0] || p)), speed: effStat(p, 'spe'), tie: this.rng(), mechanic: a.action.mechanic || null };
       });
       const trick = this.field.trickRoom > 0;
       movers.sort((x, y) => (y.prio - x.prio) || (trick ? (x.speed - y.speed) || (x.tie - y.tie) : (y.speed - x.speed) || (x.tie - y.tie)));
@@ -979,6 +1169,20 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       return this.log.slice(start);
     }
 
+    // 出招前的“不能使用”判定（挑衅 / 再来一次以外的限制都在这里）
+    moveBlocked(p, move) {
+      if (!p || !move) return null;
+      if (p.volatile?.taunt && move.category === 'Status') return `${p.name} 正在被挑衅，无法使用变化招式！`;
+      // v1.3.55：封印 —— 对手使用封印者也会的招式无效
+      if (this.activeMons) {
+        const _opp = this.activeMons(this.other(this.sideOf(p)));
+        if (_opp.some(f => f.volatile?.imprison && (f.moves || []).some(m => m.id === move.id))) return `${p.name} 被封印了，无法使用 ${move.name}！`;
+      }
+      if (p.volatile?.torment && p._lastMoveId === move.id) return `${p.name} 因被折磨而无法连续使用同一招式！`;
+      if (p.volatile?.healblock && (move.heal || move.drain || ['recover', 'roost', 'softboiled', 'milkdrink', 'slackoff', 'healorder', 'synthesis', 'moonlight', 'morningsun', 'shoreup', 'strengthsap', 'wish', 'rest'].includes(move.id))) return `${p.name} 被回复封锁，无法回复体力！`;
+      return null;
+    }
+
     canMove(p, move = null) {
       if (move && p.volatile.disableMove === move.id) { this.say(`${p.name} 的 ${move.name} 被定身法封住了！`); return false; }
       if (p.status === 'slp') {
@@ -1001,6 +1205,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
           return false;
         }
       }
+      if (p.volatile?.attract && this.rng() < 0.5) { this.say(`${p.name} 被迷住了，无法行动！`); return false; }
       if (p.volatile.flinch) { delete p.volatile.flinch; if (p.dynamaxed) { /* Dynamax cannot flinch */ } else { this.say(`${p.name} 退缩了，无法行动！`); if (hasAbility(p, 'steadfast')) this.changeStages(p, { spe: 1 }, p); return false; } }
       return true;
     }
@@ -1019,6 +1224,10 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       }
       const protectMove = ['protect', 'maxguard'].includes(move.volatileStatus);
       if (firstAction && !protectMove) user._protectStreak = 0;
+      if (firstAction) {
+        const blocked = this.moveBlocked(user, baseMove);
+        if (blocked) { this.say(blocked); if (shared) shared.cancelled = true; return; }
+      }
       if (firstAction && !this.canMove(user, baseMove)) { if (protectMove) user._protectStreak = 0; if (shared) shared.cancelled = true; return; }
       if (firstAction) {
         user._participated = true;
@@ -1041,9 +1250,25 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         user._protectStreak = streak + 1;
       }
       if (firstAction && (move.selfdestruct === 'always' || baseMove.id === 'finalgambit')) this._boom = user; // v1.3.5：大爆炸 / 自爆 / 搏命，使用后自己倒下
-      const selfTarget = move.category === 'Status' && !move.basePower && (move.heal || (move.boosts && move.target === 'self') || move.status === undefined && move.volatileStatus === undefined);
+      // 目标是“对手”的变化招式，不能被当成自我招式（否则会打自己、替身替自己挡刀）
+    const FOE_STATUS_MOVES = new Set(['afteryou', 'bestow', 'block', 'defog', 'doodle', 'entrainment', 'floralhealing',
+      'forestscurse', 'guardsplit', 'guardswap', 'heartswap', 'instruct', 'lockon', 'magicpowder', 'meanlook', 'mefirst',
+      'mimic', 'mindreader', 'painsplit', 'perishsong', 'powersplit', 'powerswap', 'psychoshift', 'psychup', 'purify',
+      'quash', 'reflecttype', 'roleplay', 'simplebeam', 'sketch', 'skillswap', 'soak', 'speedswap', 'spiderweb', 'spite',
+      'strengthsap', 'switcheroo', 'topsyturvy', 'transform', 'trick', 'trickortreat', 'venomdrench', 'worryseed',
+      'flowershield', 'roar', 'whirlwind', 'dragontail', 'circlethrow', 'uturn', 'voltswitch', 'flipturn', 'partingshot',
+      'chillyreception', 'shedtail', 'teleport', 'batonpass', 'leechseed', 'nightmare', 'octolock', 'disable',
+      'spotlight', 'foresight', 'odorsleuth', 'miracleeye', 'powder', 'electrify', 'conversion2',
+      'corrosivegas', 'doodle', 'embargo', 'mirrormove', 'naturepower']);
+    const selfTarget = !FOE_STATUS_MOVES.has(move.id) && move.category === 'Status' && !move.basePower && (move.heal || (move.boosts && move.target === 'self') || move.status === undefined && move.volatileStatus === undefined);
       const ghostCurse = move.id === 'curse' && user.types?.includes('Ghost');
-      const realTarget = move.id === 'curse' ? (ghostCurse ? target : user) : ((move.target === 'self' || selfTarget) ? user : target);
+      let realTarget = move.id === 'curse' ? (ghostCurse ? target : user) : ((move.target === 'self' || selfTarget) ? user : target);
+      // v1.3.55：魔法反射 / 抢夺 —— 弹回对手的变化招式
+      if (target && target !== user && move.category === 'Status' && !move.sideCondition && !move.pseudoWeather) {
+        if (target.volatile?.magiccoat && move.target !== 'self') { this.say(`${target.name} 的魔法反射把招式弹了回去！`); realTarget = user; }
+        else if (target.volatile?.snatch && (move.heal || (move.boosts && move.target === 'self'))) { this.say(`${target.name} 抢夺了对手的招式效果！`); realTarget = target; opts._snatched = true; }
+      }
+      if (realTarget !== user) realTarget._moveAgainst = move.id;
       if (realTarget !== user && hasAbility(realTarget, 'pressure') && baseMove.ppLeft > 0) baseMove.ppLeft--;
       const priority = this.movePriority(user, move, realTarget);
       if (realTarget !== user && priority > 0 && hasAbility(realTarget, 'dazzling', 'queenlymajesty', 'armortail')) { this.say(`${realTarget.name} 的特性阻止了先制招式！`); return; }
@@ -1056,7 +1281,10 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         if (guard?.quickguard && this.movePriority(user, move, realTarget) > 0) { this.say(`${realTarget.name} 一方被快速防守保护着！`); return; }
         if (guard?.matblock && move.basePower) { this.say(`${realTarget.name} 一方被掀榻榻米挡下了攻击！`); return; }
       }
-      const interaction = realTarget !== user ? abilityMoveInteraction(user, realTarget, move) : null;
+      let interaction = realTarget !== user ? abilityMoveInteraction(user, realTarget, move) : null;
+    // 千箭齐发 / 千波激荡可以打中飘浮特性
+    if (interaction && interaction.kind === 'immune' && move.type === 'Ground' && ignoresImmunity(move, 'Ground')
+      && ['漂浮', '食土'].includes(interaction.label)) interaction = null;
       if (interaction) {
         this.say(`${realTarget.name} 的${interaction.label}使招式没有效果！`);
         if (interaction.kind === 'heal') this.heal(realTarget, Math.floor(realTarget.maxHp / 4), '特性回复了体力');
@@ -1079,7 +1307,13 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       if (!move.ohko) acc *= stageMult((user.stages.accuracy || 0), 'acc') * stageMult(targetEvasion, 'eva');
       if (move.category === 'Physical' && hasAbility(user, 'hustle')) acc *= 0.8;
       if (this.field.gravity > 0) acc *= 5 / 3;
-      if (this.rng() * 100 > acc) { this.say(`但是没有命中 ${realTarget.name}！`); return; }
+      if (move.type === 'Fire' && user.volatile?.powder) {
+        delete user.volatile.powder;
+        this.say(`${user.name} 身上的粉尘被火苗引燃了！`);
+        this.applyDamage(user, Math.max(1, Math.floor(user.maxHp / 4)), `${user.name} 受到了粉尘爆炸的伤害！`);
+        return;
+      }
+      if (realTarget !== user && !realTarget.volatile?.lockon && this.rng() * 100 > acc) { this.say(`但是没有命中 ${realTarget.name}！`); return; }
       if (move.id === 'curse') {
         if (!ghostCurse) {
           this.changeStages(user, { atk: 1, def: 1, spe: -1 }, user);
@@ -1109,9 +1343,9 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
           if(user.volatile.critBoost){delete user.volatile.critBoost;}
           if (hasAbility(user, 'superluck')) critStage += 1;
           if (['scopelens', 'razorclaw'].includes(itemId(user))) critStage += 1;
-          const crit = !hasAbility(realTarget, 'battlearmor', 'shellarmor') && this.rng() < [1 / 24, 1 / 8, 1 / 2, 1][Math.min(3, critStage)];
+          const crit = !(this.field.sides[this.sideOf(realTarget)]?.luckychant > 0) && !hasAbility(realTarget, 'battlearmor', 'shellarmor') && this.rng() < [1 / 24, 1 / 8, 1 / 2, 1][Math.min(3, critStage)];
           const est = estimateDamage(user, realTarget, move, 0.85 + this.rng() * 0.15, { crit });
-          if (est.eff === 0) { this.say(`对 ${realTarget.name} 没有效果……`); connected = false; }
+          if (est.eff === 0 && !ignoresImmunity(move, move.type)) { this.say(`对 ${realTarget.name} 没有效果……`); connected = false; }
           else {
             anyHit = true;
             const beforeHp = realTarget.hp;
@@ -1127,7 +1361,8 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         } else if (realTarget !== user && specialDamageInfo(user, realTarget, move)) {
           // v1.3.5：固定伤害 / 特殊威力 / 一击必杀
           const sp = specialDamageInfo(user, realTarget, move, this.rng());
-          const probe = estimateDamage(user, realTarget, { ...move, basePower: sp.basePower || 1 }, 1);
+          if (sp && sp.label) this.say(sp.label);
+          const probe = sp && sp.counterHit ? { eff: 1 } : estimateDamage(user, realTarget, { ...move, basePower: sp.basePower || 1, type: sp.type || move.type }, 1);
           if (probe.eff === 0) { this.say(`对 ${realTarget.name} 没有效果……`); connected = false; }
           else if (sp.kind === 'fixed' && sp.damage <= 0) { this.say('但是失败了！'); connected = false; }
           else {
@@ -1136,7 +1371,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
             let dmg, eff = 1;
             if (sp.kind === 'ohko') dmg = realTarget.hp;
             else if (sp.kind === 'fixed') dmg = sp.damage;
-            else { const est = estimateDamage(user, realTarget, { ...move, basePower: sp.basePower }, 0.85 + this.rng() * 0.15); dmg = est.damage; eff = est.eff; }
+            else { const est = estimateDamage(user, realTarget, { ...move, basePower: sp.basePower, type: sp.type || move.type }, 0.85 + this.rng() * 0.15); dmg = est.damage; eff = est.eff; }
             const dealt = this.applyMoveDamage(realTarget, dmg, user, move);
             if (sp.kind === 'ohko' && realTarget.hp <= 0) this.say('一击必杀！');
             if (eff > 1) this.say('效果绝佳！'); else if (eff < 1 && eff > 0) this.say('效果不理想……');
@@ -1163,12 +1398,22 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       if (lastTarget && moveHit && ['rapidspin', 'mortalspin'].includes(move.id) && !user.fainted) {
         if (this.clearHazards(this.sideOf(user))) this.say(`${user.name} 清除了自己一方的钉子！`);
       }
-      if (lastTarget && move.heal && !user.fainted) this.heal(user, Math.floor(user.maxHp * move.heal[0] / move.heal[1]), '回复了体力');
+      if (lastTarget && move.heal && !user.fainted) { const _hw = opts._snatched ? realTarget : user; this.heal(_hw, Math.floor(_hw.maxHp * move.heal[0] / move.heal[1]), '回复了体力'); }
+      if (firstAction) { if (user.volatile?.destinybond && baseMove.id !== 'destinybond') delete user.volatile.destinybond; user._lastMoveId = baseMove.id; user._lastMoveType = baseMove.type; this._lastExecutedMove = baseMove.id; }
+      // 自我替换：伏特替换 / 急速折返 / 快速折返 / 抛下狠话 / 接力棒 …
+      if (lastTarget && moveHit && move.selfSwitch && !user.fainted && this.winner === null) this.requestSelfSwitch(user, move);
+      // 强制替换：吼叫 / 吹飞 / 龙尾 / 巴投
+      if (lastTarget && moveHit && move.forceSwitch && !realTarget.fainted && this.winner === null && this.outcome !== 'escaped') this.forceTargetOut(realTarget);
       if (lastTarget) this.checkItemTrigger(user, 'pp');
     }
 
     applyEffects(user, target, move, eff, context = {}) {
       if (!eff) return;
+      // v1.3.54：戏法防守 —— 对手的变化招式无效（不影响自己一方的自我招式与场地类）
+      if (eff === move && move.category === 'Status' && target && target._side !== user._side
+        && !move.sideCondition && !move.pseudoWeather && (this.field.sides[this.sideOf(target)]?.craftyshield > 0)) {
+        this.say(`${target.name} 一方被戏法防守保护着！`); return;
+      }
       if (eff.self && eff !== move) this.applyEffects(user, user, move, eff.self);
       if (eff === move && (context._doubleIndex == null || context._doubleIndex === 0)) {
         if (move._zStatus && move.zMove && !move._zApplied) {
@@ -1186,6 +1431,14 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
           else { this.field.trickRoom = 5; this.say('空间被扭曲了（戏法空间，速度顺序反转）！'); }
         }
         if (move.pseudoWeather === 'gravity') { this.field.gravity = 5; this.say('重力变得更强了！'); }
+        if (move.pseudoWeather === 'magicroom') { this.field.magicRoom = 5; this.say('魔法空间展开：所有宝可梦无法使用道具（5回合）！'); }
+        else if (move.pseudoWeather === 'wonderroom') { this.field.wonderRoom = 5; this.say('奇妙空间展开：防御与特防按互换计算（5回合）！'); }
+        else if (['watersport', 'mudsport', 'iondeluge', 'fairylock'].includes(move.pseudoWeather)) {
+          this.field.pseudoWeather = this.field.pseudoWeather || {};
+          this.field.pseudoWeather[move.pseudoWeather] = move.pseudoWeather === 'fairylock' ? 2 : 5;
+          const PW_MSG = { watersport: '场上洒满了水（火属性招式威力减半）！', mudsport: '场上洒满了泥（电属性招式威力减半）！', iondeluge: '等离子浴：一般属性招式变成电属性！', fairylock: '妖精之锁：双方都无法交换宝可梦！' };
+          this.say(PW_MSG[move.pseudoWeather]);
+        }
         if (move.sideCondition) {
           const userSide = this.sideOf(user), foeSide = this.other(userSide);
           const scSide = move.target === 'foeSide' ? foeSide : userSide;
@@ -1201,6 +1454,10 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
             else this.say('但是失败了（极光幕需要雪天）！');
           }
           if (move.sideCondition === 'tailwind') { sc.tailwind = 4; this.say(`${scSide === 0 ? '我方' : '敌方'}刮起了顺风！`); }
+          if (move.sideCondition === 'safeguard') { sc.safeguard = 5; this.say(`${scSide === 0 ? '我方' : '敌方'}被神秘守护（不会陷入异常状态）！`); }
+          if (move.sideCondition === 'mist') { sc.mist = 5; this.say(`${scSide === 0 ? '我方' : '敌方'}被白雾笼罩（能力不会被对手降低）！`); }
+          if (move.sideCondition === 'luckychant') { sc.luckychant = 5; this.say(`${scSide === 0 ? '我方' : '敌方'}被幸运咒语守护（不会被打中要害）！`); }
+          if (move.sideCondition === 'craftyshield') { sc.craftyshield = 5; this.say(`${scSide === 0 ? '我方' : '敌方'}一方摆出了戏法防守！`); }
           if (['wideguard', 'quickguard', 'matblock'].includes(move.sideCondition)) { sc[move.sideCondition] = true; this.say(`${scSide === 0 ? '我方' : '敌方'}一方摆出了防护！`); }
         }
         if (move.id === 'defog') {
@@ -1230,10 +1487,280 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
           else { user.volatile.critBoost = 2; this.say(`${user.name} 鼓足了干劲（更容易击中要害）！`); }
         }
         if (move.id === 'splash') this.say('但是什么也没有发生！');
+        // —— v1.3.55：B 组 + C 组 ——
+        // 反制类
+        if (move.id === 'snatch') { user.volatile.snatch = true; this.say(`${user.name} 摆出了抢夺的架势！`); }
+        if (move.id === 'magiccoat') { user.volatile.magiccoat = true; this.say(`${user.name} 覆盖了魔法反射膜！`); }
+        if (move.id === 'imprison') { user.volatile.imprison = true; this.say(`${user.name} 封印了对手与自己相同的招式！`); }
+        if (move.id === 'grudge') { user.volatile.grudge = true; this.say(`${user.name} 暗下了怨念的决心！`); }
+        if (move.id === 'bide') {
+          if (!user.volatile?.bideTurns) { user.volatile.bideTurns = 2; user.volatile.bideDamage = 0; user.volatile.bideBy = this.cur(this.other(this.sideOf(user))); this.say(`${user.name} 正在忍耐……`); }
+          else this.say(`${user.name} 正在忍耐……`);
+        }
+        // 复制/交换类
+        if (move.id === 'psychup') { user.stages = { ...target.stages }; this.say(`${user.name} 用自我暗示复制了 ${target.name} 的能力变化！`); }
+        if (move.id === 'topsyturvy') { for (const k of Object.keys(target.stages)) target.stages[k] = -target.stages[k]; this.say(`${target.name} 的能力变化被颠倒了！`); }
+        if (move.id === 'psychoshift') {
+          if (!user.status) this.say('但是失败了！（自己没有异常状态）');
+          else if (target.status) this.say('但是失败了！（对手已有异常状态）');
+          else { const st = user.status; user.status = null; this.tryStatus(target, st, user, { fromStatusMove: true }); }
+        }
+        const _bkS = q => { if (!q._statBackup) q._statBackup = { ...q.stats }; };
+        if (move.id === 'powertrick') { _bkS(user); [user.stats.atk, user.stats.def] = [user.stats.def, user.stats.atk]; [user.stages.atk, user.stages.def] = [user.stages.def, user.stages.atk]; this.say(`${user.name} 的攻击和防御互换了！`); }
+        if (move.id === 'powershift') { _bkS(user); [user.stats.atk, user.stats.spa] = [user.stats.spa, user.stats.atk]; [user.stages.atk, user.stages.spa] = [user.stages.spa, user.stages.atk]; this.say(`${user.name} 的攻击和特攻互换了！`); }
+        if (move.id === 'speedswap') { _bkS(user); _bkS(target); [user.stats.spe, target.stats.spe] = [target.stats.spe, user.stats.spe]; this.say(`${user.name} 和 ${target.name} 交换了速度！`); }
+        if (move.id === 'powersplit') { _bkS(user); _bkS(target); for (const k of ['atk', 'spa']) { const v = Math.floor((user.stats[k] + target.stats[k]) / 2); user.stats[k] = v; target.stats[k] = v; } this.say(`${user.name} 和 ${target.name} 平分了攻击和特攻！`); }
+        if (move.id === 'guardsplit') { _bkS(user); _bkS(target); for (const k of ['def', 'spd']) { const v = Math.floor((user.stats[k] + target.stats[k]) / 2); user.stats[k] = v; target.stats[k] = v; } this.say(`${user.name} 和 ${target.name} 平分了防御和特防！`); }
+        if (move.id === 'powerswap') { [user.stages.atk, target.stages.atk] = [target.stages.atk, user.stages.atk]; [user.stages.spa, target.stages.spa] = [target.stages.spa, user.stages.spa]; this.say(`${user.name} 和 ${target.name} 交换了攻击与特攻的能力变化！`); }
+        if (move.id === 'guardswap') { [user.stages.def, target.stages.def] = [target.stages.def, user.stages.def]; [user.stages.spd, target.stages.spd] = [target.stages.spd, user.stages.spd]; this.say(`${user.name} 和 ${target.name} 交换了防御与特防的能力变化！`); }
+        if (move.id === 'heartswap') { const us = { ...user.stages }; user.stages = { ...target.stages }; target.stages = us; this.say(`${user.name} 和 ${target.name} 交换了全部能力变化！`); }
+        // 特性类
+        const _bkA = q => { if (!q._abilityBackup) q._abilityBackup = q.ability; };
+        if (move.id === 'roleplay') { _bkA(user); user.ability = abilityId(target); this.say(`${user.name} 复制了 ${target.name} 的特性！`); }
+        if (move.id === 'skillswap') { _bkA(user); _bkA(target); const a1 = user.ability, a2 = target.ability; user.ability = normId(a2); target.ability = normId(a1); this.say(`${user.name} 和 ${target.name} 交换了特性！`); }
+        if (move.id === 'entrainment') { _bkA(target); target.ability = abilityId(user); this.say(`${target.name} 获得了 ${user.name} 的特性！`); }
+        if (move.id === 'simplebeam') { _bkA(target); target.ability = 'simple'; this.say(`${target.name} 的特性变成了单纯！`); }
+        if (move.id === 'worryseed') { _bkA(target); target.ability = 'insomnia'; this.say(`${target.name} 的特性变成了不眠！`); }
+        if (move.id === 'gastroacid') { target._abilitySuppressed = true; this.say(`${target.name} 的特性被胃液无效化了！`); }
+        if (move.id === 'doodle') { _bkA(user); const ta = abilityId(target); user.ability = ta; for (const i of this.activeSlots[this.sideOf(user)]) { const a2 = this.teams[this.sideOf(user)][i]; if (a2 && a2 !== user) { _bkA(a2); a2.ability = ta; } } this.say(`${user.name} 把 ${target.name} 的特性描画给了自己和队友！`); }
+        // 变身
+        if (move.id === 'transform') {
+          if (user._transformed) this.say('但是失败了！（已经变身）');
+          else {
+            user._transformBackup = { speciesId: user.speciesId, stats: { ...user.stats }, types: [...user.types], ability: user.ability, moves: user.moves };
+            user.speciesId = target.speciesId; user.stats = { ...target.stats }; user.types = [...target.types];
+            user.ability = abilityId(target); user.moves = (target.moves || []).map(m => ({ ...m, ppLeft: 5 }));
+            user.stages = { ...target.stages }; user._transformed = true;
+            this.say(`${user.name} 变成了 ${target.name}！`);
+          }
+        }
+        // 模仿 / 写生
+        if (move.id === 'mimic' || move.id === 'sketch') {
+          const lastId = target._lastMoveId;
+          if (!lastId || !MOVES[lastId] || (move.id === 'mimic' && ['sketch', 'mimic', 'struggle'].includes(lastId))) this.say('但是失败了！');
+          else {
+            const slot = user.moves.findIndex(m => m.id === move.id);
+            if (slot >= 0) { user.moves[slot] = { ...MOVES[lastId], id: lastId, ppLeft: 5 }; this.say(`${user.name} 学会了 ${MOVES[lastId].name}！`); }
+            else this.say('但是失败了！');
+          }
+        }
+        // 道具类
+        if (move.id === 'bestow') { if (!user.item) this.say('但是失败了！'); else { const it2 = this.consumeItem(user); target.item = it2; this.say(`${user.name} 把道具送给了 ${target.name}！`); } }
+        if (move.id === 'recycle') { if (user.item || !user._lastConsumed) this.say('但是失败了！'); else { user.item = user._lastConsumed; this.say(`${user.name} 找回了 ${user.item}！`); } }
+        if (move.id === 'embargo') { target.volatile.embargo = true; this.say(`${target.name} 被查封，无法使用道具！`); }
+        if (move.id === 'corrosivegas') { if (!target.item || target._side === user._side) this.say('但是失败了！'); else { const it2 = target.item; target.item = null; this.say(`${target.name} 的道具被腐蚀气体熔化了！`); } }
+        // 吞下（喷出的伤害在可变威力里算）
+        if (move.id === 'swallow') {
+          const n2 = user.volatile.stockpile || 0;
+          if (n2 <= 0) this.say('但是失败了！');
+          else { const frac = [0, 1 / 4, 1 / 2, 1][n2] || 1; this.heal(user, Math.floor(user.maxHp * frac), '吞下了蓄积的能量'); delete user.volatile.stockpile; }
+        }
+        if (move.id === 'spitup') delete user.volatile.stockpile;
+        // 投掷的道具效果 / 自然之恩消耗树果
+        if (move.id === 'fling' && user.item) {
+          const it2 = this.consumeItem(user);
+          if (it2 === 'toxicorb') this.tryStatus(target, 'tox', user, { fromStatusMove: false });
+          else if (it2 === 'flameorb') this.tryStatus(target, 'brn', user, { fromStatusMove: false });
+          else if (it2 === 'lightball') this.tryStatus(target, 'par', user, { fromStatusMove: false });
+        }
+        if (move.id === 'naturalgift' && user.item && itemId(user).endsWith('berry')) this.consumeItem(user);
+        // 位置交换
+        if (move.id === 'allyswitch') {
+          if (this.double && this.activeSlots[this.sideOf(user)].length === 2) {
+            const sl = this.activeSlots[this.sideOf(user)];
+            this.activeSlots[this.sideOf(user)] = [sl[1], sl[0]];
+            this.say(`${user.name} 和队友交换了位置！`);
+          } else this.say('但是失败了！');
+        }
+        // 号令 / 请客（简化：号令=目标本回合末自动重复上一招；请客=目标下一回合优先行动）
+        if (move.id === 'instruct') { if (target._lastMoveId && MOVES[target._lastMoveId] && target._lastMoveId !== 'instruct') { target.volatile.instructMove = target._lastMoveId; this.say(`${target.name} 被号令，将重复使用 ${MOVES[target._lastMoveId].name}！`); } else this.say('但是失败了！'); }
+        if (move.id === 'afteryou') { target.volatile.afteryou = true; this.say(`${target.name} 被请客了，下一回合优先行动！`); }
+        // —— v1.3.54：A 组 51 招 ——
+        if (move.id === 'leechseed') {
+          if (target.types.includes('Grass')) this.say(`对 ${target.name} 没有效果……`);
+          else if (target.volatile?.leechseed) this.say(`${target.name} 已经被种下了种子！`);
+          else { target.volatile.leechseed = user; this.say(`${target.name} 被种下了寄生种子！`); }
+        }
+        if (move.id === 'nightmare') {
+          if (target.status !== 'slp') this.say('但是失败了！（目标不在睡眠状态）');
+          else { target.volatile.nightmare = true; this.say(`${target.name} 被恶梦缠上了！`); }
+        }
+        if (move.id === 'octolock') { target.volatile.octolock = user; this.say(`${target.name} 被蛸固缠住了！`); }
+        if (move.id === 'spite') {
+          const mv = (target.moves || []).find(m => m.id === target._lastMoveId);
+          if (mv && mv.ppLeft > 0) { const cut = Math.min(4, mv.ppLeft); mv.ppLeft -= cut; this.say(`减少了 ${target.name} 的 ${mv.name} 的 PP（-${cut}）！`); }
+          else this.say('但是失败了！');
+        }
+        if (move.id === 'disable') {
+          const mv = (target.moves || []).find(m => m.id === target._lastMoveId);
+          if (!mv) this.say('但是失败了！');
+          else { target.volatile.disableMove = mv.id; target.volatile.disableTurns = 2; this.say(`${target.name} 的 ${mv.name} 被定身法封住了！`); }
+        }
+        if (move.id === 'venomdrench') {
+          if (!['psn', 'tox'].includes(target.status)) this.say('但是失败了！');
+          else this.changeStages(target, { atk: -1, spa: -1, spe: -1 }, user);
+        }
+        if (move.id === 'takeheart') {
+          if (user.status || user.volatile?.confusion) { user.status = null; delete user.volatile.confusion; this.say(`${user.name} 的异常状态被治愈了！`); }
+          this.changeStages(user, { spa: 2, spd: 2 }, user);
+        }
+        if (move.id === 'dragoncheer') { target.volatile.critBoost = Math.max(target.volatile.critBoost || 0, target.types.includes('Dragon') ? 2 : 1); this.say(`${target.name} 被龙声鼓舞（更容易击中要害）！`); }
+        if (move.id === 'purify') {
+          if (!['psn', 'tox'].includes(target.status || '')) this.say('但是失败了！');
+          else { target.status = null; this.say(`${target.name} 的毒被净化了！`); this.heal(user, Math.floor(user.maxHp / 2), ''); }
+        }
+        if (move.id === 'healpulse') this.heal(target, Math.floor(target.maxHp / 2), '被治愈波动回复了体力');
+        if (move.id === 'floralhealing') this.heal(target, Math.floor(target.maxHp / 2), '被花疗回复了体力');
+        if (move.id === 'junglehealing' || move.id === 'lunarblessing') {
+          const side = this.sideOf(user);
+          const healMsg = move.id === 'junglehealing' ? '被丛林治疗回复了体力' : '被新月祈祷回复了体力';
+          let did2 = false;
+          for (const i of this.activeSlots[side]) { const p2 = this.teams[side][i]; if (p2 && !p2.fainted && (p2.status || p2.hp < p2.maxHp)) { p2.status = null; delete p2.volatile.confusion; this.heal(p2, Math.floor(p2.maxHp / 4), healMsg); did2 = true; } }
+          if (!did2) this.say('但是失败了！');
+        }
+        if (move.id === 'stuffcheeks') {
+          const it = itemId(user);
+          if (!it || !it.endsWith('berry')) this.say('但是失败了！（需要携带树果）');
+          else { this.consumeItem(user); if (it === 'sitrusberry') this.heal(user, Math.floor(user.maxHp / 4), '吃下了树果'); else if (it === 'oranberry') this.heal(user, 10, '吃下了树果'); else this.say(`${user.name} 吃下了树果。`); this.changeStages(user, { def: 2 }, user); }
+        }
+        if (move.id === 'teatime') {
+          let ate = false;
+          for (const side of [0, 1]) for (const i of this.activeSlots[side]) {
+            const p2 = this.teams[side][i]; if (!p2 || p2.fainted) continue;
+            const it = itemId(p2);
+            if (it && it.endsWith('berry')) { ate = true; this.consumeItem(p2); if (it === 'sitrusberry') this.heal(p2, Math.floor(p2.maxHp / 4), '参加了茶会'); else if (it === 'oranberry') this.heal(p2, 10, '参加了茶会'); else this.say(`${p2.name} 参加了茶会，吃下了树果。`); }
+          }
+          if (!ate) this.say('但是失败了！');
+        }
+        if (move.id === 'spotlight') { target.volatile.spotlight = true; this.say(`${target.name} 成为了全场的焦点！`); }
+        if (move.id === 'electrify') { target.volatile.electrify = true; this.say(`${target.name} 被通了电，接下来的招式会变成电属性！`); }
+        if (move.id === 'powder') {
+          if (target.types.includes('Grass') || hasAbility(target, 'overcoat')) this.say(`对 ${target.name} 没有效果……`);
+          else { target.volatile.powder = true; this.say(`${target.name} 身上沾满了粉尘！`); }
+        }
+        if (move.id === 'foresight' || move.id === 'odorsleuth') { target.volatile.foresight = true; this.say(`${target.name} 被识破了（一般/格斗招式可以打中幽灵系）！`); }
+        if (move.id === 'miracleeye') { target.volatile.miracleeye = true; this.say(`${target.name} 被奇迹之眼看穿（恶属性招式可以打中超能力系）！`); }
+        if (move.id === 'lockon' || move.id === 'mindreader') { target.volatile.lockon = { by: user, turns: 2 }; this.say(`${target.name} 被锁定了，接下来的招式必定命中！`); }
+        if (move.id === 'soak') { target.types = ['Water']; this.say(`${target.name} 浸水变成了水属性！`); }
+        if (move.id === 'magicpowder') { if (target.types.includes('Psychic')) this.say('但是失败了！'); else { target.types = ['Psychic']; this.say(`${target.name} 变成了超能力属性！`); } }
+        if (move.id === 'camouflage') { user.types = ['Normal']; this.say(`${user.name} 采用了保护色，变成了一般属性！`); }
+        if (move.id === 'reflecttype') { user.types = [...target.types]; this.say(`${user.name} 复制了 ${target.name} 的属性！`); }
+        if (move.id === 'conversion') {
+          const ts = [...new Set((user.moves || []).map(m => m.type).filter(Boolean))].slice(0, 2);
+          if (ts.length) { user.types = ts; this.say(`${user.name} 改变了自己的纹理（${ts.join('/')}）！`); }
+        }
+        if (move.id === 'conversion2') {
+          const last = target._lastMoveType;
+          if (!last) this.say('但是失败了！');
+          else {
+            const cand = ['Fire', 'Water', 'Electric', 'Grass', 'Ice', 'Fighting', 'Poison', 'Ground', 'Flying', 'Psychic', 'Bug', 'Rock', 'Ghost', 'Dragon', 'Dark', 'Steel', 'Fairy'].find(ty => effectiveness(last, [ty]) < 1 && !user.types.includes(ty));
+            if (!cand) this.say('但是失败了！'); else { user.types = [cand]; this.say(`${user.name} 改变纹理，变成了${cand}属性（抵抗${last}）！`); }
+          }
+        }
+        if (move.id === 'forestscurse') { if (!target.types.includes('Grass')) { target.types = [...target.types, 'Grass']; this.say(`${target.name} 被加上了草属性！`); } else this.say('但是失败了！'); }
+        if (move.id === 'trickortreat') { if (!target.types.includes('Ghost')) { target.types = [...target.types, 'Ghost']; this.say(`${target.name} 被加上了幽灵属性！`); } else this.say('但是失败了！'); }
+        if (move.id === 'flowershield') {
+          let any2 = false;
+          for (const side of [0, 1]) for (const i of this.activeSlots[side]) { const p2 = this.teams[side][i]; if (p2 && !p2.fainted && p2.types.includes('Grass')) { this.changeStages(p2, { def: 1 }, user); any2 = true; } }
+          if (!any2) this.say('但是失败了！');
+        }
+        if (move.id === 'rototiller') {
+          let any2 = false;
+          for (const side of [0, 1]) for (const i of this.activeSlots[side]) { const p2 = this.teams[side][i]; if (p2 && !p2.fainted && p2.types.includes('Grass') && isGrounded(p2)) { this.changeStages(p2, { atk: 1, spa: 1 }, user); any2 = true; } }
+          if (!any2) this.say('但是失败了！');
+        }
+        if (move.id === 'gearup' || move.id === 'magneticflux') {
+          const boost = move.id === 'gearup' ? { atk: 1, spa: 1 } : { def: 1, spd: 1 };
+          const side = this.sideOf(user);
+          let any2 = false;
+          for (const i of this.activeSlots[side]) { const p2 = this.teams[side][i]; if (p2 && !p2.fainted && hasAbility(p2, 'plus', 'minus')) { this.changeStages(p2, boost, user); any2 = true; } }
+          if (!any2) this.say('但是失败了！');
+        }
+        if (move.id === 'quash') { target.volatile.quash = true; this.say(`${target.name} 被延后到本回合最后行动！`); }
+        if (move.id === 'meanlook' || move.id === 'block' || move.id === 'spiderweb') { target.volatile.cannotEscape = user; this.say(`${target.name} 被盯住，无法逃走了！`); }
+        if (move.id === 'destinybond') { user.volatile.destinybond = true; this.say(`${user.name} 暗下了同命的决心！`); }
+        if (move.id === 'perishsong') {
+          let applied = 0;
+          for (const side of [0, 1]) for (const i of this.activeSlots[side]) { const p2 = this.teams[side][i]; if (p2 && !p2.fainted && p2.volatile?.perishcount == null) { p2.volatile.perishcount = 4; applied++; } }
+          if (applied) this.say('灭亡之歌：所有在场宝可梦将在 3 回合后倒下！'); else this.say('但是失败了！');
+        }
+        if (move.id === 'healingwish' || move.id === 'lunardance') {
+          const side = this.sideOf(user), slot = this.activeSlots[side].indexOf(this.teams[side].indexOf(user));
+          this._slotEffect = this._slotEffect || {}; this._slotEffect[side] = this._slotEffect[side] || {};
+          this._slotEffect[side][slot >= 0 ? slot : 0] = move.id;
+          user.hp = 0;
+          this.say(`${user.name} 用尽了全部力量（${move.id === 'healingwish' ? '治愈之愿' : '新月舞'}）！`);
+        }
+        if (move.id === 'revivalblessing') {
+          const side = this.sideOf(user);
+          const dead = (this.teams[side] || []).map((p2, i) => ({ p2, i })).filter(x => x.p2.fainted && !this.activeSlots[side].includes(x.i));
+          if (!dead.length) this.say('但是失败了！');
+          else {
+            const pick = dead[Math.floor(this.rng() * dead.length)];
+            pick.p2.fainted = false; pick.p2.hp = Math.floor(pick.p2.maxHp / 2); pick.p2.status = null; delete pick.p2.toxicCounter;
+            this.say(`${pick.p2.name} 复活了（体力回复一半）！`);
+            this.requestSelfSwitch(user, move);
+          }
+        }
+        // —— 回复类（按天气调整）——
+        if (['synthesis', 'moonlight', 'morningsun', 'shoreup'].includes(move.id)) {
+          let frac = 0.5;
+          if (this.weather === 'sun') frac = 2 / 3;
+          else if (this.weather) frac = 0.25;
+          if (move.id === 'shoreup' && this.weather === 'sand') frac = 2 / 3;
+          this.heal(user, Math.max(1, Math.floor(user.maxHp * frac)), '回复了体力');
+        }
+        // —— 解除异常状态 ——
+        if (['healbell', 'aromatherapy'].includes(move.id)) {
+          const sd = this.sideOf(user);
+          let cured = 0;
+          for (const p of this.teams[sd]) if (p && p.status) { p.status = null; delete p.toxicCounter; delete p.sleepTurns; cured++; }
+          this.say(cured ? '队伍中的异常状态被解除了！' : '但是没有需要解除的异常状态。');
+        }
+        if (move.id === 'refresh') {
+          if (['psn', 'tox', 'par', 'brn'].includes(user.status)) { user.status = null; delete user.toxicCounter; this.say(`${user.name} 的异常状态被治愈了！`); }
+          else this.say('但是没有需要治愈的状态。');
+        }
+        // —— 体力操作 ——
+        if (move.id === 'painsplit') {
+          if (target && !target.fainted && target !== user) {
+            const avg = Math.floor((user.hp + target.hp) / 2);
+            this.say(`双方分摊了体力（各 ${avg}）！`); user.hp = Math.min(user.maxHp, avg); target.hp = Math.min(target.maxHp, avg);
+          } else this.say('但是失败了！');
+        }
+        if (move.id === 'strengthsap') {
+          if (target && target !== user && !target.fainted) {
+            this.heal(user, Math.max(1, effStat(target, 'atk')), '吸取了体力');
+            this.changeStages(target, { atk: -1 }, user);
+          } else this.say('但是失败了！');
+        }
+        if (move.id === 'bellydrum') {
+          const cost = Math.floor(user.maxHp / 2);
+          if (user.hp <= cost) this.say('但是失败了！（体力不足）');
+          else if (user.stages.atk >= 6) this.say('但是失败了！（攻击已经无法再提高）');
+          else { user.hp -= cost; user.stages.atk = 6; this.say(`${user.name} 用腹鼓把攻击提到了最大（-${cost}）！`); }
+        }
+        if (move.id === 'acupressure') {
+          const pool = ['atk', 'def', 'spa', 'spd', 'spe', 'accuracy', 'evasion'].filter(k => (user.stages[k] || 0) < 6);
+          if (!pool.length) this.say('但是失败了！');
+          else { const k = pool[Math.floor(this.rng() * pool.length)]; this.changeStages(user, { [k]: 2 }, user); this.say(`${user.name} 的${STAT_LABELS[k]}大幅提高了！`); }
+        }
+        if (move.id === 'wish') { user.volatile.wish = 2; this.say(`${user.name} 许下了愿望！`); }
+        // —— 道具交换 ——
+        if (['trick', 'switcheroo'].includes(move.id)) {
+          if (!target || target === user || target.fainted) this.say('但是失败了！');
+          else { const a = user.item, b = target.item; user.item = b || null; target.item = a || null; this.say(`${move.name}：双方交换了携带的道具！`); }
+        }
         if (move.id === 'courtchange') { const tmp = this.field.sides[0]; this.field.sides[0] = this.field.sides[1]; this.field.sides[1] = tmp; this.say('双方交换了场地效果！'); }
       }
       if ((eff.volatileStatus === 'protect' || eff.volatileStatus === 'maxguard') && target === user) {
         user.volatile.protect = true; this.say(`${user.name} 摆出了守护的姿势！`);
+      }
+      // 守护系变体（王者盾牌 / 尖刺防守 / 碉堡 / 拦堵 / 线阱 / 火焰守护）
+      if (['kingsshield', 'spikyshield', 'banefulbunker', 'obstruct', 'silktrap', 'burningbulwark'].includes(eff.volatileStatus) && target === user) {
+        user.volatile.protect = true;
+        user.volatile[eff.volatileStatus] = true;
+        this.say(`${user.name} 摆出了${eff.name || '守护'}的姿势！`);
       }
       if (['followme', 'ragepowder'].includes(eff.volatileStatus) && target === user) {
         user.volatile[eff.volatileStatus] = true; this.say(`${user.name} 正在吸引对手的注意！`);
@@ -1253,8 +1780,80 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         if (hasAbility(target, 'innerfocus')) this.say(`${target.name} 的精神力使其不会退缩！`);
         else target.volatile.flinch = true;
       }
+      if (eff.volatileStatus === 'substitute' && target === user && !user.volatile.substitute) {
+        const cost = Math.max(1, Math.floor(user.maxHp / 4));
+        if (user.hp <= cost) this.say('但是失败了！（体力不足，无法制造替身）');
+        else { user.hp -= cost; user.volatile.substitute = cost; this.say(`${user.name} 制造了替身（-${cost}）！`); }
+      }
+      if (eff.volatileStatus === 'endure' && target === user) {
+        user.volatile.endure = true; this.say(`${user.name} 摆出了忍耐的姿势！`);
+      }
+      if (eff.volatileStatus === 'minimize' && target === user) {
+        user.volatile.minimize = true; this.changeStages(user, { evasion: 2 }, user); this.say(`${user.name} 变小了，更难被命中！`);
+      }
+      if (eff.volatileStatus === 'stockpile' && target === user) {
+        const n = Math.min(3, (user.volatile.stockpile || 0) + 1);
+        user.volatile.stockpile = n; this.changeStages(user, { def: 1, spd: 1 }, user);
+        this.say(`${user.name} 蓄力了（${n} 层）！`);
+      }
+      const vs = eff.volatileStatus;
+      if (vs && target && !target.fainted) {
+        const self = eff === move && (eff.target === 'self' || eff.target === 'allySide' || eff.target === 'allyTeam');
+        const who = self ? user : target;
+        const tag = who === user ? 'user' : 'target';
+        switch (vs) {
+          case 'smackdown':
+            who.volatile.smackdown = true;
+            this.say(`${who.name} 被击落到地面上了！`);
+            break;
+          case 'taunt':
+            if (!who.volatile.taunt) this.say(`${who.name} 被挑衅了，暂时无法使用变化招式！`);
+            who.volatile.taunt = 3;
+            break;
+          case 'encore':
+            if (!who._lastMoveId) { this.say('但是失败了！'); break; }
+            who.volatile.encore = { moveId: who._lastMoveId, turns: 3 };
+            this.say(`${who.name} 被要求重复使用同一招式！`);
+            break;
+          case 'yawn':
+            if (['slp', 'frz', 'psn', 'tox', 'par', 'brn'].includes(who.status)) { this.say('但是失败了！'); break; }
+            who.volatile.yawn = 2;
+            this.say(`${who.name} 开始打哈欠了！`);
+            break;
+          case 'attract':
+            if (who.volatile.attract) { this.say('但是失败了！'); break; }
+            who.volatile.attract = { turns: 99 };
+            this.say(`${who.name} 陷入了着迷状态！`);
+            break;
+          case 'aquaring':
+            who.volatile.aquaring = true; this.say(`${who.name} 被水幕包裹，每回合回复体力！`); break;
+          case 'ingrain':
+            who.volatile.ingrain = true; this.say(`${who.name} 把根扎进了地面，每回合回复体力！`); break;
+          case 'magnetrise':
+            who.volatile.magnetrise = 5; this.say(`${who.name} 浮了起来，不受地面系招式影响！`); break;
+          case 'telekinesis':
+            who.volatile.telekinesis = 3; this.say(`${who.name} 被念力抬到了空中！`); break;
+          case 'healblock':
+            who.volatile.healblock = 5; this.say(`${who.name} 被回复封锁了！`); break;
+          case 'torment':
+            who.volatile.torment = true; this.say(`${who.name} 受到了折磨，不能连续使用同一招式！`); break;
+          case 'laserfocus':
+            who.volatile.critBoost = Math.max(2, Number(who.volatile.critBoost) || 0);
+            this.say(`${who.name} 集中精神，下一击必定命中要害！`);
+            break;
+          case 'charge':
+            who.volatile.charge = true;
+            this.say(`${who.name} 开始充电，下次电系招式威力提高！`);
+            break;
+          case 'defensecurl':
+            who.volatile.defensecurl = true;
+            this.say(`${who.name} 蜷起了身体！`);
+            break;
+          default: break;
+        }
+      }
       if (eff.boosts) {
-        const who = eff === move.self || eff.target === 'self' ? user : target;
+        const who = context?._snatched ? target : (eff === move.self || eff.target === 'self' ? user : target);
         this.changeStages(who, eff.boosts, who === user ? user : user);
       }
     }
@@ -1294,6 +1893,57 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       if (this.pendingSwitch === null && this.pendingSwitches.length) this.pendingSwitch = this.pendingSwitches.shift();
     }
     /** Player forced switch after a faint; in doubles the pending value is the active slot. */
+    /** 备用宝可梦（同侧、未倒下、不在场） */
+    benchOf(side) {
+      const team = this.teams[side] || [];
+      return team.map((p, i) => ({ p, i })).filter(x => !x.p.fainted && !this.activeSlots[side].includes(x.i));
+    }
+    /** 自我替换（伏特替换等）：我方交给 UI 选择，敌方自动换人 */
+    requestSelfSwitch(user, move) {
+      const side = this.sideOf(user);
+      const bench = this.benchOf(side);
+      if (!bench.length) { this.say(`${user.name} 想回来休息，但是没有可以换上的宝可梦！`); return; }
+      const baton = move.selfSwitch === 'copyvolatile';
+      if (side === 1) {
+        const idx = this.bestSwitch(1);
+        if (idx >= 0) this.doSwitch(1, idx, { forced: true });   // doSwitch 自带“换上”日志
+        return;
+      }
+      if (baton) this._batonPass = { stages: { ...user.stages }, volatile: { ...user.volatile } };
+      const slot = this.activeSlots[0].indexOf(this.teams[0].indexOf(user));
+      const s = slot >= 0 ? slot : 0;
+      this.say(`${user.name} 效果发动：请选择替换上场的宝可梦！`);
+      // 交给对战 UI（app.js 读到 pendingSwitch 会切成替换面板，选人后调用 forceSwitch）
+      if (this.pendingSwitch === null) this.pendingSwitch = s;
+      else if (!this.pendingSwitches.includes(s)) this.pendingSwitches.push(s);
+    }
+    /** 强制退场（吼叫 / 吹飞 / 龙尾 / 巴投） */
+    forceTargetOut(target) {
+      const side = this.sideOf(target);
+      const bench = this.benchOf(side);
+      const label = side === 1 ? '对手的' : '我方的';
+      if (side === 1) {
+        if (this.encounterType === 'wild') {
+          // 野生对战被吼叫/吹飞赶走：直接结束战斗，不判胜利
+          this.outcome = 'escaped';
+          this.escapeReason = 'forceSwitch';
+          this.winner = 0;
+          this.pendingSwitch = null; this.pendingSwitches = [];
+          this.say(`野生的 ${target.name} 被赶走了！战斗结束。`);
+          return;
+        }
+        if (!bench.length) { this.say(`${label}${target.name} 被赶了回来，但是没有可以换上的宝可梦！`); return; }
+        const pick = bench[Math.floor(this.rng() * bench.length)].i;
+        this.doSwitch(1, pick, { forced: true });   // doSwitch 自带“换上”日志
+        return;
+      }
+      if (!bench.length) { this.say(`${label}${target.name} 被赶了回来，但是没有可以换上的宝可梦！`); return; }
+      const slot = this.activeSlots[0].indexOf(this.teams[0].indexOf(target));
+      const s = slot >= 0 ? slot : 0;
+      this.say(`${target.name} 被赶回了队伍，请选择替换上场的宝可梦！`);
+      if (this.pendingSwitch === null) this.pendingSwitch = s; else if (!this.pendingSwitches.includes(s)) this.pendingSwitches.push(s);
+    }
+
     forceSwitch(index) {
       if (this.pendingSwitch === null || this.pendingSwitch !== 0 && this.pendingSwitch !== 1) return false;
       const slot = this.pendingSwitch;
@@ -1308,6 +1958,30 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         const p = this.cur(side, slot);
         if (!p || p.fainted) continue;
         const ab = abilityId(p);
+        // —— 计时类持续效果 ——
+        for (const key of ['taunt', 'healblock', 'magnetrise', 'telekinesis', 'yawn']) {
+          const v = p.volatile?.[key];
+          if (v == null) continue;
+          if (key === 'yawn') {
+            const left = Number(v) - 1;
+            if (left <= 0) {
+              delete p.volatile.yawn;
+              if (!p.status && !statusImmunityReason(p, 'slp', this)) { p.status = 'slp'; p.sleepTurns = 2 + Math.floor(this.rng() * 3); this.say(`由于哈欠，${p.name} 睡着了！`); }
+            } else p.volatile.yawn = left;
+            continue;
+          }
+          const left = Number(v) - 1;
+          if (left <= 0) { delete p.volatile[key]; if (key === 'taunt') this.say(`${p.name} 的挑衅解除了。`); }
+          else p.volatile[key] = left;
+        }
+        if (p.volatile?.encore) { const e = p.volatile.encore; e.turns -= 1; if (e.turns <= 0) { delete p.volatile.encore; this.say(`${p.name} 的再来一次解除了。`); } }
+        if (p.volatile?.wish != null) {
+          const left = Number(p.volatile.wish) - 1;
+          if (left <= 0) { delete p.volatile.wish; this.heal(p, Math.max(1, Math.floor(p.maxHp / 2)), '许愿星回复了体力'); }
+          else p.volatile.wish = left;
+        }
+        if (p.volatile?.aquaring) this.heal(p, Math.max(1, Math.floor(p.maxHp / 16)), '水幕回复了体力');
+        if (p.volatile?.ingrain) this.heal(p, Math.max(1, Math.floor(p.maxHp / 16)), '扎根回复了体力');
         if (p.volatile?.curse) this.applyDamage(p, Math.max(1, Math.floor(p.maxHp / 4)), `${p.name} 受到了诅咒的伤害！`);
         if (this.field.terrain === 'grassy' && isGrounded(p)) this.heal(p, Math.floor(p.maxHp / 16), '青草场地回复了体力');
         if (this.weather === 'rain' && ab === 'raindish') this.heal(p, Math.floor(p.maxHp / 16), '雨盘回复了体力');
@@ -1337,12 +2011,45 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         if (!p.fainted && !p.status && itemId(p) === 'flameorb') this.tryStatus(p, 'brn', p, { fromStatusMove: false });
         if (!p.fainted && !p.status && itemId(p) === 'toxicorb') this.tryStatus(p, 'tox', p, { fromStatusMove: false });
         this.checkItemTrigger(p, 'end');
+        // —— v1.3.54：持续类效果 ——
+        if (!p.fainted && p.volatile?.leechseed) {
+          const src = p.volatile.leechseed;
+          if (!src.fainted && src.hp > 0) { const d2 = Math.max(1, Math.floor(p.maxHp / 8)); this.applyDamage(p, d2, `${p.name} 的体力被寄生种子吸走了！`); if (!p.fainted) this.heal(src, d2, ''); }
+        }
+        if (!p.fainted && p.volatile?.nightmare && p.status === 'slp') this.applyDamage(p, Math.max(1, Math.floor(p.maxHp / 4)), `${p.name} 被恶梦折磨！`);
+        if (!p.fainted && p.volatile?.octolock) { this.applyDamage(p, Math.max(1, Math.floor(p.maxHp / 8)), `${p.name} 被蛸固锁住！`); if (!p.fainted) this.changeStages(p, { def: -1, spe: -1 }, p.volatile.octolock); }
+        if (p.volatile?.perishcount != null) {
+          if (--p.volatile.perishcount <= 0) { this.applyDamage(p, p.hp, `${p.name} 因灭亡之歌倒下了！`); delete p.volatile.perishcount; }
+          else this.say(`${p.name} 的灭亡倒计时：${p.volatile.perishcount}！`);
+        }
+        if (p.volatile?.lockon && --p.volatile.lockon.turns <= 0) delete p.volatile.lockon;
+        delete p.volatile.quash; delete p.volatile.electrify; delete p.volatile.spotlight;
+        delete p.volatile.magiccoat; delete p.volatile.snatch;
+        // v1.3.55：忍耐爆发
+        if (!p.fainted && p.volatile?.bideTurns > 0) {
+          p.volatile.bideTurns--;
+          if (p.volatile.bideTurns === 0) {
+            const amt = (p.volatile.bideDamage || 0) * 2;
+            const tgt = p.volatile.bideBy || this.cur(this.other(this.sideOf(p)));
+            delete p.volatile.bide; delete p.volatile.bideTurns; delete p.volatile.bideDamage; delete p.volatile.bideBy;
+            if (amt > 0 && tgt && !tgt.fainted) this.applyDamage(tgt, amt, `${p.name} 忍耐爆发，${tgt.name} 受到了 ${amt} 点反击伤害！`);
+          } else this.say(`${p.name} 正在忍耐……（还需 ${p.volatile.bideTurns} 回合）`);
+        }
       }
       for (const side of [0, 1]) for (let slot = 0; slot < (this.double ? 2 : 1); slot++) { const p = this.cur(side, slot); if (p?.volatile.disableTurns > 0 && --p.volatile.disableTurns === 0) delete p.volatile.disableMove; if (p) { delete p.volatile.followme; delete p.volatile.ragepowder; delete p.volatile.helpinghand; } }
       // Field duration ticks.
       if (this.field.terrain && this.field.terrainTurns > 0 && --this.field.terrainTurns === 0) { this.field.terrain = null; this.field.terrainTurns = 0; this.say('场地恢复了正常。'); }
       if (this.field.trickRoom > 0 && --this.field.trickRoom === 0) this.say('扭曲的空间恢复了正常。');
       if (this.field.gravity > 0) this.field.gravity--;
+      if (this.field.magicRoom > 0 && --this.field.magicRoom === 0) this.say('魔法空间的效果消失了。');
+      if (this.field.wonderRoom > 0 && --this.field.wonderRoom === 0) this.say('奇妙空间的效果消失了。');
+      // v1.3.54：玩水/玩泥巴/等离子浴/妖精之锁 倒计时
+      if (this.field.pseudoWeather) for (const k of Object.keys(this.field.pseudoWeather)) {
+        if (this.field.pseudoWeather[k] > 0 && --this.field.pseudoWeather[k] === 0) {
+          delete this.field.pseudoWeather[k];
+          this.say({ watersport: '水干了。', mudsport: '泥干了。', iondeluge: '等离子浴消失了。', fairylock: '妖精之锁的效果消失了。' }[k] || `${k} 的效果消失了。`);
+        }
+      }
       for (const sc of this.field.sides) {
         sc.wideguard = false; sc.quickguard = false; sc.matblock = false;
         if (sc.reflect > 0 && --sc.reflect === 0) this.say('反射壁消失了。');
@@ -1350,6 +2057,9 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         if (sc.auroraveil > 0 && --sc.auroraveil === 0) this.say('极光幕消失了。');
         if (sc.tailwind > 0 && --sc.tailwind === 0) this.say('顺风停了。');
         if (sc.safeguard > 0 && --sc.safeguard === 0) this.say('能力防守的效果消失了。');
+        if (sc.mist > 0 && --sc.mist === 0) this.say('白雾散去了。');
+        if (sc.luckychant > 0 && --sc.luckychant === 0) this.say('幸运咒语的效果消失了。');
+        if (sc.craftyshield > 0 && --sc.craftyshield === 0) this.say('戏法防守的效果消失了。');
       }
       if (this.weatherTurns > 0 && --this.weatherTurns === 0) { this.say('天气恢复了正常。'); this.weather = null; }
       for (const side of [0, 1]) for (let slot = 0; slot < (this.double ? 2 : 1); slot++) { const p = this.cur(side, slot); if (p?.dynamaxed && --p.dynamaxTurns <= 0) this.endDynamax(p); }
