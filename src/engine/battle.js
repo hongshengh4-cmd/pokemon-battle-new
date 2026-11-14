@@ -159,7 +159,7 @@
     if (move.flags?.sound && hasAbility(defender, 'soundproof')) return { kind: 'immune', label: '隔音' };
     if (move.flags?.bullet && hasAbility(defender, 'bulletproof')) return { kind: 'immune', label: '防弹' };
     const t = move.type;
-    if (t === 'Ground' && hasAbility(defender, 'levitate') && !(defender._battle?.field?.gravity > 0)) return { kind: 'immune', label: '漂浮' };
+    if (t === 'Ground' && (move.basePower || move.ohko || move.category !== 'Status') && hasAbility(defender, 'levitate') && !(defender._battle?.field?.gravity > 0)) return { kind: 'immune', label: '漂浮' };
     if (t === 'Fire' && hasAbility(defender, 'flashfire')) return { kind: 'flashfire', label: '引火' };
     if (t === 'Electric' && hasAbility(defender, 'voltabsorb')) return { kind: 'heal', label: '蓄电' };
     if (t === 'Electric' && hasAbility(defender, 'lightningrod')) return { kind: 'boost', boosts: { spa: 1 }, label: '避雷针' };
@@ -255,6 +255,7 @@
       moves, status: null, statusTurns: 0, toxicCounter: 1, sleepTurns: 0,
       stages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, accuracy: 0, evasion: 0 },
       volatile: {}, ability: opts.ability ? normId(opts.ability) : (normId(species.abilities?.[0] ?? '') || null), item,
+      _initialHeldItem: item, _consumedItems: [], _itemTransferOccurred: false,
       gender: opts.gender || null, shiny: !!opts.shiny, fainted: false,
       mechanic, megaForm: opts.megaForm || opts.mega ? normId(opts.megaForm || opts.mega) : null,
       teraType: MECH?.canonType(opts.teraType) || null, terastallized: false,
@@ -498,6 +499,7 @@
       this.teams = [teamA, teamB];
       const battleFormat = String(opts.battleMode || opts.format || opts.mode || '').trim().toLowerCase();
       this.double = opts.double === true || opts.doubles === true || ['double', 'doubles', '2v2', '双打'].includes(battleFormat);
+      this.firstFaintLoses = this.double && opts.firstFaintLoses === true; // 榴柑道馆特例，不影响普通双打
       this.activeSlots = this.teams.map(team => {
         const living = team.map((p, i) => ({ p, i })).filter(x => !x.p.fainted).map(x => x.i);
         return (this.double ? living.slice(0, 2) : living.slice(0, 1));
@@ -512,7 +514,7 @@
       this.moveCount = 0;
       this.captureContext = opts.captureContext || {};
       this.log = [];
-      this.winner = null; // 0 | 1 | null
+      this.winner = null; // 0: player | 1: enemy | 2: unresolved simultaneous defeat | null
       this.encounterType = opts.encounterType === 'wild' && teamB.length === 1 ? 'wild' : 'trainer';
       const ballIds=Object.keys(root.PKMCapture?.BALLS||{pokeball:1,greatball:1,ultraball:1,masterball:1,safariball:1,quickball:1,duskball:1,timerball:1,repeatball:1,netball:1,nestball:1,diveball:1,luxuryball:1,healball:1});
       this.ballStock = Object.fromEntries(ballIds.map(id => [id,
@@ -521,6 +523,8 @@
       this.outcome = null; this.capture = null; this.lastCapture = null;
       this.pendingSwitch = null; // player-facing active slot that must be replaced
       this.pendingSwitches = [];
+      // A move-triggered player switch can pause a turn; queued actions keep their original actors.
+      this._turnState = null;
       this.mechanicUsed = [{ mega: false, z: false, dynamax: false, tera: false }, { mega: false, z: false, dynamax: false, tera: false }];
       this.teams.forEach((team, side) => team.forEach(p => {
         p._battle = this; p._side = side; p._enteredThisTurn = false; p._protectStreak = 0;
@@ -694,14 +698,16 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     }
     changeStages(p, boosts, source = p, opts = {}) {
       if (!p || p.fainted || !boosts) return false;
-      // v1.3.54：白雾 —— 对手造成的能力下降无效
-      if (source && source._side != null && p._side != null && source._side !== p._side && !opts.abilityBoost && (this.field.sides[p._side]?.mist > 0)) { this.say(`白雾保护了${p.name}，能力不会被降低！`); return false; }
       let changed = false, lowered = false;
       for (const [k, raw] of Object.entries(boosts)) {
         if (!(k in p.stages) || !raw) continue;
         let amt = raw;
         if (hasAbility(p, 'contrary')) amt = -amt;
         if (hasAbility(p, 'simple')) amt *= 2;
+        // Mist only prevents negative stages actually caused by an opponent; it never blocks boosts.
+        if (amt < 0 && source && source._side != null && p._side != null && source._side !== p._side && !opts.abilityBoost && this.field.sides[p._side]?.mist > 0) {
+          this.say(`白雾保护了${p.name}，${STAT_LABELS[k] || k}没有降低！`); continue;
+        }
         if (amt < 0 && source && source !== p && !opts.abilityBoost) {
           const blocked = hasAbility(p, 'clearbody', 'whitesmoke', 'fullmetalbody')
             || (k === 'atk' && hasAbility(p, 'hypercutter'))
@@ -729,7 +735,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       }
       if (itemId(p) === 'whiteherb' && Object.values(p.stages).some(v => v < 0)) {
         for (const k of Object.keys(p.stages)) if (p.stages[k] < 0) p.stages[k] = 0;
-        p.item = null; this.say(`${p.name} 的白色香草恢复了降低的能力！`);
+        this.consumeItem(p); this.say(`${p.name} 的白色香草恢复了降低的能力！`);
       }
       return changed;
     }
@@ -754,7 +760,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       this.checkItemTrigger(p, 'status');
       return true;
     }
-    consumeItem(p) { const old = p.item; p.item = null; if (old) p._lastConsumed = old; return old; }
+    consumeItem(p) { const old = p.item; p.item = null; if (old) { p._lastConsumed = old; p._consumedItems.push(old); } return old; }
     checkItemTrigger(p, event, ctx = {}) {
       if (!p || p.fainted || !p.item) return;
       // v1.3.55：查封 / 魔法空间 —— 道具（树果/装备自动触发）无效
@@ -872,8 +878,9 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     }
 
     /* ---------- AI ---------- */
-    aiAction(side, slot = 0) {
-      const me = this.cur(side, slot), foe = this.cur(this.other(side), 0);
+    aiAction(side, slot = 0, reserved = new Set()) {
+      const me = this.cur(side, slot), foe = this.activeMons(this.other(side))[0];
+      if (!me || me.fainted || !foe) return { kind: 'pass' };
       if (me.choiceLockedMove) {
         const locked = me.moves.findIndex(m => m.id === me.choiceLockedMove && m.ppLeft > 0);
         if (locked >= 0) return { kind: 'move', index: locked };
@@ -884,7 +891,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       if (diff !== 'easy') {
         const incoming = Math.max(...foe.moves.map(m => m.basePower ? effectiveness(m.type, me.types) : 0));
         const activeSet = new Set(this.activeSlots[side]);
-        const bench = this.teams[side].map((p, i) => ({ p, i })).filter(x => !x.p.fainted && !activeSet.has(x.i));
+        const bench = this.teams[side].map((p, i) => ({ p, i })).filter(x => !x.p.fainted && !activeSet.has(x.i) && !reserved.has(x.i));
         if (incoming >= 2 && bench.length && this.rng() < (diff === 'expert' ? 0.55 : 0.3)) {
           bench.sort((a, b) => {
             const score = p => Math.max(...p.moves.map(m => m.basePower ? effectiveness(m.type, foe.types) : 0)) * (p.hp / p.maxHp);
@@ -938,11 +945,11 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     }
 
     bestSwitch(side) {
-      const foe = this.cur(this.other(side));
+      const foe = this.activeMons(this.other(side))[0];
       let best = null;
       this.teams[side].forEach((p, i) => {
         if (p.fainted || this.activeSlots[side].includes(i)) return;
-        const off = Math.max(...p.moves.map(m => m.basePower ? effectiveness(m.type, foe.types) : 0));
+        const off = foe ? Math.max(...p.moves.map(m => m.basePower ? effectiveness(m.type, foe.types) : 0)) : 0;
         const score = off * 2 + p.hp / p.maxHp;
         if (!best || score > best.score) best = { index: i, score };
       });
@@ -952,7 +959,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     doSwitch(side, index, opts = {}) {
       const slot = opts.slot || 0;
       const p = this.teams[side][index];
-      if (!p || p.fainted || this.activeSlots[side].includes(index)) return false;
+      if (!p || p.fainted || p.hp <= 0 || this.activeSlots[side].includes(index)) return false;
       const old = this.cur(side, slot);
       const foes = this.activeMons(this.other(side));
       if (!opts.forced && foes.some(foe => hasAbility(foe, 'shadowtag')) && !old.types.includes('Ghost')) { this.say(`${old.name} 被踩影困住，无法交换！`); return false; }
@@ -980,7 +987,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       old._lastMoveId = null;
       this.setActive(side, slot, index);
       // 接力棒：把能力变化与部分持续效果交给换上来的宝可梦
-      if (this._batonPass && side === this.sideOf(p)) {
+      if (this._batonPass && this._batonPass.side === side && this._batonPass.slot === slot) {
         const bp = this._batonPass; this._batonPass = null;
         p.stages = { ...p.stages, ...bp.stages };
         const keep = ['substitute', 'focusenergy', 'critBoost', 'magnetrise', 'aquaring', 'ingrain', 'leechseed'];
@@ -992,9 +999,9 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       return true;
     }
 
-    useTrainerItem(id){
+    useTrainerItem(id, slot = 0){
       const item=String(id||'');if((this.itemStock[item]||0)<=0)return false;
-      const p=this.cur(0);if(!p||p.fainted)return false;
+      const p=this.cur(0, slot);if(!p||p.fainted)return false;
       const effects={xattack:[{atk:2}],xdefense:[{def:2}],xspatk:[{spa:2}],xspdef:[{spd:2}],xspeed:[{spe:2}],xaccuracy:[{accuracy:1}]};
       if(item==='guardspec'){
         this.field.sides[0].safeguard=5;this.itemStock[item]--;this.say('使用了能力防守！我方队伍的能力不会被对手降低（5回合）。');return true;
@@ -1011,100 +1018,45 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       const start=this.log.length;this.itemStock.pokemondoll--;this.winner=0;this.outcome='escaped';this.pendingSwitch=null;this.pendingSwitches=[];this.say('使用了宝可梦玩偶，成功从野生战斗中逃走！');return this.log.slice(start);
     }
 
-    /** Execute one full turn. playerAction = {kind:'move'|'switch'|'item', index}. Returns log lines added. */
+    /** A selected switch occupies that actor's action, while faint replacements never start a new turn. */
     turn(playerAction) {
       if (playerAction?.kind === 'capture') return this.captureTurn ? this.captureTurn(playerAction) : [];
-      if (this.winner !== null || this.pendingSwitch !== null) return [];
-      if (this.double && playerAction?.kind === 'item') { if(playerAction.id==='pokemondoll')return this.escapeWithDoll(); if(!this.useTrainerItem(playerAction.id))return[]; return this.turnDouble([{kind:'pass'},{kind:'pass'}]); }
+      if (this.winner !== null || this.pendingSwitch !== null || this._turnState) return [];
       if (this.double && playerAction?.kind === 'double') return this.turnDouble(playerAction.actions || []);
-      const start = this.log.length;
-      for (const side of [0, 1]) if (this.cur(side)) this.cur(side)._enteredThisTurn = false;
-      let chosen = playerAction;
-      if(chosen?.kind==='item'){
-        if(chosen.id==='pokemondoll')return this.escapeWithDoll();
-        if(!this.useTrainerItem(chosen.id))return this.log.slice(start);
-        chosen={kind:'pass'};
-      }
-      const activePlayer = this.cur(0);
-      if (chosen?.kind === 'move' && activePlayer?.choiceLockedMove) {
-        const locked = activePlayer.moves.findIndex(m => m.id === activePlayer.choiceLockedMove);
-        if (locked >= 0) chosen = { kind: 'move', index: locked };
-      }
-      const foeAction = this.aiAction(1);
-      const actions = [
-        { side: 0, action: chosen },
-        { side: 1, action: foeAction },
-      ];
-      // Switches first.
-      for (const a of actions) if (a.action.kind === 'switch') this.doSwitch(a.side, a.action.index);
-      for (const side of [0, 1]) if (this.cur(side)) delete this.cur(side).volatile.protect;
-      // Mega/Dynamax/Tera activate before speed order is calculated.
-      [...actions].filter(a => a.action.kind === 'move' && ['mega', 'dynamax', 'tera'].includes(a.action.mechanic))
-        .sort((a, b) => effStat(this.cur(b.side), 'spe') - effStat(this.cur(a.side), 'spe'))
-        .forEach(a => this.activateMechanic(a.side, a.action.mechanic));
-      const movers = actions.filter(a => a.action.kind === 'move').map(a => {
-        const p = this.cur(a.side);
-        // v1.3.4：PP 会跨战斗继承，招式点数全部用完时改用“挣扎”（反伤 1/4 最大体力）
-        const usable = p.moves.filter(m => m.ppLeft > 0 && p.volatile.disableMove !== m.id);
-        const picked = p.moves[a.action.index];
-        const move = (a.action.struggle || !usable.length) ? struggleMove() : resolveScriptedMove(this, p, picked || p.moves[0]);
-        const prio = p.volatile?.quash ? -9 : (p.volatile?.afteryou ? 3 : this.movePriority(p, move, this.cur(this.other(a.side))));
-        const speed = effStat(p, 'spe');
-        return { ...a, move, prio, speed, tie: this.rng(), mechanic: a.action.mechanic || null };
-      });
-      const trick = this.field.trickRoom > 0;
-      movers.sort((x, y) => (y.prio - x.prio) || (trick ? (x.speed - y.speed) || (x.tie - y.tie) : (y.speed - x.speed) || (x.tie - y.tie)));
-      this.turnCount++;
-      for (const m of movers) {
-        if (this.winner !== null) break;
-        const user = this.cur(m.side);
-        if (user.fainted) continue;
-        this.useMove(m.side, user, this.cur(this.other(m.side)), m.move, { mechanic: m.mechanic });
-        if (m.move.id === 'struggle' && !user.fainted && this._struggled) this.applyDamage(user, Math.max(1, Math.floor(user.maxHp / 4)), `${user.name} 受到了反作用力伤害！`);
-        this._struggled = false;
-        if (this._boom === user && !user.fainted && user.hp > 0) { user.hp = 0; this.say(`${user.name} 倒下了！`); }
-        this._boom = null;
-        this.checkFaints();
-      }
-      this.endOfTurn();
-      this.checkFaints();
-      this.updateWinner();
-      return this.log.slice(start);
+      if (playerAction?.kind === 'item' && playerAction.id === 'pokemondoll') return this.escapeWithDoll();
+      return this._startTurn([playerAction || { kind: 'pass' }]);
     }
 
+    // Resolve targets from the actual move metadata. "normal" can target an ally in doubles,
+    // whereas adjacentFoe cannot; neither normal nor any can target the user itself.
     doubleTargets(side, slot, move, chosen) {
       const user = this.cur(side, slot);
-      if (!user || user.fainted) return [];
-      const foes = this.activeMons(this.other(side));
-      const allies = this.activeMons(side);
-      const all = [0, 1].flatMap(sd => this.activeMons(sd));
+      if (!user || user.fainted || user.hp <= 0) return [];
+      const foes = this.activeMons(this.other(side)).filter(p => p.hp > 0);
+      const allies = this.activeMons(side).filter(p => p.hp > 0);
+      const others = [...foes, ...allies.filter(p => p !== user)];
+      const all = [user, ...others];
       const selected = chosen && Number.isInteger(chosen.slot) ? this.cur(chosen.side ?? this.other(side), chosen.slot) : null;
       let targets;
       switch (move.target) {
         case 'self': return [user];
         case 'adjacentAlly': targets = allies.filter(p => p !== user); break;
-        case 'adjacentAllyOrSelf': targets = [user, ...allies.filter(p => p !== user)]; break;
-        case 'allies': targets = allies; break;
-        case 'allyTeam': return [user];
-        case 'allAdjacentFoes': targets = foes; break;
-        case 'allAdjacent': targets = all.filter(p => p !== user); break;
-        case 'all': targets = all; break;
+        case 'adjacentAllyOrSelf': targets = allies; break;
+        case 'allies': return allies;
+        case 'allyTeam': case 'allySide': return [user];
+        case 'allAdjacentFoes': return foes;
+        case 'allAdjacent': return others;
+        case 'all': return all;
         case 'foeSide': return [foes[0] || user];
-        case 'allySide': return [user];
         case 'randomNormal': return foes.length ? [foes[Math.floor(this.rng() * foes.length)]] : [];
-        case 'any':
-          targets = all;
-          break;
-        case 'normal':
-        case 'adjacentFoe':
-        default:
-          targets = foes;
+        case 'any': case 'normal': targets = others; break;
+        case 'adjacentFoe': case 'scripted': default: targets = foes;
       }
-      if (!targets?.length) return [];
-      if (['allAdjacentFoes', 'allAdjacent', 'all', 'allies', 'allyTeam', 'foeSide', 'allySide'].includes(move.target)) return targets;
-      let target = selected && targets.includes(selected) ? selected : targets[0];
-      // Follow Me / Rage Powder and the classic drawing abilities redirect only single-target moves.
-      if (targets.includes(target) && target._side !== side && !['self', 'adjacentAlly', 'adjacentAllyOrSelf'].includes(move.target)) {
+      if (!targets.length) return [];
+      // A vanished ally is not silently replaced with an opponent. A vanished foe may be retargeted.
+      if (chosen && chosen.side === side && !targets.includes(selected)) return [];
+      let target = selected && targets.includes(selected) ? selected : (foes.find(p => targets.includes(p)) || targets[0]);
+      if (target._side !== side && !['self', 'adjacentAlly', 'adjacentAllyOrSelf'].includes(move.target)) {
         const redirected = foes.find(p => p.volatile?.followme || p.volatile?.ragepowder || (p.volatile?.spotlight && target !== p)
           || (move.type === 'Electric' && hasAbility(p, 'lightningrod'))
           || (move.type === 'Water' && hasAbility(p, 'stormdrain')));
@@ -1112,61 +1064,93 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       }
       return [target];
     }
-    turnDouble(playerActions) {
-      const start = this.log.length;
-      const player = [0, 1].map(slot => playerActions[slot] || { kind: 'move', index: 0, slot });
-      for(const a of player)if(a.kind==='item'){if(a.id==='pokemondoll')this.escapeWithDoll();else this.useTrainerItem(a.id);a.kind='pass';}
-      if(this.winner!==null)return this.log.slice(start);
-      const enemy = [0, 1].map(slot => { const p = this.cur(1, slot); return p && !p.fainted ? this.aiAction(1, slot) : { kind: 'pass' }; });
-      const actions = [
-        ...player.map((action, slot) => ({ side: 0, slot, action })),
-        ...enemy.map((action, slot) => ({ side: 1, slot, action })),
-      ].filter(x => { const p = this.cur(x.side, x.slot); return p && !p.fainted; });
-      for (const side of [0, 1]) for (let slot = 0; slot < 2; slot++) {
+    turnDouble(playerActions) { return this._startTurn(playerActions || []); }
+    _startTurn(playerActions) {
+      if (this.winner !== null || this.pendingSwitch !== null || this._turnState) return [];
+      const start = this.log.length, count = this.double ? 2 : 1;
+      for (const side of [0, 1]) for (let slot = 0; slot < count; slot++) {
         const p = this.cur(side, slot); if (p) { p._enteredThisTurn = false; delete p.volatile.protect; }
       }
-      for (const a of actions) if (a.action.kind === 'switch') this.doSwitch(a.side, a.action.index, { slot: a.slot });
-      [...actions].filter(a => a.action.kind === 'move' && ['mega', 'dynamax', 'tera'].includes(a.action.mechanic))
-        .sort((a, b) => effStat(this.cur(b.side, b.slot), 'spe') - effStat(this.cur(a.side, a.slot), 'spe'))
-        .forEach(a => this.activateMechanic(a.side, a.action.mechanic, a.slot));
-      const movers = actions.filter(a => a.action.kind === 'move').map(a => {
-        const p = this.cur(a.side, a.slot);
+      const reserved = new Set();
+      const enemy = Array.from({ length: count }, (_, slot) => {
+        const a = this.aiAction(1, slot, reserved);
+        if (a.kind === 'switch') reserved.add(a.index);
+        return a;
+      });
+      const actions = [0, 1].flatMap(side => Array.from({ length: count }, (_, slot) => ({
+        side, slot, actor: this.cur(side, slot), action: side === 0 ? (playerActions[slot] || { kind: 'pass' }) : enemy[slot]
+      }))).filter(a => a.actor && !a.actor.fainted && a.actor.hp > 0);
+      // Items affect the selected doubles slot, not always slot 0. An invalid single item costs no turn.
+      for (const a of actions) if (a.side === 0 && a.action.kind === 'item') {
+        if (a.action.id === 'pokemondoll') return this.escapeWithDoll();
+        const used = this.useTrainerItem(a.action.id, a.slot);
+        if (!used && !this.double) return this.log.slice(start);
+        a.action = { kind: 'pass' };
+      }
+      this.turnCount++;
+      // Switches precede moves. Do not substitute a switched-in mon for a queued actor.
+      for (const a of actions) if (a.action.kind === 'switch' && this.cur(a.side, a.slot) === a.actor) {
+        if (!this.doSwitch(a.side, a.action.index, { slot: a.slot })) this.say(`${a.actor.name} 无法交换，本次行动结束。`);
+        this.checkFaints({ deferReplacement: true });
+      }
+      this.updateWinner();
+      if (this.winner !== null) return this.log.slice(start);
+      const moveActions = actions.filter(a => a.action.kind === 'move' && this.cur(a.side, a.slot) === a.actor && !a.actor.fainted);
+      [...moveActions].filter(a => ['mega', 'dynamax', 'tera'].includes(a.action.mechanic))
+        .sort((a, b) => effStat(b.actor, 'spe') - effStat(a.actor, 'spe'))
+        .forEach(a => { if (this.cur(a.side, a.slot) === a.actor && !a.actor.fainted) this.activateMechanic(a.side, a.action.mechanic, a.slot); });
+      const movers = moveActions.map(a => {
+        const p = a.actor;
         const usable = p.moves.filter(m => m.ppLeft > 0 && p.volatile.disableMove !== m.id);
         const locked = p.choiceLockedMove ? p.moves.findIndex(m => m.id === p.choiceLockedMove && m.ppLeft > 0) : -1;
         const encIdx = p.volatile?.encore ? p.moves.findIndex(m => m.id === p.volatile.encore.moveId && m.ppLeft > 0) : -1;
         const picked = p.moves[locked >= 0 ? locked : (encIdx >= 0 ? encIdx : a.action.index)];
         const base = (a.action.struggle || !usable.length) ? struggleMove() : resolveScriptedMove(this, p, picked || p.moves[0]);
-        const move = { ...base };
+        const move = { ...transformMove(p, base, a.action.mechanic) };
         const targets = this.doubleTargets(a.side, a.slot, move, a.action.target);
-        move._spreadTargets = targets.length > 1 ? targets.length : 0;
-        return { ...a, move, base, targets, prio: p.volatile?.quash ? -9 : (p.volatile?.afteryou ? 3 : this.movePriority(p, move, targets[0] || p)), speed: effStat(p, 'spe'), tie: this.rng(), mechanic: a.action.mechanic || null };
+        return { ...a, move, base, prio: p.volatile?.quash ? -9 : (p.volatile?.afteryou ? 3 : this.movePriority(p, move, targets[0] || p)),
+          speed: effStat(p, 'spe'), tie: this.rng(), mechanic: a.action.mechanic || null };
       });
       const trick = this.field.trickRoom > 0;
       movers.sort((x, y) => (y.prio - x.prio) || (trick ? (x.speed - y.speed) || (x.tie - y.tie) : (y.speed - x.speed) || (x.tie - y.tie)));
-      this.turnCount++;
-      for (const m of movers) {
-        if (this.winner !== null) break;
+      this._turnState = { movers, index: 0 };
+      this._continueTurn();
+      return this.log.slice(start);
+    }
+    _continueTurn() {
+      const state = this._turnState;
+      if (!state || this.pendingSwitch !== null || this.winner !== null) return;
+      while (state.index < state.movers.length) {
+        const m = state.movers[state.index++];
         const user = this.cur(m.side, m.slot);
-        if (!user || user.fainted) continue;
-        const resolvedTargets = this.doubleTargets(m.side, m.slot, m.move, m.action.target);
-        if (!resolvedTargets.length) { this.say(`${user.name} 的招式没有可选目标！`); continue; }
+        if (!user || user !== m.actor || user.fainted || user.hp <= 0) continue;
+        const targets = this.doubleTargets(m.side, m.slot, m.move, m.action.target);
+        if (!targets.length) { this.say(`${user.name} 的招式没有可选目标！`); continue; }
         const shared = {};
-        for (let i = 0; i < resolvedTargets.length; i++) {
-          const target = resolvedTargets[i];
-          if (!target || target.fainted || user.fainted) break;
-          this.useMove(m.side, user, target, m.base, { mechanic: m.mechanic, _shared: shared, _doubleIndex: i, _doubleCount: resolvedTargets.length, _spreadTargets: resolvedTargets.length > 1 ? resolvedTargets.length : 0 });
+        for (let i = 0; i < targets.length; i++) {
+          if (!targets[i] || targets[i].fainted || targets[i].hp <= 0 || user.fainted || user.hp <= 0) continue;
+          this.useMove(m.side, user, targets[i], m.base, { mechanic: m.mechanic, _shared: shared,
+            _doubleIndex: i, _doubleCount: targets.length, _spreadTargets: targets.length > 1 ? targets.length : 0 });
         }
-        if (m.base.id === 'struggle' && !user.fainted && this._struggled) this.applyDamage(user, Math.max(1, Math.floor(user.maxHp / 4)), `${user.name} 受到了反作用力伤害！`);
+        if (m.base.id === 'struggle' && !user.fainted && user.hp > 0 && this._struggled) this.applyDamage(user, Math.max(1, Math.floor(user.maxHp / 4)), `${user.name} 受到了反作用力伤害！`);
         if (m.base.basePower) delete user.volatile.helpinghand;
         this._struggled = false;
         if (this._boom === user && !user.fainted && user.hp > 0) { user.hp = 0; this.say(`${user.name} 倒下了！`); }
         this._boom = null;
-        this.checkFaints();
+        // Ordinary faint replacements happen after the remaining actions and residual effects.
+        this.checkFaints({ deferReplacement: true });
+        this.updateWinner();
+        if (this.winner !== null) { this._turnState = null; return; }
+        // Volt Switch / Baton Pass / forced switches must resolve before the queued actions resume.
+        if (this.pendingSwitch !== null) return;
       }
       this.endOfTurn();
+      this.checkFaints({ deferReplacement: true });
+      this.updateWinner();
+      this._turnState = null;
+      if (this.winner !== null) return;
       this.checkFaints();
       this.updateWinner();
-      return this.log.slice(start);
     }
 
     // 出招前的“不能使用”判定（挑衅 / 再来一次以外的限制都在这里）
@@ -1250,19 +1234,9 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         user._protectStreak = streak + 1;
       }
       if (firstAction && (move.selfdestruct === 'always' || baseMove.id === 'finalgambit')) this._boom = user; // v1.3.5：大爆炸 / 自爆 / 搏命，使用后自己倒下
-      // 目标是“对手”的变化招式，不能被当成自我招式（否则会打自己、替身替自己挡刀）
-    const FOE_STATUS_MOVES = new Set(['afteryou', 'bestow', 'block', 'defog', 'doodle', 'entrainment', 'floralhealing',
-      'forestscurse', 'guardsplit', 'guardswap', 'heartswap', 'instruct', 'lockon', 'magicpowder', 'meanlook', 'mefirst',
-      'mimic', 'mindreader', 'painsplit', 'perishsong', 'powersplit', 'powerswap', 'psychoshift', 'psychup', 'purify',
-      'quash', 'reflecttype', 'roleplay', 'simplebeam', 'sketch', 'skillswap', 'soak', 'speedswap', 'spiderweb', 'spite',
-      'strengthsap', 'switcheroo', 'topsyturvy', 'transform', 'trick', 'trickortreat', 'venomdrench', 'worryseed',
-      'flowershield', 'roar', 'whirlwind', 'dragontail', 'circlethrow', 'uturn', 'voltswitch', 'flipturn', 'partingshot',
-      'chillyreception', 'shedtail', 'teleport', 'batonpass', 'leechseed', 'nightmare', 'octolock', 'disable',
-      'spotlight', 'foresight', 'odorsleuth', 'miracleeye', 'powder', 'electrify', 'conversion2',
-      'corrosivegas', 'doodle', 'embargo', 'mirrormove', 'naturepower']);
-    const selfTarget = !FOE_STATUS_MOVES.has(move.id) && move.category === 'Status' && !move.basePower && (move.heal || (move.boosts && move.target === 'self') || move.status === undefined && move.volatileStatus === undefined);
+      // Status moves are not inherently self-targeting: use the explicit target chosen by the caller.
       const ghostCurse = move.id === 'curse' && user.types?.includes('Ghost');
-      let realTarget = move.id === 'curse' ? (ghostCurse ? target : user) : ((move.target === 'self' || selfTarget) ? user : target);
+      let realTarget = move.id === 'curse' ? (ghostCurse ? target : user) : (move.target === 'self' ? user : target);
       // v1.3.55：魔法反射 / 抢夺 —— 弹回对手的变化招式
       if (target && target !== user && move.category === 'Status' && !move.sideCondition && !move.pseudoWeather) {
         if (target.volatile?.magiccoat && move.target !== 'self') { this.say(`${target.name} 的魔法反射把招式弹了回去！`); realTarget = user; }
@@ -1304,9 +1278,10 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         acc = 30 + (user.level - realTarget.level);
       }
       const targetEvasion = hasAbility(user, 'keeneye') ? Math.min(0, realTarget.stages.evasion || 0) : (realTarget.stages.evasion || 0);
-      if (!move.ohko) acc *= stageMult((user.stages.accuracy || 0), 'acc') * stageMult(targetEvasion, 'eva');
-      if (move.category === 'Physical' && hasAbility(user, 'hustle')) acc *= 0.8;
-      if (this.field.gravity > 0) acc *= 5 / 3;
+      // accuracy:true denotes a never-miss move, not a 100%-accuracy move.
+      if (!move.ohko && move.accuracy !== true) acc *= stageMult((user.stages.accuracy || 0), 'acc') * stageMult(targetEvasion, 'eva');
+      if (move.accuracy !== true && move.category === 'Physical' && hasAbility(user, 'hustle')) acc *= 0.8;
+      if (move.accuracy !== true && this.field.gravity > 0) acc *= 5 / 3;
       if (move.type === 'Fire' && user.volatile?.powder) {
         delete user.volatile.powder;
         this.say(`${user.name} 身上的粉尘被火苗引燃了！`);
@@ -1314,6 +1289,12 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         return;
       }
       if (realTarget !== user && !realTarget.volatile?.lockon && this.rng() * 100 > acc) { this.say(`但是没有命中 ${realTarget.name}！`); return; }
+      if (move.id === 'pollenpuff' && realTarget !== user && this.sideOf(realTarget) === side) {
+        this.heal(realTarget, Math.floor(realTarget.maxHp / 2), '被花粉团回复了体力');
+        if (firstAction) { user._lastMoveId = baseMove.id; user._lastMoveType = baseMove.type; }
+        this.checkItemTrigger(user, 'pp');
+        return;
+      }
       if (move.id === 'curse') {
         if (!ghostCurse) {
           this.changeStages(user, { atk: 1, def: 1, spe: -1 }, user);
@@ -1398,12 +1379,15 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       if (lastTarget && moveHit && ['rapidspin', 'mortalspin'].includes(move.id) && !user.fainted) {
         if (this.clearHazards(this.sideOf(user))) this.say(`${user.name} 清除了自己一方的钉子！`);
       }
-      if (lastTarget && move.heal && !user.fainted) { const _hw = opts._snatched ? realTarget : user; this.heal(_hw, Math.floor(_hw.maxHp * move.heal[0] / move.heal[1]), '回复了体力'); }
+      if (anyHit && move.heal && !realTarget.fainted && realTarget.hp > 0) {
+        const recipient = opts._snatched ? realTarget : (move.target === 'self' ? user : realTarget);
+        this.heal(recipient, Math.floor(recipient.maxHp * move.heal[0] / move.heal[1]), '回复了体力');
+      }
       if (firstAction) { if (user.volatile?.destinybond && baseMove.id !== 'destinybond') delete user.volatile.destinybond; user._lastMoveId = baseMove.id; user._lastMoveType = baseMove.type; this._lastExecutedMove = baseMove.id; }
       // 自我替换：伏特替换 / 急速折返 / 快速折返 / 抛下狠话 / 接力棒 …
-      if (lastTarget && moveHit && move.selfSwitch && !user.fainted && this.winner === null) this.requestSelfSwitch(user, move);
+      if (lastTarget && moveHit && move.selfSwitch && !user.fainted && user.hp > 0 && this.winner === null) this.requestSelfSwitch(user, move);
       // 强制替换：吼叫 / 吹飞 / 龙尾 / 巴投
-      if (lastTarget && moveHit && move.forceSwitch && !realTarget.fainted && this.winner === null && this.outcome !== 'escaped') this.forceTargetOut(realTarget);
+      if (lastTarget && moveHit && move.forceSwitch && !realTarget.fainted && realTarget.hp > 0 && this.winner === null && this.outcome !== 'escaped') this.forceTargetOut(realTarget);
       if (lastTarget) this.checkItemTrigger(user, 'pp');
     }
 
@@ -1545,7 +1529,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
           }
         }
         // 道具类
-        if (move.id === 'bestow') { if (!user.item) this.say('但是失败了！'); else { const it2 = this.consumeItem(user); target.item = it2; this.say(`${user.name} 把道具送给了 ${target.name}！`); } }
+        if (move.id === 'bestow') { if (!user.item || target.item) this.say('但是失败了！'); else { const it2 = user.item; user.item = null; target.item = it2; user._itemTransferOccurred = target._itemTransferOccurred = true; this.say(`${user.name} 把道具送给了 ${target.name}！`); } }
         if (move.id === 'recycle') { if (user.item || !user._lastConsumed) this.say('但是失败了！'); else { user.item = user._lastConsumed; this.say(`${user.name} 找回了 ${user.item}！`); } }
         if (move.id === 'embargo') { target.volatile.embargo = true; this.say(`${target.name} 被查封，无法使用道具！`); }
         if (move.id === 'corrosivegas') { if (!target.item || target._side === user._side) this.say('但是失败了！'); else { const it2 = target.item; target.item = null; this.say(`${target.name} 的道具被腐蚀气体熔化了！`); } }
@@ -1681,7 +1665,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         if (move.id === 'destinybond') { user.volatile.destinybond = true; this.say(`${user.name} 暗下了同命的决心！`); }
         if (move.id === 'perishsong') {
           let applied = 0;
-          for (const side of [0, 1]) for (const i of this.activeSlots[side]) { const p2 = this.teams[side][i]; if (p2 && !p2.fainted && p2.volatile?.perishcount == null) { p2.volatile.perishcount = 4; applied++; } }
+          for (const side of [0, 1]) for (const i of this.activeSlots[side]) { const p2 = this.teams[side][i]; if (p2 && !p2.fainted && !hasAbility(p2, 'soundproof') && p2.volatile?.perishcount == null) { p2.volatile.perishcount = 4; applied++; } }
           if (applied) this.say('灭亡之歌：所有在场宝可梦将在 3 回合后倒下！'); else this.say('但是失败了！');
         }
         if (move.id === 'healingwish' || move.id === 'lunardance') {
@@ -1749,7 +1733,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         // —— 道具交换 ——
         if (['trick', 'switcheroo'].includes(move.id)) {
           if (!target || target === user || target.fainted) this.say('但是失败了！');
-          else { const a = user.item, b = target.item; user.item = b || null; target.item = a || null; this.say(`${move.name}：双方交换了携带的道具！`); }
+          else { const a = user.item, b = target.item; user.item = b || null; target.item = a || null; user._itemTransferOccurred = target._itemTransferOccurred = true; this.say(`${move.name}：双方交换了携带的道具！`); }
         }
         if (move.id === 'courtchange') { const tmp = this.field.sides[0]; this.field.sides[0] = this.field.sides[1]; this.field.sides[1] = tmp; this.say('双方交换了场地效果！'); }
       }
@@ -1868,26 +1852,28 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       p.hp = Math.max(0, p.hp - amount);
       if (why) this.say(why);
     }
-    checkFaints() {
-      const slotCount = this.double ? 2 : 1;
-      for (const side of [0, 1]) for (let slot = 0; slot < slotCount; slot++) {
+    checkFaints({ deferReplacement = false } = {}) {
+      const count = this.double ? 2 : 1;
+      for (const side of [0, 1]) for (let slot = 0; slot < count; slot++) {
         const p = this.cur(side, slot);
-        if (p && !p.fainted && p.hp <= 0) {
-          p.fainted = true;
-          this.say(`${p.name} 失去了战斗能力！`);
-          if (side === 1 && this.alive(1).length) {
-            const idx = this.bestSwitch(1, slot);
-            if (idx >= 0) {
-              this.setActive(1, slot, idx); this.say(`敌方换上了 ${this.cur(1, slot).name}！`);
-              this.onEnter(1, false, slot);
-              if (this.cur(1, slot).hp <= 0 && !this.cur(1, slot).fainted) this.checkFaints();
-            }
-          } else if (side === 0 && this.alive(0).length) {
-            const activeLiving = this.activeSlots[0].filter(i => this.teams[0][i] && !this.teams[0][i].fainted).length;
-            const alreadyQueued = this.pendingSwitches.length + (this.pendingSwitch === null ? 0 : 1);
-            const hasReserve = this.alive(0).length > activeLiving + alreadyQueued;
-            if (hasReserve && !this.pendingSwitches.includes(slot) && this.pendingSwitch !== slot) this.pendingSwitches.push(slot);
+        if (p && !p.fainted && p.hp <= 0) { p.fainted = true; this.say(`${p.name} 失去了战斗能力！`); }
+      }
+      if (deferReplacement) return;
+      // Marking and replacement are separate: previously marked fainted slots remain eligible.
+      for (const side of [0, 1]) for (let slot = 0; slot < count; slot++) {
+        let p = this.cur(side, slot);
+        if (!p || !p.fainted) continue;
+        if (side === 1) {
+          // Entry hazards may KO more than one replacement. Never steal the ally's slot.
+          while (p && p.fainted) {
+            const idx = this.bestSwitch(1, slot); if (idx < 0) break;
+            this.setActive(1, slot, idx); p = this.cur(1, slot);
+            this.say(`敌方换上了 ${p.name}！`); this.onEnter(1, false, slot);
+            if (p.hp <= 0 && !p.fainted) { p.fainted = true; this.say(`${p.name} 失去了战斗能力！`); }
           }
+        } else if (this.pendingSwitch !== slot && !this.pendingSwitches.includes(slot)) {
+          const alreadyQueued = this.pendingSwitches.length + (this.pendingSwitch === null ? 0 : 1);
+          if (this.benchOf(0).length > alreadyQueued) this.pendingSwitches.push(slot);
         }
       }
       if (this.pendingSwitch === null && this.pendingSwitches.length) this.pendingSwitch = this.pendingSwitches.shift();
@@ -1896,7 +1882,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     /** 备用宝可梦（同侧、未倒下、不在场） */
     benchOf(side) {
       const team = this.teams[side] || [];
-      return team.map((p, i) => ({ p, i })).filter(x => !x.p.fainted && !this.activeSlots[side].includes(x.i));
+      return team.map((p, i) => ({ p, i })).filter(x => !x.p.fainted && x.p.hp > 0 && !this.activeSlots[side].includes(x.i));
     }
     /** 自我替换（伏特替换等）：我方交给 UI 选择，敌方自动换人 */
     requestSelfSwitch(user, move) {
@@ -1905,13 +1891,14 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       if (!bench.length) { this.say(`${user.name} 想回来休息，但是没有可以换上的宝可梦！`); return; }
       const baton = move.selfSwitch === 'copyvolatile';
       if (side === 1) {
-        const idx = this.bestSwitch(1);
-        if (idx >= 0) this.doSwitch(1, idx, { forced: true });   // doSwitch 自带“换上”日志
+        const slot = Math.max(0, this.activeSlots[1].indexOf(this.teams[1].indexOf(user)));
+        const idx = this.bestSwitch(1, slot);
+        if (idx >= 0) this.doSwitch(1, idx, { forced: true, slot });   // doSwitch 自带“换上”日志
         return;
       }
-      if (baton) this._batonPass = { stages: { ...user.stages }, volatile: { ...user.volatile } };
       const slot = this.activeSlots[0].indexOf(this.teams[0].indexOf(user));
       const s = slot >= 0 ? slot : 0;
+      if (baton) this._batonPass = { side, slot: s, stages: { ...user.stages }, volatile: { ...user.volatile } };
       this.say(`${user.name} 效果发动：请选择替换上场的宝可梦！`);
       // 交给对战 UI（app.js 读到 pendingSwitch 会切成替换面板，选人后调用 forceSwitch）
       if (this.pendingSwitch === null) this.pendingSwitch = s;
@@ -1934,7 +1921,8 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         }
         if (!bench.length) { this.say(`${label}${target.name} 被赶了回来，但是没有可以换上的宝可梦！`); return; }
         const pick = bench[Math.floor(this.rng() * bench.length)].i;
-        this.doSwitch(1, pick, { forced: true });   // doSwitch 自带“换上”日志
+        const slot = Math.max(0, this.activeSlots[1].indexOf(this.teams[1].indexOf(target)));
+        this.doSwitch(1, pick, { forced: true, slot });
         return;
       }
       if (!bench.length) { this.say(`${label}${target.name} 被赶了回来，但是没有可以换上的宝可梦！`); return; }
@@ -1949,8 +1937,12 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       const slot = this.pendingSwitch;
       if (!this.doSwitch(0, index, { forced: true, slot })) return false;
       this.pendingSwitch = this.pendingSwitches.shift() ?? null;
-      this.checkFaints();
+      // A replacement that faints on entry must itself be replaced without adding a turn.
+      this.checkFaints({ deferReplacement: !!this._turnState });
+      if (this._turnState && this.cur(0, slot)?.fainted && this.benchOf(0).length && this.pendingSwitch === null) this.pendingSwitch = slot;
       this.updateWinner();
+      if (this.winner !== null) this._turnState = null;
+      else if (this._turnState && this.pendingSwitch === null) this._continueTurn();
       return true;
     }
     endOfTurn() {
@@ -2066,13 +2058,31 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     }
 
     updateWinner() {
-      if (this.outcome === 'captured') return;
+      if (this.winner !== null || this.outcome === 'captured') return;
+      if (this.firstFaintLoses) {
+        const down = [0, 1].map(side => this.activeSlots[side].some(index => {
+          const p = this.teams[side][index]; return p && (p.fainted || p.hp <= 0);
+        }));
+        if (down[0] || down[1]) {
+          this.pendingSwitch = null; this.pendingSwitches = [];
+          if (down[0] && down[1]) {
+            // 原文没有给出双方同一结算步骤同时倒下的裁决：不替裁判决定胜负。
+            this.winner = 2; this.outcome = 'draw';
+            this.say('双方同一步骤均有宝可梦失去战斗能力；原规则未给出同时倒下裁决，请人工裁定。');
+          } else if (down[1]) {
+            this.winner = 0; this.say('对方有一只失去战斗能力，按榴柑道馆规则全组落败；我方获胜！');
+          } else {
+            this.winner = 1; this.say('我方有一只失去战斗能力，按榴柑道馆规则全组落败。');
+          }
+          return;
+        }
+      }
       if (this.alive(1).length === 0) { this.winner = 0; this.pendingSwitch = null; this.pendingSwitches = []; this.say('战斗胜利！'); }
       else if (this.alive(0).length === 0) { this.winner = 1; this.pendingSwitch = null; this.pendingSwitches = []; this.say('眼前一片漆黑……'); }
     }
     result() {
       return {
-        winner: this.winner === null ? null : (this.winner === 0 ? 'player' : 'enemy'),
+        winner: this.winner === null ? null : (this.winner === 0 ? 'player' : this.winner === 1 ? 'enemy' : 'draw'),
         outcome: this.outcome || (this.winner === null ? null : this.winner === 0 ? 'victory' : 'defeat'),
         encounterType: this.encounterType,
         ballStock: { ...this.ballStock },
@@ -2084,14 +2094,14 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         weather: this.weather,
         field: JSON.parse(JSON.stringify(this.field)),
         mechanicUsed: JSON.parse(JSON.stringify(this.mechanicUsed)),
-        playerTeam: this.teams[0].map(p => ({ species: p.speciesId, baseSpecies: p.originalSpeciesId, hp: p.hp, maxHp: p.maxHp, fainted: p.fainted, status: p.status, ability: p.ability, item: p.item, mechanic: p.mechanic, isMega: p.isMega, terastallized: p.terastallized, teraType: p.teraType, dynamaxed: p.dynamaxed })),
-        enemyTeam: this.teams[1].map(p => ({ species: p.speciesId, baseSpecies: p.originalSpeciesId, hp: p.hp, maxHp: p.maxHp, fainted: p.fainted, status: p.status, ability: p.ability, item: p.item, mechanic: p.mechanic, isMega: p.isMega, terastallized: p.terastallized, teraType: p.teraType, dynamaxed: p.dynamaxed })),
+        playerTeam: this.teams[0].map(p => ({ species: p.speciesId, baseSpecies: p.originalSpeciesId, hp: p.hp, maxHp: p.maxHp, fainted: p.fainted, status: p.status, ability: p.ability, item: p.item, initialItem: p._initialHeldItem, consumedItems: [...p._consumedItems], itemTransferOccurred: !!p._itemTransferOccurred, mechanic: p.mechanic, isMega: p.isMega, terastallized: p.terastallized, teraType: p.teraType, dynamaxed: p.dynamaxed })),
+        enemyTeam: this.teams[1].map(p => ({ species: p.speciesId, baseSpecies: p.originalSpeciesId, hp: p.hp, maxHp: p.maxHp, fainted: p.fainted, status: p.status, ability: p.ability, item: p.item, initialItem: p._initialHeldItem, consumedItems: [...p._consumedItems], itemTransferOccurred: !!p._itemTransferOccurred, mechanic: p.mechanic, isMega: p.isMega, terastallized: p.terastallized, teraType: p.teraType, dynamaxed: p.dynamaxed })),
         log: this.log.slice(),
       };
     }
   }
 
-  const api = { setData, specialDamageInfo, FIXED_DAMAGE_IDS, VARIABLE_POWER_IDS, createPokemon, calcStats, effStat, estimateDamage, Battle, normId, STATUS_NAMES, abilityId, itemId, isGrounded, transformMove, makeZMove, makeMaxMove, stabMultiplier };
+  const api = { version:'20261113-hardplot-doubles-v2', setData, specialDamageInfo, FIXED_DAMAGE_IDS, VARIABLE_POWER_IDS, createPokemon, calcStats, effStat, estimateDamage, Battle, normId, STATUS_NAMES, abilityId, itemId, isGrounded, transformMove, makeZMove, makeMaxMove, stabMultiplier };
   root.PKMBattle = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

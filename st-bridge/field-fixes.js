@@ -27,7 +27,7 @@ export function habitatAt(value) {
  hits.sort((a,b)=>b.index-a.index);
  if(hits.length) return hits[0].kind;
  // Don't infer water from an island or a coastal town name alone.
- if(/(?:^|[^\d])(?:19|20|21|十九|二十|二十一)\s*号?\s*(?:道路|水路|航路)|(?:12|13|十二|十三)\s*号?\s*(?:道路|水路)/.test(s))return 'sea';
+ if(/(?:^|[^\d])(?:19|20|21|40|41|十九|二十|二十一|四十|四十一)\s*号?\s*(?:道路|水路|航路)|(?:12|13|十二|十三)\s*号?\s*(?:道路|水路)/.test(s))return 'sea';
  if(/淡水/.test(s))return 'fresh';
  if(/水边|水岸|岸边|岸畔|水域|水路/.test(s))return 'unknownWater';
  return 'land';

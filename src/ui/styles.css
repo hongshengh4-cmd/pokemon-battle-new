@@ -1208,3 +1208,14 @@ html.embed .action-card>.command-home,html.embed .action-card>.command-panel,htm
 
 .arena.is-doubles .fighter.player .sprite > img.fx-attack { animation: fx-attack-player .65s ease; }
 .arena.is-doubles .fighter.enemy .sprite > img.fx-attack { animation: fx-attack-enemy .65s ease; }
+
+/* Keep each doubles selector in the visible, scrollable action panel; never overlap moves. */
+.action-card.double-actions .fight-panel { display:flex!important; flex-direction:column; align-items:stretch; gap:5px; overflow-y:auto!important; overscroll-behavior:contain; touch-action:pan-y; -webkit-overflow-scrolling:touch; }
+.action-card.double-actions .fight-panel[hidden] { display:none!important; }
+.action-card.double-actions .fight-panel .double-actors,
+.action-card.double-actions .fight-panel .double-targets { flex:0 0 auto; }
+.action-card.double-actions .fight-panel .moves { flex:0 0 auto; height:auto!important; min-height:0!important; grid-template-rows:repeat(2,minmax(42px,auto))!important; }
+.action-card.double-actions .fight-panel .move-cell { min-height:42px!important; }
+.action-card.double-actions #command-switch-panel #switches { height:auto; grid-auto-rows:minmax(40px,auto); }
+.action-card.double-actions #command-switch-panel .double-actors,
+.action-card.double-actions #command-items-panel .double-actors { margin-bottom:6px; }

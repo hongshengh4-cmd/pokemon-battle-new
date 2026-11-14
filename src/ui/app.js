@@ -107,7 +107,8 @@ installSpriteRecovery(document);
   const EMBED = new URLSearchParams(location.search).has('embed');
   if (EMBED) document.documentElement.classList.add('embed');
   let dataReady = false, pendingHostConfig = null, hostTag = null, hostMode = false;
-  const APP_VERSION = '20261030-all-requested-fixes-v8';
+  const APP_VERSION = '20261113-hardplot-doubles-v2';
+  const hostVersions = () => ({version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||''});
   let formatTag = '', formatRule = ''; // v1.3.8：角色卡发来的赛制（例：3v3、3只 vs 1只），显示在行动菜单的标签上
   let typeLabel = ''; // v1.3.9：角色卡发来的对战类型（道馆战 / 训练家对战 / 劲敌对战 / 火箭队……），标签第一段
   // 宿主模式：球袋来自角色卡变量（MVU），只存在本页内存里，不读写本机存档。
@@ -378,7 +379,7 @@ installSpriteRecovery(document);
       const second = first.cloneNode(true);
       second.dataset.side = String(side); second.dataset.slot = '1'; second.dataset.doubleReady = '1'; second.classList.add('double-extra');
       second.querySelector('.sprite')?.setAttribute('data-role', 'sprite');
-      second.querySelector('.mechanic-slot')?.remove();
+      // Keep a separate mechanism control attached to each doubles slot.
       second.querySelector('.teamrow')?.remove();
       second.querySelectorAll('[id]').forEach(el => { el.id = el.id === 'mechanics' ? 'mechanics-slot-2' : `${el.id}-2`; });
       first.after(second);
@@ -1033,9 +1034,10 @@ installSpriteRecovery(document);
     const view = menuView;
     for (const [id, value] of [['command-home','home'],['command-fight-panel','fight'],['command-switch-panel','switch'],['command-balls-panel','balls'],['command-items-panel','items'],['command-end','end']]) $(id).hidden = view !== value;
     $('command-title').textContent = animating ? '行动进行中…' : ended ? (battle.outcome === 'captured' ? '收服成功！' : battle.outcome === 'escaped' ? '已逃离野生战斗' : '本场战斗已结束')
-      : battle.pendingSwitch !== null ? '请选择下一只出战宝可梦' : ({home: `${displayPokemonName(battle.cur(0))}，要做什么？`, fight: `${displayPokemonName(battle.cur(0, battle.double ? doubleActionSlot : 0))} · 选择招式`, switch: battle.double && battle.pendingSwitch === null ? `为${displayPokemonName(battle.cur(0, doubleActionSlot))}选择替补` : '选择出战宝可梦', balls: '选择精灵球', items: '选择战斗道具'}[view]);
+      : battle.pendingSwitch !== null ? (battle.double ? `请为${battle.pendingSwitch + 1}号位（${displayPokemonName(battle.cur(0,battle.pendingSwitch))}）选择替补` : '请选择下一只出战宝可梦') : ({home: `${displayPokemonName(battle.cur(0))}，要做什么？`, fight: `${displayPokemonName(battle.cur(0, battle.double ? doubleActionSlot : 0))} · 选择招式`, switch: battle.double && battle.pendingSwitch === null ? `为${displayPokemonName(battle.cur(0, doubleActionSlot))}选择替补` : '选择出战宝可梦', balls: '选择精灵球', items: '选择战斗道具'}[view]);
     const isWild = battle.encounterType === 'wild';
-    $('encounter-tag').textContent = `${typeLabel || (isWild ? '野生遭遇' : '训练家对战')}${formatTag ? ' · ' + formatTag : ''}${battle.double ? ' · 双打' : ''} · 第 ${battle.turnCount + (ended ? 0 : 1)} 回合`;
+    const shownTurn = battle._turnState ? battle.turnCount : battle.turnCount + (ended ? 0 : 1);
+    $('encounter-tag').textContent = `${typeLabel || (isWild ? '野生遭遇' : '训练家对战')}${formatTag ? ' · ' + formatTag : ''}${battle.double ? ' · 双打' : ''} · 第 ${shownTurn} 回合`;
     $('encounter-tag').title = formatRule || '';
     $('encounter-tag').classList.toggle('wild', isWild);
     $('command-back').hidden = view === 'home' || view === 'end' || battle.pendingSwitch !== null;
@@ -1058,7 +1060,8 @@ installSpriteRecovery(document);
       : battle.outcome === 'escaped' ? '已成功逃离野生战斗。' 
       : isWild ? '这次遭遇结束了。可以继续寻找新的野生宝可梦。' : '对战结束。也可以进入野生遭遇，收服新的伙伴。';
     for (const id of ['btn-start','btn-wild','btn-next-wild','btn-config','sel-enemy','sel-diff','btn-supply','btn-import-save','btn-box','btn-end-box']) $(id).disabled = animating;
-    if (animating) document.querySelectorAll('#mechanics button, #moves button, #switches button, #ball-list button').forEach(b => { b.disabled = true; });
+    if (animating) document.querySelectorAll('.mechanic-slot button, #moves button, #switches button, #ball-list button').forEach(b => { b.disabled = true; });
+    $('action-card').classList.toggle('double-actions',!!battle.double);
     $('action-card').setAttribute('aria-busy', String(animating));
   }
   const BATTLE_ITEM_NAMES={xattack:'力量强化',xdefense:'防御强化',xspatk:'特攻强化',xspdef:'特防强化',xspeed:'速度强化',xaccuracy:'命中强化',guardspec:'能力防守',direhit:'击中要害',pokemondoll:'宝可梦玩偶'};
@@ -1236,12 +1239,15 @@ installSpriteRecovery(document);
     if (icon && icon.kind === 'pixel') return icon.svg;
     return st.svg;
   }
-  function mechanicState(me) {
-    if (!battle || !me || !me.mechanic || !globalThis.PKMMechanicItems) return null;
+  function mechanicState(me, slot = battle?.double ? doubleActionSlot : 0) {
+    if (!battle || !me || me.fainted || !me.mechanic || !globalThis.PKMMechanicItems) return null;
     const info = PKMMechanicItems.describe(me, PKMBattle._dex);
     if (!info) return null;
     const kind = me.mechanic;
     const spentFlag = !!battle.mechanicUsed[0][kind] || (kind === 'mega' && me.isMega) || (kind === 'tera' && me.terastallized);
+    const active = !battle.double || slot === doubleActionSlot;
+    const queued = battle.double && doubleActions[slot]?.mechanic === kind;
+    const reserved = battle.double && doubleActions.some((a, i) => i !== slot && a?.mechanic === kind);
     let state, label = info.name, title;
     if (kind === 'dynamax' && me.dynamaxed) {
       state = 'in-effect'; label = `${info.short}中`; title = `${info.short}进行中。`;
@@ -1249,30 +1255,39 @@ installSpriteRecovery(document);
       state = 'spent'; label = '已发动'; title = `${info.name}本场战斗已经使用过了。`;
     } else if (kind === 'z' && !me.moves.some(m => m.type === me.zType)) {
       state = 'waiting'; title = `需要有「${zhType(me.zType)}」属性的招式才能使用${info.name}。`;
-    } else if (selectedMechanic === kind) {
-      state = 'armed'; label = `✓ ${info.short}`; title = `已装备${info.name}：选择招式后发动${info.short}；再点一次取消。`;
+    } else if (reserved) {
+      state = 'reserved'; label = '另一只已选'; title = `另一只宝可梦已预定${info.short}；每队每场只能使用一次。`;
+    } else if (active && selectedMechanic === kind) {
+      state = 'armed'; label = `✓ ${info.short}`; title = `已选${info.name}：选择招式后发动${info.short}；再点一次取消。`;
+    } else if (queued) {
+      state = 'queued'; label = '已选'; title = `该出战位已选择${info.short}；点击可重新选择行动。`;
     } else {
-      state = 'ready'; title = `${info.name}：点击装备，本回合出招时${info.short}；再点一次取消。`;
+      state = 'ready'; title = `${info.name}：点击后选择招式，本回合发动${info.short}。`;
     }
     return { ...info, state, label, title };
   }
-  function renderMechanicItem(me, over) {
-    const root = $('mechanics');
+  function renderMechanicItem(me, over, slot = 0) {
+    const root = $(slot === 0 ? 'mechanics' : 'mechanics-slot-2');
+    if (!root) return;
     root.replaceChildren();
-    const st = mechanicState(me);
-    if (!st) { if (selectedMechanic) selectedMechanic = null; return; }
-    if (st.state !== 'armed' && st.state !== 'ready' && selectedMechanic) selectedMechanic = null;
+    const active = !battle.double || slot === doubleActionSlot;
+    const st = mechanicState(me, slot);
+    if (!st) { if (active && selectedMechanic) selectedMechanic = null; return; }
+    if (active && !['armed','ready','queued'].includes(st.state)) selectedMechanic = null;
     const b = document.createElement('button');
-    b.type = 'button';
-    b.className = `mechanic-item kind-${st.kind}`;
-    b.dataset.kind = st.kind; b.dataset.state = st.state;
-    b.disabled = over || animating || battle.pendingSwitch !== null || !(st.state === 'ready' || st.state === 'armed');
-    b.title = st.title; b.setAttribute('aria-label', `${st.name}（${st.label}）`); b.setAttribute('aria-pressed', String(st.state === 'armed'));
+    b.type = 'button'; b.className = `mechanic-item kind-${st.kind}`;
+    b.dataset.kind = st.kind; b.dataset.state = st.state; b.dataset.slot = String(slot);
+    b.disabled = over || animating || battle.pendingSwitch !== null || !['ready','armed','queued'].includes(st.state);
+    b.title = st.title; b.setAttribute('aria-label', `${battle.double ? (slot + 1) + '号位 ' : ''}${st.name}（${st.label}）`);
+    b.setAttribute('aria-pressed', String(st.state === 'armed' || st.state === 'queued'));
     b.innerHTML = `<span class="mechanic-art">${mechanicArt(st)}</span><span class="mechanic-label">${PKMMechanicItems.esc(st.label)}</span>`;
     b.onclick = () => {
       if (!battle || animating || battle.winner !== null || battle.pendingSwitch !== null) return;
-      selectedMechanic = selectedMechanic === st.kind ? null : st.kind;
-      if (selectedMechanic && menuView !== 'fight') menuView = 'fight'; // 装备道具后直接进入招式页
+      const changedSlot = battle.double && doubleActionSlot !== slot;
+      if (changedSlot) { doubleActionSlot = slot; pendingDoubleTarget = null; selectedMechanic = null; }
+      if (battle.double && doubleActions[slot]) doubleActions[slot] = null;
+      selectedMechanic = !changedSlot && selectedMechanic === st.kind ? null : st.kind;
+      if (selectedMechanic && menuView !== 'fight') menuView = 'fight';
       render();
     };
     root.appendChild(b);
@@ -1344,7 +1359,8 @@ installSpriteRecovery(document);
 
     const over = battle.winner !== null;
     if (battle.pendingSwitch !== null) selectedMechanic = null;
-    renderMechanicItem(me, over);
+    renderMechanicItem(battle.cur(0, 0), over, 0);
+    renderMechanicItem(battle.double ? battle.cur(0, 1) : null, over, 1);
 
     const moves = $('moves');
     moves.innerHTML = '';
@@ -1385,7 +1401,9 @@ installSpriteRecovery(document);
       const dot = document.createElement('span'); dot.className = 'party-dot' + (p.fainted ? ' down' : battle.activeSlots[0].includes(i) ? ' active' : '');
       const label = document.createElement('span'); label.append(title,detail); b.append(dot,label);
       b.title = `换上${displayPokemonName(p)}，体力 ${p.hp}/${p.maxHp}`;
-      b.disabled = over || animating || battle.activeSlots[0].includes(i) || p.fainted;
+      const reserved = battle.double && battle.pendingSwitch === null && doubleActions.some((a, slot) => slot !== doubleActionSlot && a?.kind === 'switch' && a.index === i);
+      if (reserved) { detail.textContent = '另一只已选为替补'; b.title = '另一出战位已选这只宝可梦'; }
+      b.disabled = over || animating || battle.activeSlots[0].includes(i) || p.fainted || p.hp <= 0 || reserved;
       b.onclick = () => {
         if (animating) return;
         if (battle.pendingSwitch !== null) {
@@ -1399,10 +1417,10 @@ installSpriteRecovery(document);
     const res = $('result');
     if (over) {
       res.classList.remove('hidden');
-      res.textContent = battle.outcome === 'captured' ? '收服成功！' : battle.outcome === 'escaped' ? '已逃离野生战斗' : battle.winner === 0 ? '🏆 胜利！' : '💀 败北……';
+      res.textContent = battle.outcome === 'captured' ? '收服成功！' : battle.outcome === 'escaped' ? '已逃离野生战斗' : battle.outcome === 'draw' ? '双方同时倒下，请人工裁定' : battle.winner === 0 ? '🏆 胜利！' : '💀 败北……';
     } else if (battle.pendingSwitch !== null) {
       res.classList.remove('hidden');
-      res.textContent = '请选择下一只宝可梦出战';
+      res.textContent = battle.double ? `请为${battle.pendingSwitch + 1}号位选择替补` : '请选择下一只宝可梦出战';
     } else res.classList.add('hidden');
     renderDoubleControls();
     renderBalls(); renderBattleItems(); renderCommands();
@@ -1411,8 +1429,10 @@ installSpriteRecovery(document);
   function renderDoubleControls() {
     const actors = $('double-actors'), targets = $('double-targets');
     if (!actors || !targets) return;
-    const active = !!battle?.double && menuView === 'fight' && !animating && battle.pendingSwitch === null;
-    actors.hidden = !active; targets.hidden = !active || !pendingDoubleTarget;
+    const panel={fight:$('command-fight-panel'),switch:$('command-switch-panel'),items:$('command-items-panel')}[menuView];
+    if(panel&&actors.parentElement!==panel)panel.prepend(actors);
+    const active=!!battle?.double&&!!panel&&!animating&&battle.pendingSwitch===null;
+    actors.hidden=!active;targets.hidden=!active||menuView!=='fight'||!pendingDoubleTarget;
     actors.replaceChildren(); targets.replaceChildren();
     if (!active) return;
     for (let slot = 0; slot < 2; slot++) {
@@ -1428,7 +1448,7 @@ installSpriteRecovery(document);
       const options = move.target === 'adjacentAlly'
         ? [0, 1].filter(slot => slot !== pendingDoubleTarget.slot).map(slot => ({ side: 0, slot }))
         : move.target === 'adjacentAllyOrSelf' ? [0, 1].map(slot => ({ side: 0, slot }))
-        : move.target === 'any' ? [0, 1].flatMap(side => [0, 1].map(slot => ({ side, slot })))
+        : ['any', 'normal'].includes(move.target) ? [...[0, 1].map(slot => ({ side: 1, slot })), ...[0, 1].filter(slot => slot !== pendingDoubleTarget.slot).map(slot => ({ side: 0, slot }))]
         : [0, 1].map(slot => ({ side: 1, slot }));
       const title = document.createElement('strong'); title.className = 'double-target-title'; title.textContent = '选择目标'; targets.appendChild(title);
       for (const option of options) {
@@ -1652,6 +1672,16 @@ installSpriteRecovery(document);
       moves = [...new Set(moves)].slice(0, 4);
       if (!moves.length) moves = hostMode ? levelUpMoves(species, level) : autoMoves(species, level);
       const opts = { ...spec };
+      const resolveItem = value => {
+        const raw = String(value || '').trim(), n = normId(raw);
+        if (PKMMechanics.ITEMS[n]) return n;
+        const hit = Object.values(PKMMechanics.ITEMS).find(it => it.name === raw);
+        return hit?.id || '';
+      };
+      const gear = PKMGearResolve.resolve(spec, species, moves, { resolveItem, resolveMove: resolveMoveId, resolveSpecies: resolveSpeciesId });
+      delete opts.item; delete opts.heldItem; delete opts.held_item; delete opts.mechanic;
+      delete opts.megaForm; delete opts.mega; delete opts.zType; delete opts.zMoveType; delete opts.teraType; delete opts.dynamaxForm;
+      Object.assign(opts, gear);
       delete opts.species; delete opts.moves; delete opts.hp; delete opts.maxHp; delete opts.status; delete opts.pp; delete opts.hostSlot;
       if (opts.ivs && typeof opts.ivs === 'object') { const iv = {}; for (const k of ['hp', 'atk', 'def', 'spa', 'spd', 'spe']) { const v = Number(opts.ivs[k]); if (Number.isInteger(v) && v >= 0 && v <= 31) iv[k] = v; } opts.ivs = iv; }
       else delete opts.ivs;
@@ -1717,10 +1747,8 @@ installSpriteRecovery(document);
     const deniedSingle = /(?:不采用|不是|禁止|并非|不按)\s*(?:单打|single)/i.test(ruleText);
     const strongDouble = /双打|\bdoubles?\b|\bdouble\s*(?:battle|format)\b|(?:双方各|每方|每队).{0,16}(?:两|二|2)只.{0,16}(?:同时|同场|出战|出场)|(?:两|二|2)只.{0,12}(?:同时上场|同时出战|同场出战)/i.test(ruleText);
     const saysSingle = /单打|\bsingles?\b|\bsingle\s*(?:battle|format)\b|\b1\s*(?:v|vs)\s*1\b|单打轮换/i.test(ruleText);
-    const bare2v2 = /(?:^|[^\d])(?:2|两|二)\s*(?:v|vs|对|比)\s*(?:2|两|二)(?:$|[^\d])/i.test(ruleText);
     if (strongDouble && !deniedDouble) return true;
     if (saysSingle && !deniedSingle) return false;
-    if (bare2v2 && !/单打|轮换|single|rotation/i.test(ruleText) && !deniedDouble) return true;
     return false; // no stated doubles rule => preserve the existing singles default
   }
   function startBattle(cfg) {
@@ -1769,7 +1797,7 @@ installSpriteRecovery(document);
       const wt = environment.weatherTurns;
       if (cfg.encounter?.type === 'wild' && enemyTeam.length !== 1) throw new Error('当前野生遭遇仅支持一只野生宝可梦。');
       if (doubleMode && (playerTeam.filter(p => !p.fainted).length < 2 || enemyTeam.filter(p => !p.fainted).length < 2)) throw new Error('双打模式需要双方各至少两只尚未失去战斗能力的宝可梦。');
-      battle = new PKMBattle.Battle(playerTeam, enemyTeam, { double: doubleMode, difficulty, weather, weatherTurns: typeof wt !== 'undefined' ? wt : 0,
+      battle = new PKMBattle.Battle(playerTeam, enemyTeam, { double: doubleMode, firstFaintLoses: cfg.rules?.firstFaintLoses === true, difficulty, weather, weatherTurns: typeof wt !== 'undefined' ? wt : 0,
         encounterType: cfg.encounter?.type, balls: worldStore.state.balls, itemStock:cfg.host?.battleItems||{}, seed: cfg.seed, captureContext:cfg.host?.captureContext||{} });
       if (environment.terrain) battle.setTerrain(environment.terrain, environment.terrainTurns);
       if (cfg.ui?.openBalls && battle.encounterType === 'wild') menuView = 'balls';
@@ -2040,7 +2068,7 @@ installSpriteRecovery(document);
     dataReady = true;
     if (pendingHostConfig) { const cfg = pendingHostConfig; pendingHostConfig = null; startHostBattle(cfg); return; }
     if (q) { try { startBattle(JSON.parse(q)); return; } catch (_) {} }
-    if (EMBED) { $('log').textContent = '对战系统已就绪，正在等待角色卡发送对战配置……'; postHost('PKM_BATTLE_READY', { version: APP_VERSION }); return; }
+    if (EMBED) { $('log').textContent = '对战系统已就绪，正在等待角色卡发送对战配置……'; postHost('PKM_BATTLE_READY', hostVersions()); return; }
     startBattle(null);
   }
 
@@ -2059,7 +2087,7 @@ installSpriteRecovery(document);
     if (d.type === 'PKM_BATTLE_CONFIG' && d.payload) {
       if (!dataReady) { pendingHostConfig = d.payload; return; }
       startHostBattle(d.payload);
-    } else if (d.type === 'PKM_BATTLE_PING') postHost(dataReady ? 'PKM_BATTLE_READY' : 'PKM_BATTLE_LOADING', { version: APP_VERSION });
+    } else if (d.type === 'PKM_BATTLE_PING') postHost(dataReady ? 'PKM_BATTLE_READY' : 'PKM_BATTLE_LOADING', hostVersions());
   });
 
   // Preview is opt-in and visual-only: no battle.turn(), results, or save writes.
