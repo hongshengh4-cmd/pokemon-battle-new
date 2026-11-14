@@ -528,6 +528,8 @@
       this.mechanicUsed = [{ mega: false, z: false, dynamax: false, tera: false }, { mega: false, z: false, dynamax: false, tera: false }];
       this.teams.forEach((team, side) => team.forEach(p => {
         p._battle = this; p._side = side; p._enteredThisTurn = false; p._protectStreak = 0;
+        // Participation is per battle, not per successfully executed move.
+        p._participated = false;
         delete p._initialStatusRejected;
         if (p.status && !p.fainted) {
           const reason = statusImmunityReason(p, p.status, this);
@@ -607,6 +609,8 @@
     onEnter(side, initial = false, slot = 0) {
       const p = this.cur(side, slot);
       if (!p || p.fainted) return;
+      // 首发、换入、被迫补位都算实际出场；首回合直接投球也不能把首发算成候补。
+      p._participated = true;
       // v1.3.54：治愈之愿 / 新月舞 —— 换上来的宝可梦完全回复
       const _se = this._slotEffect?.[side]?.[slot];
       if (_se && !initial) {
@@ -2101,7 +2105,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     }
   }
 
-  const api = { version:'20261113-hardplot-doubles-v2', setData, specialDamageInfo, FIXED_DAMAGE_IDS, VARIABLE_POWER_IDS, createPokemon, calcStats, effStat, estimateDamage, Battle, normId, STATUS_NAMES, abilityId, itemId, isGrounded, transformMove, makeZMove, makeMaxMove, stabMultiplier };
+  const api = { version:'20261113-hardplot-doubles-capture-v3', setData, specialDamageInfo, FIXED_DAMAGE_IDS, VARIABLE_POWER_IDS, createPokemon, calcStats, effStat, estimateDamage, Battle, normId, STATUS_NAMES, abilityId, itemId, isGrounded, transformMove, makeZMove, makeMaxMove, stabMultiplier };
   root.PKMBattle = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

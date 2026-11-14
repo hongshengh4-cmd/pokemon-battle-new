@@ -1,11 +1,11 @@
 import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './sprite-recovery.js?v=1.3.31';
-import * as K from './kanto-data.js?v=20261113-hardplot-doubles-v2';
-import './battle-mechanics.js?v=20261113-hardplot-doubles-v2';
-import './plot-guard.js?v=20261113-hardplot-doubles-v2';
-import '../src/engine/gear-resolve.js?v=20261113-hardplot-doubles-v2';
-import '../src/engine/held-sync.js?v=20261113-hardplot-doubles-v2';
+import * as K from './kanto-data.js?v=20261113-hardplot-doubles-capture-v3';
+import './battle-mechanics.js?v=20261113-hardplot-doubles-capture-v3';
+import './plot-guard.js?v=20261113-hardplot-doubles-capture-v3';
+import '../src/engine/gear-resolve.js?v=20261113-hardplot-doubles-capture-v3';
+import '../src/engine/held-sync.js?v=20261113-hardplot-doubles-capture-v3';
 import '../src/engine/ability-choice.js?v=1.3.31';
-import {habitatAt, habitatPool, HABITAT_LABELS, indoorAt, isCenterLocation, completedTreatment} from './field-fixes.js?v=20261113-hardplot-doubles-v2';
+import {habitatAt, habitatPool, HABITAT_LABELS, indoorAt, isCenterLocation, completedTreatment} from './field-fixes.js?v=20261113-hardplot-doubles-capture-v3';
 // 宝可梦·关都之旅 · 20261026-six-fixes-1（保留竖屏与多随行；水域/治疗/配音修复）
 // v1.3.62（friend-v62）：① 亲密度日常互动修复——AI 常写的 5 段路径 delta（/pkm/party/slots/N/friendship）不再被静默丢弃；160 以下每楼可 +1~+3（需具体互动）
 // ② 初始亲密值分级——开局初始伙伴 70、战斗收服 40、被剧情打动主动跟随 100~130（friendshipInit 一次性校准通道，上限 130）
@@ -44,8 +44,19 @@ const BASE = String(W.PKM_APP_BASE_URL || P.PKM_APP_BASE_URL || new URL('../', i
 const CH = 'pkm-modal-v1';
 const PROMPT_KEY = 'PKM_KANTO_BRIDGE';
 const LOG = (...a) => console.info('[关都之旅·桥接]', ...a);
+// 构建卡内版时替换为随卡内嵌的数据；网站版保留 null，读取同包的两个 JSON。
+const BUNDLED_REWARD_DATA = null;
+async function fetchRewardTable(path) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const r = await fetch(BASE + path, {cache:'force-cache', signal:controller.signal});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  } finally { clearTimeout(timer); }
+}
 let LEVEL_UP_LEARNSETS=null,LEVEL_UP_LEARNSET_ERROR=null;
-const LEVEL_UP_LEARNSET_READY=(async()=>{try{const r=await fetch(`${BASE}st-bridge/level-up-learnsets-52poke.json?v=20261102-levelup-v2`,{cache:'force-cache'});if(!r.ok)throw new Error(`HTTP ${r.status}`);const d=await r.json();if(!d||!d.learnsets||typeof d.learnsets!=='object')throw new Error('招式表数据格式错误');LEVEL_UP_LEARNSETS=d;}catch(e){LEVEL_UP_LEARNSET_ERROR=e;LOG('等级招式表加载失败；升级时不会伪造招式',e);}})();
+const LEVEL_UP_LEARNSET_READY=(async()=>{try{const d=BUNDLED_REWARD_DATA?.levelup||await fetchRewardTable('st-bridge/level-up-learnsets-52poke.json?v=20261113-reward-v3');if(!d||!d.learnsets||typeof d.learnsets!=='object')throw new Error('招式表数据格式错误');LEVEL_UP_LEARNSETS=d;}catch(e){LEVEL_UP_LEARNSET_ERROR=e;LOG('等级招式表加载失败；升级时不会伪造招式',e);}})();
 
 /* ======================================================================
  * 0. 单例：重复加载（切换聊天、脚本重载）时先拆掉旧实例
@@ -107,14 +118,14 @@ function toast(text, kind = 'info') {
 
 /* ---------- 中文名 ↔ 引擎 id（精灵图、捕获结果换算） ---------- */
 let ZH = null, ABILITY_DEX = null;
-const abilityDexReady = fetch(BASE + 'src/data/pokedex.json?v=' + VERSION).then(r => { if (!r.ok) throw Error('pokedex HTTP ' + r.status); return r.json(); }).then(d => { ABILITY_DEX = d; refreshAll(); }).catch(e => LOG('特性校验表暂不可用', e));
+const abilityDexReady = (BUNDLED_REWARD_DATA?.pokedex ? Promise.resolve(BUNDLED_REWARD_DATA.pokedex) : fetch(BASE + 'src/data/pokedex.json?v=' + VERSION).then(r => { if (!r.ok) throw Error('pokedex HTTP ' + r.status); return r.json(); })).then(d => { ABILITY_DEX = d; refreshAll(); }).catch(e => LOG('特性校验表暂不可用', e));
 function singleAbility(mon) {
   const legal = ABILITY_DEX?.[speciesId(mon.species || mon.name)]?.abilities || [];
   const value = W.PKMAbilityChoice.select(mon.ability, legal, ZH?.abilities || {});
   return value ? (ZH?.abilities?.[value.toLowerCase().replace(/[^a-z0-9]/g, '')] || value) : null;
 }
 
-const zhReady = fetch(BASE + 'src/data/zh-names.json?v=' + VERSION).then(r => (r.ok ? r.json() : null)).then(z => {
+const zhReady = (BUNDLED_REWARD_DATA?.zh ? Promise.resolve(BUNDLED_REWARD_DATA.zh) : fetch(BASE + 'src/data/zh-names.json?v=' + VERSION).then(r => (r.ok ? r.json() : null))).then(z => {
   if (!z) return;
   const revRaw = Object.create(null), revRawAmbiguous = new Set();
   const rev = Object.create(null), revAmbiguous = new Set();
@@ -176,9 +187,9 @@ function itemIcon(name) {
 
 /* ---------- v1.3.4：个体值 / 性格 / 能力值 / 招式 PP / 叫声 ---------- */
 let STATS = null;
-fetch(BASE + 'st-bridge/kanto-stats.json?v=' + VERSION).then(r => (r.ok ? r.json() : null)).then(j => { if (j?.s) { STATS = j; refreshAll(); } }).catch(e => LOG('能力值表加载失败（不影响主要功能）', e));
-let EFFORT_YIELDS={};
-const EFFORT_YIELDS_READY=fetch(BASE+'st-bridge/effort-yields.json?v=20261106-ev-yield-v1',{cache:'force-cache'}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(d=>{if(!d?.yields)throw new Error('努力值表结构无效');EFFORT_YIELDS=d.yields;}).catch(e=>{LOG('努力值来源表加载失败；本次战斗不伪造努力值',e);EFFORT_YIELDS={};});
+(BUNDLED_REWARD_DATA?.stats ? Promise.resolve(BUNDLED_REWARD_DATA.stats) : fetch(BASE + 'st-bridge/kanto-stats.json?v=' + VERSION).then(r => (r.ok ? r.json() : null))).then(j => { if (j?.s) { STATS = j; refreshAll(); } }).catch(e => LOG('能力值表加载失败（不影响主要功能）', e));
+let EFFORT_YIELDS={},EFFORT_YIELDS_ERROR=null;
+const EFFORT_YIELDS_READY=(async()=>{try{const d=BUNDLED_REWARD_DATA?.effort||await fetchRewardTable('st-bridge/effort-yields.json?v=20261113-reward-v3');if(!d?.yields||typeof d.yields!=='object'||!Object.keys(d.yields).length)throw new Error('努力值表结构无效');EFFORT_YIELDS=d.yields;}catch(e){EFFORT_YIELDS_ERROR=e;LOG('努力值来源表加载失败；本次战斗不伪造努力值',e);EFFORT_YIELDS={};}})();
 let TM_COMPATIBILITY=null;
 // 招式名/物种名在存档里可能带连字符、性别符号、形态后缀，统一按“去掉非字母数字”的键比对。
 const tmKey=v=>String(v??'').normalize('NFKC').trim().toLowerCase().replace(/[^a-z0-9]/g,'');
@@ -1074,9 +1085,9 @@ let eventCache = null;
 let onlineEntries = null, onlineMeta = null;
 // Standalone-card builds deliberately read their revised card book; deployed builds only
 // accept the matching revised online book and otherwise fall back to the revised card.
-const worldReady = W.PKM_BUNDLED_PLOT ? Promise.resolve() : fetch(BASE + 'st-bridge/kanto-world.json?v=20261113-hardplot-doubles-v2')
+const worldReady = W.PKM_BUNDLED_PLOT ? Promise.resolve() : fetch(BASE + 'st-bridge/kanto-world.json?v=20261113-hardplot-doubles-capture-v3')
   .then(r => (r.ok ? r.json() : null)).then(j => {
-    if(j?.version==='20261113-hardplot-doubles-v2'&&Array.isArray(j.entries)&&j.entries.length){
+    if(j?.version==='20261113-hardplot-doubles-capture-v3'&&Array.isArray(j.entries)&&j.entries.length){
       onlineEntries=j.entries;onlineMeta={version:j.version,count:j.entries.length};eventCache=null;refreshInjection();
       LOG('硬约束线上世界书已加载 '+j.entries.length+' 条');
     } else LOG('线上世界书版本未匹配，回退卡内修订版，不使用旧软约束世界书。');
@@ -8088,7 +8099,15 @@ function openBattle(spec) {
   const currentModal=modal, historyToken=uid();
   let historyPushed=false;
   try { P.history.pushState({...P.history.state,__pkmBattle:historyToken},'',P.location.href);historyPushed=true; } catch(_) {}
-  const onBack=()=>{if(modal===currentModal){currentModal.closedByHistory=true;closeBattle();}};
+  const onBack=()=>{
+    if(modal!==currentModal)return;
+    if(currentModal.settling){
+      // Android 返回已消费历史项；在等待写回时重新放入标记，完成后仍可安全返回。
+      try{P.history.pushState({...P.history.state,__pkmBattle:historyToken},'',P.location.href);historyPushed=true;currentModal.closedByHistory=false;}catch(_){}
+      closeBattle();return;
+    }
+    currentModal.closedByHistory=true;closeBattle();
+  };
   const onEscape=e=>{if(e.key==='Escape'&&modal===currentModal){e.preventDefault();e.stopImmediatePropagation();closeBattle();}};
   P.addEventListener('popstate',onBack);P.addEventListener('keydown',onEscape,true);
   currentModal.returnCleanup=()=>{P.removeEventListener('popstate',onBack);P.removeEventListener('keydown',onEscape,true);if(historyPushed&&!currentModal.closedByHistory&&P.history.state?.__pkmBattle===historyToken)P.history.back();};
@@ -8210,7 +8229,7 @@ async function launchBattle(m) {
   const frame = PD.createElement('iframe');
   frame.setAttribute('allow', 'autoplay; fullscreen'); frame.setAttribute('allowfullscreen', ''); frame.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
   frame.style.background = '#070a14';
-  frame.src = W.PKM_BATTLE_EMBED_URL || `${BASE}index.html?embed=1&v=20261113-hardplot-doubles-v2`;
+  frame.src = W.PKM_BATTLE_EMBED_URL || `${BASE}index.html?embed=1&v=20261113-hardplot-doubles-capture-v3`;
   stage.replaceWith(frame);
   m.frame = frame;
   setBar(m.cfg.lines?.start ? '「' + m.cfg.lines.start + '」' : '正在连接对战系统……');
@@ -8219,8 +8238,17 @@ async function launchBattle(m) {
   m.timer = setTimeout(() => { if (modal === m && !m.started && !m.done) setBar('对战网页加载较慢或失败：请确认网站已完整部署剧情双打修复版，检查网络与缓存后重试；手机返回或电脑 Esc 可退出。'); }, 15000);
 }
 function setBar(text) { const s = modal?.el.querySelector('.bar .s'); if (s) s.textContent = text; if (/失败|有误|较慢|不匹配|拒绝/.test(text) && modal) {let error=modal.el.querySelector('.pkm-battle-error');if(!error){error=PD.createElement('div');error.className='pkm-battle-error';error.style.cssText='position:absolute;inset:20% 10% auto;z-index:9;background:#fff5ed;color:#6a2919;padding:20px;border:2px solid #cd7362;border-radius:12px;white-space:normal';modal.el.append(error);}error.textContent=text;} }
+// 全屏战斗无可见宿主标题栏；把保存进度、实际收益和数据缺失提示放在战斗窗口内。
+function setSettlementNotice(m,text,warning=false){
+  if(!m?.el?.isConnected)return;
+  let note=m.el.querySelector('.pkm-settlement-notice');
+  if(!note){note=PD.createElement('div');note.className='pkm-settlement-notice';note.setAttribute('role','status');note.setAttribute('aria-live','polite');m.el.append(note);}
+  note.style.cssText='position:absolute;z-index:10;top:max(10px,env(safe-area-inset-top));left:50%;transform:translateX(-50%);width:max-content;max-width:calc(100% - 32px);max-height:36%;overflow:auto;box-sizing:border-box;padding:9px 13px;border:1px solid '+(warning?'#e4aa59':'#81c6a5')+';border-radius:10px;background:'+(warning?'#fff1dd':'#eaf9f0')+';color:'+(warning?'#663907':'#123e2b')+';font:600 12px/1.5 system-ui,sans-serif;white-space:pre-wrap;box-shadow:0 4px 18px #0005';
+  note.textContent=text;
+}
 function closeBattle(silent) {
   if (!modal) return;
+  if(modal.settling){setSettlementNotice(modal,'正在保存战斗结果，请稍候；完成后就可以返回。');return;}
   const m = modal; modal = null; clearTimeout(m.timer); clearTimeout(m.fullscreenTimer); m.fullscreenTimer=null; m.el._viewportCleanup?.(); m.el._restoreOverflow?.(); m.returnCleanup?.(); m.fullscreenCleanup?.();
   const fs=PD.fullscreenElement||PD.webkitFullscreenElement||PD.msFullscreenElement||null;
   if ((fs===PD.documentElement||fs===m.el||fs===m.overlay)){try{const exit=PD.exitFullscreen||PD.webkitExitFullscreen||PD.msExitFullscreen;const r=exit?.call(PD);if(r?.catch)r.catch(()=>{});}catch(_) {}}
@@ -8235,7 +8263,7 @@ function onEngineMessage(d) {
   const m = modal; if (!m) return;
   if (d.type === 'PKM_BATTLE_EXIT') { closeBattle();return; }
   if (d.type === 'PKM_BATTLE_READY') {
-    const v=d.payload||{},expected='20261113-hardplot-doubles-v2';
+    const v=d.payload||{},expected='20261113-hardplot-doubles-capture-v3';
     if([v.version,v.engineVersion,v.gearVersion,v.gearDataVersion].some(x=>x!==expected)){
       m.verified=false;m.sent=false;clearTimeout(m.timer);
       setBar('对战版本不匹配或网站未完整部署，已拒绝启动旧引擎。请一起上传全部覆盖文件、刷新缓存后重试；手机返回或电脑 Esc 可退出。');return;
@@ -8246,12 +8274,20 @@ function onEngineMessage(d) {
   if (d.type === 'PKM_BATTLE_STARTED') { m.started = true; setBar(m.cfg.lines?.start ? '「' + m.cfg.lines.start + '」' : '对战开始！'); }
   else if (d.type === 'PKM_BATTLE_ERROR') { m.started = true; setBar('对战配置有误：' + (d.payload?.message || '')); if (m.sess) { m.sess.error = d.payload?.message || '配置有误'; entryStatus(m.sess); } }
   else if (d.type === 'PKM_BATTLE_RESULT' && d.payload && d.payload.hostTag===m.tag) {
-    if (m.done) return; m.done = true;
+    if (m.done) return; m.done = true; m.settling=true;
+    setSettlementNotice(m,'正在保存战斗结果，请稍候；完成后就可以返回。');
     applyResult(m, d.payload).then(r => {
-      setBar(r.batched ? `${r.outcomeZh}！战斗结果、经验和升级已即时保存；附近已补充新对手。当前暂存 ${r.pendingCount} 场，想回剧情时在附近列表点“结束刷级并回剧情”。` : `${r.outcomeZh}！结果已写入变量并填进输入框——手机返回／电脑 Esc 退出后发送即可继续。`);
+      m.settling=false;
+      const notice=(r.warnings||[]).join(' ');
+      const saved=r.batched ? `${r.outcomeZh}！战斗结果、经验和升级已即时保存；附近已补充新对手。当前暂存 ${r.pendingCount} 场，想回剧情时在附近列表点“结束刷级并回剧情”。` : `${r.outcomeZh}！结果已写入变量并填进输入框——手机返回／电脑 Esc 退出后发送即可继续。`;
+      setBar(saved+(notice?' 注意：'+notice:''));
+      const xp=(r.experience||[]).map(x=>`${x.name} +${x.exp}（${x.share||'出场'}）${x.to>x.from?` Lv${x.from}→${x.to}`:''}`).join('；');
+      const ev=(r.effort||[]).map(x=>`${x.name} ${x.changes.map(c=>`${K.STAT_ZH[c.stat]}+${c.gain}`).join('、')}`).join('；');
+      setSettlementNotice(m,[`${r.outcomeZh}：结果已保存。`,xp?'经验：'+xp:'',ev?'努力值：'+ev:'',r.evolutionBalls?`脱壳忍者进化额外消耗：精灵球×${r.evolutionBalls}`:'',notice?'注意：'+notice:'',r.batched?'返回后可在附近列表结束刷级并回剧情。':'返回后可发送结果继续剧情。'].filter(Boolean).join('\n'),!!notice);
+      if(notice)toast(notice,'warning');
       const b = m.el.querySelector('[data-op=close]'); if (b) b.textContent = '返回剧情 ›';
       if (m.sess) { m.sess.status = 'ended'; m.sess.summary = r.summary; entryStatus(m.sess); }
-    }).catch(err => { LOG('写回失败', err); setBar('结果写回失败：' + (err?.message || err)); toast('对战结果写回变量失败：' + (err?.message || err), 'error'); });
+    }).catch(err => { m.settling=false;LOG('写回失败', err);setSettlementNotice(m,'结果未保存：'+(err?.message||err),true);setBar('结果写回失败：' + (err?.message || err)); toast('对战结果写回变量失败：' + (err?.message || err), 'error'); });
   }
 }
 const OUTCOME_ZH = { victory: '胜利', defeat: '败北', captured: '收服成功', escaped:'逃跑成功', draw: '平局/中止' };
@@ -8373,7 +8409,7 @@ function friendshipEvolutionEdge(pkm,mon){
  let rule=FRIENDSHIP_EVOLUTION_RULES[id];if(!rule)return null;if(typeof rule==='string')rule={to:rule};if(rule.time&&time!==rule.time)return null;
  return{to:rule.to,toName:zhSpecies(rule.to),level:0,method:'亲密度',conditions:{friendship:160,...(rule.time?{time:rule.time}:{})}};
 }
-function applyLevelEvolutions(pkm,mon,fromLevel,toLevel,eventId){
+function applyLevelEvolutions(pkm,mon,fromLevel,toLevel,eventId,reservedSlots=0){
   const records=[],sideMons=[];let level=fromLevel;
   while(level<toLevel){level++;let guard=0;
     while(guard++<8){
@@ -8398,11 +8434,13 @@ function applyLevelEvolutions(pkm,mon,fromLevel,toLevel,eventId){
       if(oldHp==null)mon.hp=null;else if(Number(oldHp)<=0||mon.status==='濒死')mon.hp=0;else mon.hp=Math.max(1,Math.min(newMax,Number(oldHp)+Math.max(0,newMax-oldMax)));
       if(!Array.isArray(pkm.dex.caught))pkm.dex.caught=[];if(!pkm.dex.caught.includes(target))pkm.dex.caught.push(target);addSeen(pkm,target,eventId||'自由');
       records.push({from:sourceName,to:target,level,method:chosen.method||'等级'});
-      // Shedinja is an extra evolution at the same level, only with a spare party slot and a Poké Ball.
+      // 脱壳忍者需要尚未预留的队伍空位与 1 个普通精灵球；先为本场新捕获者预留位置。
       const extra=(LEVEL_EVOLUTIONS[id]||[]).find(e=>e.conditions?.side&&Number(e.level)<=level);
-      if(extra&&Number(pkm.player?.bag?.精灵球||0)>0&&pkm.party.slots.some(s=>!hasMon(s))&&sideMons.length<pkm.party.slots.filter(s=>!hasMon(s)).length){
+      const balls=Math.floor(Number(pkm.player?.bag?.精灵球)||0),freeSlots=pkm.party.slots.filter(s=>!hasMon(s)).length;
+      if(extra&&balls>0&&sideMons.length+Math.max(0,Number(reservedSlots)||0)<freeSlots){
         const side=clone(mon),name=extra.toName||'脱壳忍者';side.species=name;side.name=name;side.nickname=null;side.uid=uid();side.isLead=false;delete side.slot;side.ability=SPECIES[name]?.abilities?.[0]||'神奇守护';side.hp=1;side.maxHp=1;side.status=null;side.exp=Number.isFinite(Number(mon.exp))?Number(mon.exp):experienceThreshold(side,level);side.notes='土居忍士进化时额外蜕变';sideMons.push(side);
-        records.push({from:'土居忍士',to:name,level,method:'等级进化附带'});
+        if(balls>1)pkm.player.bag.精灵球=balls-1;else delete pkm.player.bag.精灵球;
+        records.push({from:'土居忍士',to:name,level,method:'等级进化附带',ballUsed:'精灵球'});
       }
     }
   }
@@ -8445,9 +8483,27 @@ function addEffortYield(mon,yields){
  if(changes.length)mon.stats_meta.ev_earned=Math.min(510,earned);
  return changes;
 }
-function awardBattleEffort(pkm,payload,outcome,battleType){if(outcome!=='victory'||!EFFORT_YIELDS||!isObj(EFFORT_YIELDS))return[];const defeated={};for(const enemy of payload.enemyTeam||[]){const id=speciesId(enemy.species||enemy.baseSpecies),y=EFFORT_YIELDS[id]||EFFORT_YIELDS[speciesId(enemy.baseSpecies||enemy.species)];if(!y)continue;for(const k of K.STAT_KEYS)defeated[k]=(defeated[k]||0)+(Number(y[k])||0);}if(!K.STAT_KEYS.some(k=>defeated[k]>0))return[];const participated=new Set((payload.playerTeam||[]).filter(p=>p.participated!==false&&Number.isInteger(Number(p.hostSlot))).map(p=>Number(p.hostSlot))),recipients=new Set(participated);if(battleType==='wild'){(pkm.party.slots||[]).forEach((m,i)=>{if(hasMon(m))recipients.add(i);});}else if(['学习装置','经验分享','经验分享器'].some(n=>Number(pkm.player?.bag?.[n])>0)){(pkm.party.slots||[]).forEach((m,i)=>{if(hasMon(m))recipients.add(i);});}const gains=[];for(const i of recipients){const mon=pkm.party.slots[i];if(!hasMon(mon))continue;const changes=addEffortYield(mon,defeated);if(changes.length)gains.push({name:monName(mon),changes,total:K.STAT_KEYS.reduce((n,k)=>n+Number(mon.stats_meta?.evs?.[k]||0),0)});}return gains;}
-function awardBattleExperience(pkm, payload, outcome, battleType, eventId='自由') {
-  const gained=[],sideMons=[]; if(outcome!=='victory')return gained;
+// 收服仍保留独立的 captured 结果，但野生成功收服按野生胜利发经验、努力值和战绩。
+function earnsBattleRewards(outcome,battleType){return outcome==='victory'||(outcome==='captured'&&battleType==='wild');}
+function effortYieldFor(enemy){return EFFORT_YIELDS[speciesId(enemy?.species||enemy?.baseSpecies)]||EFFORT_YIELDS[speciesId(enemy?.baseSpecies||enemy?.species)]||null;}
+function awardBattleEffort(pkm,payload,outcome,battleType,startingUids=null){
+ if(!earnsBattleRewards(outcome,battleType)||!EFFORT_YIELDS||!isObj(EFFORT_YIELDS))return[];
+ const defeated={};
+ for(const enemy of payload.enemyTeam||[]){const y=effortYieldFor(enemy);if(!y)continue;for(const k of K.STAT_KEYS)defeated[k]=(defeated[k]||0)+(Number(y[k])||0);}
+ if(!K.STAT_KEYS.some(k=>defeated[k]>0))return[];
+ const participated=new Set((payload.playerTeam||[]).filter(p=>p.participated!==false&&Number.isInteger(Number(p.hostSlot))).map(p=>Number(p.hostSlot))),recipients=new Set(participated);
+ if(battleType==='wild'){(pkm.party.slots||[]).forEach((m,i)=>{if(hasMon(m))recipients.add(i);});}
+ else if(['学习装置','经验分享','经验分享器'].some(n=>Number(pkm.player?.bag?.[n])>0)){(pkm.party.slots||[]).forEach((m,i)=>{if(hasMon(m))recipients.add(i);});}
+ const gains=[];for(const i of recipients){
+  const mon=pkm.party.slots[i];
+  // 升级进化可能先产生脱壳忍者；只奖励开战前已在队伍中的 UID。
+  if(!hasMon(mon)||(Array.isArray(startingUids)&&(!startingUids[i]||String(mon.uid||'')!==startingUids[i])))continue;
+  const changes=addEffortYield(mon,defeated);if(changes.length)gains.push({name:monName(mon),changes,total:K.STAT_KEYS.reduce((n,k)=>n+Number(mon.stats_meta?.evs?.[k]||0),0)});
+ }
+ return gains;
+}
+function awardBattleExperience(pkm, payload, outcome, battleType, eventId='自由', reservedPartySlots=0) {
+  const gained=[],sideMons=[]; if(!earnsBattleRewards(outcome,battleType))return gained;
   const enemyLv=Math.max(1,...(payload.enemyTeam||[]).map(e=>Number(e.level)||1));
   const baseGain=Math.max(1,Math.floor(enemyLv*enemyLv*1.2*(battleType==='wild'?1:1.25)));
   const participated=new Set((payload.playerTeam||[])
@@ -8471,7 +8527,7 @@ function awardBattleExperience(pkm, payload, outcome, battleType, eventId='自�
         mon.lv=level;const levelMax=monStats(mon)?.hp||beforeMax;
         if(mon.hp==null)mon.maxHp=levelMax;else if(mon.hp===0||mon.status==='濒死'){mon.maxHp=levelMax;mon.hp=0;}else{mon.hp=Math.min(levelMax,Number(mon.hp)+Math.max(0,levelMax-beforeMax));mon.maxHp=levelMax;}
         const moveResult=learnLevelMovesAt(mon,level);learnedMoves.push(...moveResult.learned);pendingMoves.push(...moveResult.pending);learnsetUnavailable ||= moveResult.unavailable;
-        const evo=applyLevelEvolutions(pkm,mon,level-1,level,eventId);evolutionRecords.push(...evo.records);sideMons.push(...evo.sideMons);
+        const evo=applyLevelEvolutions(pkm,mon,level-1,level,eventId,reservedPartySlots+sideMons.length);evolutionRecords.push(...evo.records);sideMons.push(...evo.sideMons);
       }
       mon.lv=newLv;
     }else mon.lv=newLv;
@@ -8494,7 +8550,7 @@ async function finishWildBatch(){
   if(!items.length){toast('目前没有待提交的连续战斗记录。');return;}
   const ta=PD.getElementById('send_textarea');if(!ta){toast('找不到酒馆输入框；战斗变量已保存，暂时无法提交摘要。','warning');return;}
   const data={type:'wild-training-batch',count:items.length,battles:items};
-  const lines=items.map((x,i)=>`${i+1}. ${x.outcome==='victory'?'胜利':x.outcome==='captured'?'收服':x.outcome==='defeat'?'败北':'中止'}：野生${x.species} Lv${x.level}，${x.turns||0}回合${(x.exp||[]).length?'；经验/升级：'+x.exp.map(g=>`${g.name} +${g.exp}经验（${g.share||'出场'}）${g.to>g.from?'，Lv'+g.from+'→Lv'+g.to:''}${g.evolutions?.length?'，进化为'+g.evolutions.map(e=>e.to).join('、'):''}${g.learnedMoves?.length?'，学会'+g.learnedMoves.join('、'):''}${g.pendingMoves?.length?'，待处理招式'+g.pendingMoves.join('、'):''}`).join('、'):''}${(x.effort||[]).length?'；努力值：'+x.effort.map(g=>`${g.name} ${g.changes.map(c=>`${c.stat}+${c.gain}`).join('、')}`).join('；'):''}`).join('\n');
+  const lines=items.map((x,i)=>`${i+1}. ${x.outcome==='victory'?'胜利':x.outcome==='captured'?'收服':x.outcome==='defeat'?'败北':'中止'}：野生${x.species} Lv${x.level}，${x.turns||0}回合${(x.exp||[]).length?'；经验/升级：'+x.exp.map(g=>`${g.name} +${g.exp}经验（${g.share||'出场'}）${g.to>g.from?'，Lv'+g.from+'→Lv'+g.to:''}${g.evolutions?.length?'，进化为'+g.evolutions.map(e=>e.to).join('、'):''}${g.learnedMoves?.length?'，学会'+g.learnedMoves.join('、'):''}${g.pendingMoves?.length?'，待处理招式'+g.pendingMoves.join('、'):''}`).join('、'):''}${(x.effort||[]).length?'；努力值：'+x.effort.map(g=>`${g.name} ${g.changes.map(c=>`${c.stat}+${c.gain}`).join('、')}`).join('；'):''}${x.evolutionBalls?'；脱壳忍者进化额外消耗：精灵球×'+x.evolutionBalls:''}${(x.warnings||[]).length?'；结算提示：'+x.warnings.join(' '):''}`).join('\n');
   const text=`<pkm_result>${JSON.stringify(data)}</pkm_result>\n【战斗结果】连续野外训练汇总｜共 ${items.length} 场\n${lines}\n（各场战斗的 HP、状态、剩余 PP、经验、等级、亲密值和战绩均已即时写入变量；刷级结束不自动治疗，去宝可梦中心完成治疗后才会恢复 PP。请依据这份汇总简要描写训练过程并回到当前剧情，不要重新结算或改写胜负，也不要重复写入这些变量。）`;
   await writePkm(pkm=>{pkm.wild.pendingResults=[];});
   fillInput(text);toast(`已将 ${items.length} 场连续训练汇总到输入框；发送这一条即可回剧情。`);
@@ -8512,21 +8568,23 @@ function honorNamedInBody(body,key){const text=String(body||'');return key==='le
 function honorPatchSetsTrue(ops,key){return ops.some(o=>{const g=o.segs||[],truth=o.value===true||o.value===1||String(o.value).toLowerCase()==='true';if(g[0]!=='pkm'||g[1]!=='player'||g[2]!=='honors')return false;if(g.length===4&&g[3]===key)return truth;if(g.length===3&&isObj(o.value))return o.value[key]===true;return false;});}
 async function applyResult(m, payload) {
   const outcome = payload.outcome || (payload.winner === 'player' ? 'victory' : payload.winner === 'enemy' ? 'defeat' : 'draw');
-  if(outcome==='victory')await Promise.all([LEVEL_UP_LEARNSET_READY,EFFORT_YIELDS_READY]);
+  if(outcome==='captured'&&(m.type!=='wild'||payload.winner!=='player'||payload.capture?.success!==true||!payload.capture?.spec?.species))
+    throw new Error('收服结果缺少有效的野生成功记录，本场结果未结算，请重新对战。');
+  const won=earnsBattleRewards(outcome,m.type);
+  if(won)await Promise.all([LEVEL_UP_LEARNSET_READY,EFFORT_YIELDS_READY]);
   const cfg = m.cfg, cfgTeam = Array.isArray(cfg.team) ? cfg.team : [];
   const fmt = m.fmt || battleFormat(cfg, (payload.playerTeam || []).length);
   const pN = (payload.playerTeam || []).length, eN = (payload.enemyTeam || []).length;
   const fmtText = fmt.wild ? `野外 · ${fmt.tag}` : fmt.full ? `两边全队（我方${pN}只 vs 对方${eN}只）` : fmt.name;
   let placed = null, capturedName = null, gymBadgeAward = null, capturedDetail = null, captureInitPath = '';
   let summaryParts = [];
-  let xpGains = [],evGains=[];
+  let xpGains = [],evGains=[],rewardWarnings=[],evolutionBalls=0;
   const bondNotes = [], honorNotes=[];
   const result = await writePkm(pkm => {
-    summaryParts = []; bondNotes.length = 0; honorNotes.length=0; placed = null; capturedName = null; gymBadgeAward = null; capturedDetail = null; evGains=[]; captureInitPath=''; // writePkm 可能重算
+    summaryParts = []; bondNotes.length = 0; honorNotes.length=0; placed = null; capturedName = null; gymBadgeAward = null; capturedDetail = null; xpGains=[]; evGains=[]; rewardWarnings=[]; evolutionBalls=0; captureInitPath=''; // writePkm 可能重算
     const currentIds=pkm.party.slots.map(s=>hasMon(s)?String(s.uid||''):null);
     if(!Array.isArray(m.partyUids)||m.partyUids.some((id,i)=>id!==currentIds[i]))
       throw new Error('战斗期间队伍位置发生变化，为避免把体力、经验或道具写给错误伙伴，本场结果未结算；请恢复原队伍后重新对战。');
-    const won = outcome === 'victory' || outcome === 'captured';
     // 1) 我方体力 / 异常状态
     for (const p of payload.playerTeam || []) {
       const s = pkm.party.slots[p.hostSlot], start=m.heldSnapshots?.[p.hostSlot];
@@ -8542,20 +8600,27 @@ async function applyResult(m, payload) {
       updateRemainingMovePP(s,p.moves);
 
     }
-    if(outcome==='victory'){bondNotes.push(...awardBattleParticipantsFriendship(pkm,payload,1,'胜利出战',true));rememberFriendshipBattleParticipants(pkm,payload);}
-    // 1.5) 胜利经验：野外出场者各得全额、队伍其余成员各得一半；其他战斗仍按原参战规则。升级同步最大 HP。
-    // Special early-ending gym bouts can have a conscious opponent; do not award that mon's yield.
-    const rewardPayload=fmt.firstFaintLoses?{...payload,enemyTeam:(payload.enemyTeam||[]).filter(e=>e.fainted===true||(e.hp!=null&&e.hp!==''&&Number.isFinite(Number(e.hp))&&Number(e.hp)<=0))}:payload;
-    if(!fmt.firstFaintLoses||rewardPayload.enemyTeam.length){
-      xpGains=awardBattleExperience(pkm,rewardPayload,outcome,m.type,(cfg.event&&cfg.event!=='自由'?cfg.event:'自由'));
-      evGains=awardBattleEffort(pkm,rewardPayload,outcome,m.type);
-    }
-    // 2) 精灵球消耗（按差值扣，避免覆盖期间的其他变化）
+    // 先按可靠差值扣除本场使用的球及道具；升级进化不能再使用投出去的最后一枚球。
     for (const [id, zh] of Object.entries(K.BALL_ZH)) {
       const used = PKMHeldSync.consumedStock(m.balls,payload.ballStock,id);
       if (used > 0) { const left = Math.max(0, (Number(pkm.player.bag[zh]) || 0) - used); if (left > 0) pkm.player.bag[zh] = left; else delete pkm.player.bag[zh]; }
     }
     for(const [zh,id] of Object.entries(TRAINER_ITEM_ZH_TO_ID)){const used=PKMHeldSync.consumedStock(m.battleItems,payload.itemStock,id);if(used>0){const left=Math.max(0,(Number(pkm.player.bag[zh])||0)-used);if(left>0)pkm.player.bag[zh]=left;else delete pkm.player.bag[zh];}}
+    if(won){bondNotes.push(...awardBattleParticipantsFriendship(pkm,payload,1,'胜利出战',true));rememberFriendshipBattleParticipants(pkm,payload);}
+    // 1.5) 野外胜利或成功收服：出场者全额，其余队员半额。先奖励开战时的队伍，再把新伙伴入队。
+    // Special early-ending gym bouts can have a conscious opponent; do not award that mon's yield.
+    const rewardPayload=fmt.firstFaintLoses?{...payload,enemyTeam:(payload.enemyTeam||[]).filter(e=>e.fainted===true||(e.hp!=null&&e.hp!==''&&Number.isFinite(Number(e.hp))&&Number(e.hp)<=0))}:payload;
+    if(!fmt.firstFaintLoses||rewardPayload.enemyTeam.length){
+      const captureReservation=outcome==='captured'&&pkm.party.slots.some(s=>!hasMon(s))?1:0;
+      xpGains=awardBattleExperience(pkm,rewardPayload,outcome,m.type,(cfg.event&&cfg.event!=='自由'?cfg.event:'自由'),captureReservation);
+      evGains=awardBattleEffort(pkm,rewardPayload,outcome,m.type,m.partyUids);
+      evolutionBalls=xpGains.flatMap(x=>x.evolutions||[]).filter(x=>x.ballUsed==='精灵球').length;
+      if(won){
+        if(EFFORT_YIELDS_ERROR)rewardWarnings.push('努力值表未加载，本场未增加努力值；请检查配套站点的努力值数据。');
+        else {const missing=[...new Set((rewardPayload.enemyTeam||[]).filter(e=>!effortYieldFor(e)).map(e=>zhSpecies(e.baseSpecies||e.species)||'未知'))];if(missing.length)rewardWarnings.push(`${missing.join('、')}的努力值数据未覆盖，本场未计入这些对手的努力值。`);}
+        if(xpGains.some(x=>x.learnsetUnavailable))rewardWarnings.push('等级招式表未加载或该形态暂无覆盖，未猜测升级招式；请检查配套数据。');
+      }
+    }
     // 3) 图鉴：对手登记为已遇见
     const eventId = cfg.event && cfg.event !== '自由' ? cfg.event : '自由';
     for (const e of payload.enemyTeam || []) addSeen(pkm, zhSpecies(e.baseSpecies || e.species), eventId);
@@ -8577,17 +8642,19 @@ async function applyResult(m, payload) {
     // 首次赢得对应道馆徽章：徽章与 1000 声望同一事务写入，重赛不会重复发放。
     gymBadgeAward=grantGymBadgeReward(pkm,cfg,m.type,outcome);if(gymBadgeAward){summaryParts.push(`获得${gymBadgeAward}，声望+1000`);honorNotes.push(...awardBattleParticipantsFriendship(pkm,payload,3,`${gymBadgeAward}徽章`));}
     // 5) 战绩
-    pkm.battle.count += 1; if (outcome === 'victory') pkm.battle.wins += 1;
+    pkm.battle.count += 1; if (won) pkm.battle.wins += 1;
     summaryParts.push(`${OUTCOME_ZH[outcome] || '结束'} · ${fmtText}${cfg.opponent ? ' · 对手：' + cfg.opponent : ''} · ${payload.turns || 0} 回合`);
     if (capturedName) summaryParts.push(`收服了${capturedName}（${placed}${capturedDetail ? '；' + capturedDetail : ''}）`);
     if(bondNotes.length)summaryParts.push('战斗亲密值：'+bondNotes.join('，'));if(honorNotes.length)summaryParts.push('徽章荣誉亲密值：'+honorNotes.join('，'));
     if(evGains.length)summaryParts.push('努力值：'+evGains.map(x=>`${x.name} ${x.changes.map(c=>`${K.STAT_ZH[c.stat]}+${c.gain}`).join('、')}（合计 ${x.total}/510）`).join('；'));
+    if(evolutionBalls)summaryParts.push(`脱壳忍者进化额外消耗：精灵球×${evolutionBalls}`);
+    if(rewardWarnings.length)summaryParts.push('结算提示：'+rewardWarnings.join(' '));
     const summary = summaryParts.join('；');
     pkm.battle.lastResult = summary;
     if (cfg.id && !pkm.battle.done.includes(cfg.id)) { pkm.battle.done.push(cfg.id); if (pkm.battle.done.length > 200) pkm.battle.done.splice(0, pkm.battle.done.length - 200); }
     if(m.type==='wild'){
       if(!Array.isArray(pkm.wild.pendingResults))pkm.wild.pendingResults=[];
-      pkm.wild.pendingResults.push({species:zhSpecies(cfgTeam[0]?.species||cfgTeam[0]?.name||'未知'),level:Number(cfgTeam[0]?.level)||1,outcome,turns:payload.turns||0,exp:xpGains,effort:evGains,summary,at:Date.now()});
+      pkm.wild.pendingResults.push({species:zhSpecies(cfgTeam[0]?.species||cfgTeam[0]?.name||'未知'),level:Number(cfgTeam[0]?.level)||1,outcome,turns:payload.turns||0,exp:xpGains,effort:evGains,evolutionBalls,warnings:rewardWarnings,summary,at:Date.now()});
       if(pkm.wild.pendingResults.length>100)pkm.wild.pendingResults.splice(0,pkm.wild.pendingResults.length-100);
     }
     const bs = pkm.integration.battles; bs[battleHash(m.key)] = { outcome, summary, at: Date.now() };
@@ -8601,7 +8668,8 @@ async function applyResult(m, payload) {
   const pkm = readPkm();
   const pTeam = payload.playerTeam || [], eTeam = payload.enemyTeam || [];
   const joined = new Set(pTeam.map(p => p.hostSlot));
-  const bench = pkm.party.slots.map((s, i) => (hasMon(s) && !joined.has(i) ? monName(s) + (s.status === '濒死' || s.hp === 0 ? '（濒死）' : '') : null)).filter(Boolean);
+  // 结果写入后才查看队伍：只列开战前已有的未参赛者，不能把刚收服/进化附带的新伙伴误写成“开战前濒死”。
+  const bench = pkm.party.slots.map((s, i) => (hasMon(s) && m.partyUids?.[i] && String(s.uid||'')===m.partyUids[i] && !joined.has(i) ? monName(s) + (s.status === '濒死' || s.hp === 0 ? '（濒死）' : '') : null)).filter(Boolean);
   const verdict = verdictText(outcome, fmt, pTeam, eTeam);
   const res = {
     id: cfg.id || null, event: cfg.event || '自由', type: m.type, opponent: cfg.opponent || null, outcome, turns: payload.turns || 0,
@@ -8610,7 +8678,7 @@ async function applyResult(m, payload) {
     enemy: (payload.enemyTeam || []).map(p => ({ species: zhSpecies(p.baseSpecies || p.species), lv: p.level, hp: p.hp, maxHp: p.maxHp, fainted: !!p.fainted, status: K.STATUS_TO_ZH[p.status] || null })),
     capture: outcome === 'captured' && payload.capture ? { ball: K.BALL_ZH[payload.capture.ball] || '精灵球', species: capturedName, level: payload.capture.spec?.level, placed, friendshipInit: captureInitPath || null } : null,
     stakes: cfg.stakes || null,
-    badgeAward: gymBadgeAward, reputationAward: gymBadgeAward ? 1000 : 0,
+    badgeAward: gymBadgeAward, reputationAward: gymBadgeAward ? 1000 : 0, evolutionBalls,
   };
   const used = Object.entries(K.BALL_ZH).map(([id, zh]) => { const n = PKMHeldSync.consumedStock(m.balls,payload.ballStock,id); return n > 0 ? `${zh}×${n}` : null; }).filter(Boolean);
   const usedTrainerItems=Object.entries(TRAINER_ITEM_ZH_TO_ID).map(([zh,id])=>{const n=PKMHeldSync.consumedStock(m.battleItems,payload.itemStock,id);return n>0?`${zh}×${n}`:null;}).filter(Boolean);
@@ -8623,21 +8691,22 @@ async function applyResult(m, payload) {
     m.comp?.added?.length ? `（${m.comp.who}的${m.comp.added.join('、')}是按原作进度补进对手阵容的，续写时当作${m.comp.who}本来就带着。）` : '',
     res.capture ? `收服：用${res.capture.ball}收服了 ${res.capture.species} Lv${res.capture.level}，已放进${placed}，初始亲密值 40${captureInitPath ? `；如捕捉过程有明显正向互动，本条回复可校准一次：{"op":"replace","path":"${captureInitPath}","value":{"official":45~60}}（明显负向互动写 {"official":20~35}；没有明显互动保持 40，只在收服当时用一次）` : ''}。` : '',
     used.length||usedTrainerItems.length ? `消耗：${[...used,...usedTrainerItems].join('、')}` : '',
+    evolutionBalls ? `脱壳忍者进化额外消耗：精灵球×${evolutionBalls}（脚本已扣除）。` : '',
     gymBadgeAward ? `道馆奖励（脚本已写入）：获得${gymBadgeAward}，声望 +1000；当前声望 ${readPkm().player.reputation}。` : '',
     bondNotes.length ? `战斗亲密值（脚本已加）：${bondNotes.join('，')}` : '',
     honorNotes.length ? `徽章奖励亲密值（脚本已加）：${honorNotes.join('，')}` : '',
     evGains.length ? `努力值（脚本已加）：${evGains.map(x=>`${x.name} ${x.changes.map(c=>`${K.STAT_ZH[c.stat]}+${c.gain}`).join('、')}（合计 ${x.total}/510）`).join('；')}` : '',
     xpGains.length ? `经验（脚本已加）：${xpGains.map(x=>`${x.name} +${x.exp}（${x.share||'出场'}），Lv${x.from}${x.to>x.from?'→Lv'+x.to:''}${x.evolutions?.length?'，进化为'+x.evolutions.map(e=>e.to).join('、'):''}${x.learnedMoves?.length?'，学会'+x.learnedMoves.join('、'):''}${x.pendingMoves?.length?'，待处理招式'+x.pendingMoves.join('、'):''}`).join('；')}` : '',
-    xpGains.some(x=>x.learnsetUnavailable)?'等级招式表未加载或该形态暂无覆盖；脚本没有猜招。请检查 st-bridge/level-up-learnsets-52poke.json 部署。':'',
+    rewardWarnings.length ? `结算提示：${rewardWarnings.join(' ')}` : '',
     line ? `对手的台词（供续写）：「${line}」` : '',
     '（变量已写入：体力/状态、剩余PP、经验与等级、等级进化、升级学招/待替换招式、精灵球、收服入队（初始亲密值 40）、图鉴、战斗亲密值、努力值、首次赢得道馆徽章及对应1000声望。请按此结果续写战斗经过，不改写胜负，也不要重复写入这些变量。）'].filter(Boolean).join('\n');
   const text = `<pkm_result>${JSON.stringify({...res, experience:xpGains,effort:evGains})}</pkm_result>\n${human}`;
   if(m.type==='wild'){
     const pendingCount=readPkm().wild.pendingResults?.length||0;
-    return {summary:result.summary,outcomeZh:OUTCOME_ZH[outcome]||'结束',text,batched:true,pendingCount,experience:xpGains,effort:evGains};
+    return {summary:result.summary,outcomeZh:OUTCOME_ZH[outcome]||'结束',text,batched:true,pendingCount,experience:xpGains,effort:evGains,evolutionBalls,warnings:rewardWarnings};
   }
   fillInput(text);
-  return { summary: result.summary, outcomeZh: OUTCOME_ZH[outcome] || '结束', text, experience:xpGains,effort:evGains };
+  return { summary: result.summary, outcomeZh: OUTCOME_ZH[outcome] || '结束', text, experience:xpGains,effort:evGains,evolutionBalls,warnings:rewardWarnings };
 }
 function fillInput(text) {
   const ta = PD.getElementById('send_textarea'); if (!ta) return;
@@ -9315,7 +9384,7 @@ async function applyCare(){
  const outcomes=[];if(revived)outcomes.push('濒死复苏');if(healed>0)outcomes.push(`HP +${healed}`);if(cured)outcomes.push('异常状态已治愈');if(evChange)outcomes.push(`${K.STAT_ZH[evChange.stat]||evChange.stat}努力值 +${evChange.gain}`);if(friendshipChange>0)outcomes.push(`游戏亲密度 -${friendshipChange}`);
  if(evolved)toast(`${evolved.from}使用${op.name}后进化为${evolved.to}；背包已扣除 1 个，图鉴与队伍存档已同步。`);
  else if(equipped)toast(`${equipped.to}已交给${monName(readPkm().party.slots.find(m=>m.uid===op.id))}携带${equipped.from?`（旧道具${equipped.from}已放回背包）`:''}；存档已同步。`);
- else if(leveled){const mon=readPkm().party.slots.find(m=>m.uid===op.id);const changes=[`Lv.${leveled.from}→Lv.${leveled.to}`,levelEvolutions.length?'进化为'+levelEvolutions.map(e=>e.to).join('、'):'',levelLearned.length?'学会'+levelLearned.join('、'):'',levelPending.length?'待替换'+levelPending.join('、'):''].filter(Boolean).join('；');toast(`${monName(mon)}使用神奇糖果：${changes}。${levelLearnsetUnavailable?'招式表不可用，未猜测招式。':''}`);renderPanel();if(levelPending.length)schedulePendingMovePrompt();}
+ else if(leveled){const mon=readPkm().party.slots.find(m=>m.uid===op.id),balls=levelEvolutions.filter(e=>e.ballUsed==='精灵球').length;const changes=[`Lv.${leveled.from}→Lv.${leveled.to}`,levelEvolutions.length?'进化为'+levelEvolutions.map(e=>e.to).join('、'):'',levelLearned.length?'学会'+levelLearned.join('、'):'',levelPending.length?'待替换'+levelPending.join('、'):'',balls?'进化额外消耗精灵球×'+balls:''].filter(Boolean).join('；');toast(`${monName(mon)}使用神奇糖果：${changes}。${levelLearnsetUnavailable?'招式表不可用，未猜测招式。':''}`);renderPanel();if(levelPending.length)schedulePendingMovePrompt();}
  else toast(`${op.name}${usedCount>1?`×${usedCount}`:''}已使用：${outcomes.join('，')}；${usedCount<requestedCount?`所选 ${requestedCount} 个中实际仅消耗 ${usedCount} 个，其余保留；`:''}背包与队伍状态已同步。`);
 }
 function findMonByUid(pkm,id){return [...(pkm?.party?.slots||[]),...(pkm?.party?.box||[])].find(m=>m?.uid===id)||null;}
@@ -9584,7 +9653,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, hardPlotVersion: '20261113-hardplot-doubles-v2', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: "20261111-ev-pp-shop-v9", base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, hardPlotVersion: '20261113-hardplot-doubles-capture-v3', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: "20261111-ev-pp-shop-v9", base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }

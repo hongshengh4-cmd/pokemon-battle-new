@@ -107,7 +107,7 @@ installSpriteRecovery(document);
   const EMBED = new URLSearchParams(location.search).has('embed');
   if (EMBED) document.documentElement.classList.add('embed');
   let dataReady = false, pendingHostConfig = null, hostTag = null, hostMode = false;
-  const APP_VERSION = '20261113-hardplot-doubles-v2';
+  const APP_VERSION = '20261113-hardplot-doubles-capture-v3';
   const hostVersions = () => ({version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||''});
   let formatTag = '', formatRule = ''; // v1.3.8：角色卡发来的赛制（例：3v3、3只 vs 1只），显示在行动菜单的标签上
   let typeLabel = ''; // v1.3.9：角色卡发来的对战类型（道馆战 / 训练家对战 / 劲敌对战 / 火箭队……），标签第一段
@@ -1114,6 +1114,8 @@ installSpriteRecovery(document);
       spec: battle.capture.spec, hpAtCapture: battle.capture.hpAtCapture, statusAtCapture: battle.capture.statusAtCapture } : null;
     // Commit before the async animation: reload/double-click cannot repeat the reward.
     worldStore.recordAttempt(battle.ballStock, record);
+    // 捕获结果已经确定，先通知宿主结算，再播放演出；避免玩家提前返回时丢失收服。
+    if (attempt.success) announceResult();
     for (const id of Object.keys(PKMCapture.BALLS)) {
       const count = document.querySelector(`[data-ball="${id}"] > b`);
       if (count) count.textContent = `×${battle.ballStock[id]}`;
@@ -1556,7 +1558,8 @@ installSpriteRecovery(document);
   }
 
   function announceResult() {
-    if (!battle || battle.winner === null || animating || announcedBattle === battle) return;
+    // 战斗引擎已有最终胜负时立即提交；画面动画结束后重绘不会重复提交。
+    if (!battle || battle.winner === null || announcedBattle === battle) return;
     announcedBattle = battle;
     const payload = battle.result();
     payload.hostTag = hostTag;
