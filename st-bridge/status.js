@@ -1,4 +1,6 @@
 import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.js?v=1.3.31';
+import './plot-guard.js?v=20261113-comprehensive-fix-v6';
+if(globalThis.PKMPlotGuard?.version!=='20261113-comprehensive-fix-v6')throw new Error('剧情和计时模块版本不匹配，请完整部署并刷新缓存。');
 // External status runtime 20261030-all-requested-fixes-v8; original card UI retained.
 // v1.3.17 + v1.2.1 状态栏：只读 UI，独立命名空间，保留现有外置桥接。
 (function () {
@@ -278,10 +280,8 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
   // 喷雾倒计时：状态栏自己算一份，保证“背包/训练家卡片上随时能看到还剩多久”，
   // 不必打开“附近”标签。算法与 bridge.js 的 repelCountdown 保持一致（同一套时间文本）。
   function timeMinute(value) {
-    const m = String(value || '').match(/第\s*(\d+)\s*年\s*(\d+)\s*月\s*(\d+)\s*日(?:\s*(\d{1,2})[:：](\d{2}))?/);
-    if (!m) return null;
-    const day = (+m[1] - 1) * 372 + (+m[2] - 1) * 31 + (+m[3]);
-    return day * 1440 + (m[4] ? +m[4] : 12) * 60 + (m[5] ? +m[5] : 0);
+    const d=window.PKMPlotGuard?.date(value);if(!d)return null;
+    return d.day*1440+(d.hasTime?d.h:12)*60+d.mi;
   }
   // 存档里的喷雾名可能是“白银喷雾/补充喷雾/除虫喷雾（补充装）”等写法，按关键词归一后再判断。
   function repelKindOf(name) {
@@ -301,12 +301,14 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
       return left > 0 ? { item, text: `剩余 ${left} 步`, tone: 'green', lv: Math.max(1, num(r.minLevel, 1)) } : null;
     }
     const now = timeMinute(st['时间'] || st['時間'] || (pk.world && pk.world.time));
-    const until = Number(r.expiresAtGameMinute);
-    let left = Number.isFinite(now) && Number.isFinite(until) ? until - now : null;
-    if (left == null) { const at = Number(r.expiresAt); if (Number.isFinite(at)) left = Math.round((at - Date.now()) / 60000); }
+    // Historical message snapshots may still contain the v5 clock; interpret
+    // them without mutating the historical message or comparing unlike clocks.
+    const deadline=window.PKMPlotGuard?.repelDeadline(r);
+    let left = Number.isFinite(now) && deadline ? deadline.expires - now : null;
+    if (left == null && r.expiresAtGameMinute==null) { const at = r.expiresAt==null?NaN:Number(r.expiresAt); if (Number.isFinite(at)) left = Math.round((at - Date.now()) / 60000); }
     const target = String(r.targetName || '');
     const lv = Math.max(1, num(r.targetLevel, num(r.minLevel, 1)));
-    if (left == null) return { item, text: '时效 24 小时', target, lv, tone: 'gold' };
+    if (left == null) return { item, text: r.expiresAtGameMinute!=null?'旧计时无法核对，请手动结束或重新使用':'时效 24 小时', target, lv, tone: 'gold' };
     if (left <= 0) return { item, text: '已到期', target, lv, tone: 'gray', expired: true };
     const h = Math.floor(left / 60), mi = left % 60;
     const text = h ? `剩余 ${h} 小时${mi ? ' ' + mi + ' 分' : ''}` : `剩余 ${mi} 分钟`;
@@ -606,7 +608,7 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
     window.addEventListener('message', relayMapPoint);
     if (host !== window) host.addEventListener('message', relayMapPoint);
   } catch (_) {}
-  const api = { johtoMapVersion: '20261113-johto-map-1', genderVersion: '20261113-gender-recovery-v5', version: '1.3.25-map-shop-18', mountDex,
+  const api = { johtoMapVersion: '20261113-johto-map-1', genderVersion: '20261113-comprehensive-fix-v6', version: '1.3.25-map-shop-18', mountDex,
     dispose() { stopped = true; [...mounts.values()].forEach(m => m.cleanup()); if (host.PKMKantoLegacyStatus === api) delete host.PKMKantoLegacyStatus; }
   };
   host.PKMKantoLegacyStatus = api;

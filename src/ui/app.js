@@ -107,7 +107,7 @@ installSpriteRecovery(document);
   const EMBED = new URLSearchParams(location.search).has('embed');
   if (EMBED) document.documentElement.classList.add('embed');
   let dataReady = false, pendingHostConfig = null, hostTag = null, hostMode = false;
-  const APP_VERSION = '20261113-gender-recovery-v5';
+  const APP_VERSION = '20261113-comprehensive-fix-v6';
   const hostVersions = () => ({version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||'',genderVersion:window.PKMGender?.version||''});
   let formatTag = '', formatRule = ''; // v1.3.8：角色卡发来的赛制（例：3v3、3只 vs 1只），显示在行动菜单的标签上
   let typeLabel = ''; // v1.3.9：角色卡发来的对战类型（道馆战 / 训练家对战 / 劲敌对战 / 火箭队……），标签第一段
@@ -1272,7 +1272,9 @@ installSpriteRecovery(document);
     const root = $(slot === 0 ? 'mechanics' : 'mechanics-slot-2');
     if (!root) return;
     root.replaceChildren();
-    const active = !battle.double || slot === doubleActionSlot;
+    // In singles only slot 0 is active. Rendering the hidden empty second
+    // slot must not clear the special mechanic the player just selected.
+    const active = battle.double ? slot === doubleActionSlot : slot === 0;
     const st = mechanicState(me, slot);
     if (!st) { if (active && selectedMechanic) selectedMechanic = null; return; }
     if (active && !['armed','ready','queued'].includes(st.state)) selectedMechanic = null;
@@ -1808,8 +1810,11 @@ installSpriteRecovery(document);
       weather = environment.weather || null;
       const wt = environment.weatherTurns;
       if (cfg.encounter?.type === 'wild' && enemyTeam.length !== 1) throw new Error('当前野生遭遇仅支持一只野生宝可梦。');
-      // Safety fallback for standalone/config callers: never overwrite an explicitly supplied sex.
-      if (wild && window.PKMGender) for (const p of enemyTeam) if (window.PKMGender.missing(p.gender)) p.gender = window.PKMGender.roll(p.speciesId);
+      // Standalone/config callers also cannot create a new wild individual with
+      // an impossible known-species sex. Do not touch the player's old roster.
+      if (wild && window.PKMGender) for (const p of enemyTeam) {
+        if (!window.PKMGender.allowed(p.speciesId,p.gender)) p.gender=window.PKMGender.roll(p.speciesId);
+      }
       if (doubleMode && (playerTeam.filter(p => !p.fainted).length < 2 || enemyTeam.filter(p => !p.fainted).length < 2)) throw new Error('双打模式需要双方各至少两只尚未失去战斗能力的宝可梦。');
       battle = new PKMBattle.Battle(playerTeam, enemyTeam, { double: doubleMode, firstFaintLoses: cfg.rules?.firstFaintLoses === true, difficulty, weather, weatherTurns: typeof wt !== 'undefined' ? wt : 0,
         encounterType: cfg.encounter?.type, balls: worldStore.state.balls, itemStock:cfg.host?.battleItems||{}, seed: cfg.seed, captureContext:cfg.host?.captureContext||{} });

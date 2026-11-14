@@ -1,13 +1,13 @@
 import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './sprite-recovery.js?v=1.3.31';
-import * as K from './kanto-data.js?v=20261113-gender-recovery-v5';
-import './gender.js?v=20261113-gender-recovery-v5';
-import './battle-mechanics.js?v=20261113-gender-recovery-v5';
-import './plot-guard.js?v=20261113-gender-recovery-v5';
-import './patch-guard.js?v=20261113-gender-recovery-v5';
-import '../src/engine/gear-resolve.js?v=20261113-gender-recovery-v5';
-import '../src/engine/held-sync.js?v=20261113-gender-recovery-v5';
+import * as K from './kanto-data.js?v=20261113-comprehensive-fix-v6';
+import './gender.js?v=20261113-comprehensive-fix-v6';
+import './battle-mechanics.js?v=20261113-comprehensive-fix-v6';
+import './plot-guard.js?v=20261113-comprehensive-fix-v6';
+import './patch-guard.js?v=20261113-comprehensive-fix-v6';
+import '../src/engine/gear-resolve.js?v=20261113-comprehensive-fix-v6';
+import '../src/engine/held-sync.js?v=20261113-comprehensive-fix-v6';
 import '../src/engine/ability-choice.js?v=1.3.31';
-import {habitatAt, habitatPool, HABITAT_LABELS, indoorAt, isCenterLocation, completedTreatment} from './field-fixes.js?v=20261113-gender-recovery-v5';
+import {habitatAt, habitatPool, HABITAT_LABELS, indoorAt, isCenterLocation, completedTreatment} from './field-fixes.js?v=20261113-comprehensive-fix-v6';
 // 宝可梦·关都之旅 · 20261026-six-fixes-1（保留竖屏与多随行；水域/治疗/配音修复）
 // v1.3.62（friend-v62）：① 亲密度日常互动修复——AI 常写的 5 段路径 delta（/pkm/party/slots/N/friendship）不再被静默丢弃；160 以下每楼可 +1~+3（需具体互动）
 // ② 初始亲密值分级——开局初始伙伴 70、战斗收服 40、被剧情打动主动跟随 100~130（friendshipInit 一次性校准通道，上限 130）
@@ -37,6 +37,9 @@ import {habitatAt, habitatPool, HABITAT_LABELS, indoorAt, isCenterLocation, comp
 //       ③ 修掉"亲密度恰好等于 70 会被旧版迁移清零"的问题（70 是正常游玩完全能达到的数值，不再是旧版默认值的特征）。
 //       ④ 变量摘要里电脑仓库每只附带性格/资质，收服摘要附带完整个体信息，AI 叙述与变量不再出现两套数值。
 
+const EXPECTED_BUILD='20261113-comprehensive-fix-v6';
+if(K.VERSION!=='1.3.66-comprehensive-v6'||globalThis.PKMGender?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.version!==EXPECTED_BUILD||globalThis.PKMPatchGuard?.version!==EXPECTED_BUILD||globalThis.PKMGearResolve?.version!==EXPECTED_BUILD||globalThis.PKMBattleGear?.fixVersion!==EXPECTED_BUILD)
+  throw new Error('修复模块版本不完整：请先部署本包全部覆盖文件并刷新缓存。');
 const VERSION = K.VERSION;
 const W = window;
 const P = (() => { let p=window; try { while(p.parent!==p && p.parent.document) p=p.parent; } catch (_) {} return p; })();
@@ -76,7 +79,7 @@ function destroy() {
   PD.querySelectorAll('.pkm-follow-unit').forEach(el=>{cancelFollowerRoam(el);el.__originalMood?.dispose();el.remove();});
   PD.getElementById('pkm-care-confirm')?.remove();PD.getElementById('pkm-item-drag')?.remove();
   const openModal = PD.getElementById('pkm-kanto-modal'); openModal?._viewportCleanup?.(); openModal?._restoreOverflow?.();
-  for (const id of ['pkm-kanto-style', 'pkm-kanto-ball', 'pkm-kanto-panel', 'pkm-kanto-modal', 'pkm-kanto-toast', 'pkm-plot-guard-warning', 'pkm-patch-warning']) PD.getElementById(id)?.remove();
+  for (const id of ['pkm-kanto-style', 'pkm-kanto-ball', 'pkm-kanto-panel', 'pkm-kanto-modal', 'pkm-kanto-toast', 'pkm-plot-guard-warning', 'pkm-patch-warning', 'pkm-setup-warning']) PD.getElementById(id)?.remove();
   if (P.PKMKanto && P.PKMKanto.__owner === instance) delete P.PKMKanto;
 }
 const instance = { destroy, version: VERSION };
@@ -239,7 +242,18 @@ const FRIENDSHIP_SCHEMA_VERSION=2;
 function migrateFriendshipDefaults(pkm){if(!isObj(pkm.integration))pkm.integration={};if(Number(pkm.integration.friendshipSchema)>=FRIENDSHIP_SCHEMA_VERSION)return false;for(const mon of [...(pkm.party?.slots||[]),...(pkm.party?.box||[])]){if(!hasMon(mon))continue;if(!isObj(mon.friendship))mon.friendship={};const f=mon.friendship;if(Object.hasOwn(f,'avs')){f.official=legacyFriendshipValue(f);delete f.avs;}else if(f.official==null||f.official===''){f.official=FRIENDSHIP_DEFAULT;}}pkm.integration.friendshipSchema=FRIENDSHIP_SCHEMA_VERSION;return true;}
 
 const FRIENDSHIP_INTERACTION_RE=/(?:摸头|轻拍|拍拍|抚摸|蹭|贴过来|喂食|喂给|喂了|投喂|一起吃|拥抱|抱住|亲吻|击掌|握手|梳理|清理|照料|照顾|治疗|包扎|安慰|鼓励|守护|保护|挡下|救下|救助|训练|并肩|玩耍|交流|交谈|互动|陪伴|陪它|牵着|握爪|分享|递给|抚慰|回应)/;
-function hasExplicitPokemonInteraction(body,mon){const names=[mon?.nickname,mon?.species,mon?.name].map(x=>String(x||'').trim()).filter(Boolean);if(!names.length)return false;return String(body||'').split(/[。！？!?\n]+/).some(sentence=>names.some(n=>sentence.includes(n))&&FRIENDSHIP_INTERACTION_RE.test(sentence));}
+function hasExplicitPokemonInteraction(body,mon,player){
+ const names=[mon?.nickname,mon?.species,mon?.name].map(x=>String(x||'').trim()).filter(Boolean),players=['你','玩家',String(player||'').trim()].filter(x=>x&&x!=='{{user}}');
+ if(!names.length)return false;
+ return String(body||'').split(/[。！？!?；;\n]+/).some(sentence=>PKMPatchGuard.affirmative(sentence)&&sentence.split(/[，,]/).some(clause=>{
+  if(!FRIENDSHIP_INTERACTION_RE.test(clause))return false;
+  return names.some(n=>players.some(p=>{
+   const ni=clause.indexOf(n),pi=clause.indexOf(p);if(ni<0||pi<0)return false;
+   if(pi<ni){const between=clause.slice(pi+p.length,ni);return /(?:向|对|给|和|与|为|替|帮|跟|带着|同)/.test(between)||FRIENDSHIP_INTERACTION_RE.test(between);}
+   return FRIENDSHIP_INTERACTION_RE.test(clause.slice(ni+n.length,pi));
+  }));
+ }));
+}
 const ivOk = v => Number.isInteger(v) && v >= 0 && v <= 31;
 // 性格统一成中文名；英文 id（adamant）在中文名表加载后换算，加载前原样保留
 function natureZh(n) {
@@ -611,10 +625,30 @@ function parseState(text) {
   return out;
 }
 function parseDate(s) {
-  const m = String(s || '').match(/第\s*(\d+)\s*年\s*(\d+)\s*月\s*(\d+)\s*日(?:\s*(\d{1,2})[:：](\d{2}))?/);
-  if (!m) return null;
-  const [y, mo, d, h, mi] = [+m[1], +m[2], +m[3], m[4] ? +m[4] : 12, m[5] ? +m[5] : 0];
-  return { y, mo, d, h, mi, day: (y - 1) * 372 + (mo - 1) * 31 + d, text: `第${y}年 ${mo}月${d}日` };
+  const d=PKMPlotGuard.date(s);if(!d)return null;
+  // The non-plot displays historically use noon for a date without a time.
+  return {...d,h:d.hasTime?d.h:12,mi:d.hasTime?d.mi:0,text:`第${d.y}年 ${d.mo}月${d.d}日`};
+}
+// Migrate only the working snapshot, never rewrite earlier chat messages. v5
+// stored 31-day-month clock numbers; an undecodable value is retained for
+// inspection and that individual clock starts again on the next valid sync.
+function migrateCalendarClocks(pkm){
+  const i=pkm?.integration;if(!isObj(i))return;
+  const clocks=i.hpRegenGameMinute;
+  if(isObj(clocks)&&!i.hpRegenCalendar){
+    for(const [key,old] of Object.entries(clocks)){
+      const n=PKMPlotGuard.legacyMinute(old);
+      if(n===null){if(!isObj(i.hpRegenLegacyUnresolved))i.hpRegenLegacyUnresolved={};i.hpRegenLegacyUnresolved[key]=old;delete clocks[key];}
+      else clocks[key]=n;
+    }
+    i.hpRegenCalendar=PKMPlotGuard.CALENDAR;
+  }
+  const r=pkm?.world?.repel;
+  if(isObj(r)&&!r.gameClock&&r.expiresAtGameMinute!=null){
+    const deadline=PKMPlotGuard.repelDeadline(r);
+    if(deadline){r.startedAtGameMinute=deadline.start;r.expiresAtGameMinute=deadline.expires;r.gameClock=PKMPlotGuard.CALENDAR;}
+    else r.gameClock='legacy-unresolved';
+  }
 }
 const plotProblems = new Map();
 let injectionCutoff = Infinity, generationInFlight = false, generationSerial = 0;
@@ -797,6 +831,7 @@ function normalize(pkm) {
   if (!Array.isArray(pkm.battle.done)) pkm.battle.done = [];
   pkm.integration = isObj(pkm.integration) ? pkm.integration : {};
   if (!isObj(pkm.integration.battles)) pkm.integration.battles = {};
+  migrateCalendarClocks(pkm);
   migrateFriendshipDefaults(pkm);
   migrateExperienceCurve(pkm);
   pkm.wild = isObj(pkm.wild) ? pkm.wild : {};
@@ -842,9 +877,12 @@ function repelNowMinute(pkm){
 }
 function repelLeftMinutes(repel,pkm){
   if(!isObj(repel)||repelKind(repel)!==GOLDEN_REPEL)return null;
-  const until=Number(repel.expiresAtGameMinute),now=repelNowMinute(pkm);
-  if(Number.isFinite(until)&&Number.isFinite(now))return until-now;
-  const at=Number(repel.expiresAt);
+  const now=repelNowMinute(pkm),deadline=PKMPlotGuard.repelDeadline(repel);
+  if(deadline&&Number.isFinite(now))return deadline.expires-now;
+  // An undecodable game-clock deadline must not be compared to wall time or
+  // guessed: keep it unresolved until the player ends or reapplies the item.
+  if(repel.expiresAtGameMinute!=null)return null;
+  const at=repel.expiresAt==null?NaN:Number(repel.expiresAt);
   if(Number.isFinite(at))return Math.round((at-Date.now())/60000);
   return null;
 }
@@ -852,7 +890,7 @@ function repelExpired(repel,pkm){const left=repelLeftMinutes(repel,pkm);return l
 function repelCountdown(repel,pkm){
   if(!isObj(repel)||repelKind(repel)!==GOLDEN_REPEL)return '';
   const left=repelLeftMinutes(repel,pkm);
-  if(left==null)return '时效：游戏内 24 小时';
+  if(left==null)return repel.expiresAtGameMinute!=null?'旧计时无法核对，请手动结束或重新使用':'时效：游戏内 24 小时';
   if(left<=0)return '已到期';
   const h=Math.floor(left/60),m=left%60;
   return h?`剩余 ${h} 小时${m?` ${m} 分`:''}`:`剩余 ${m} 分钟`;
@@ -908,6 +946,7 @@ function activateRepel(pkm,item,lead,initialSteps){
     if(Number.isFinite(startMinute)){
       repel.startedAtGameMinute=startMinute;
       repel.expiresAtGameMinute=startMinute+1440;
+      repel.gameClock=PKMPlotGuard.CALENDAR;
       repel.startedAtText=timeText;
     }else{
       // 正文时间缺失时退回真实时间，至少不会“刚用就到期”。
@@ -1071,11 +1110,14 @@ function placeMon(pkm, mon) {
   }
   delete mon.slot; mon.isLead = false; pkm.party.box.push(mon); return '电脑（大木研究所）';
 }
-function makeStarter(species, nickname, mode) {
-  const s = K.STARTERS[species];
+function makeStarter(species, nickname, mode, choice='预设') {
+  const s = K.STARTERS[species],id=speciesId(species);
+  if(!s)throw new Error('未知初始伙伴');
+  const sex=choice==='预设'?PKMGender.normalize(s.gender):choice==='按比例抽取'?PKMGender.roll(id):PKMGender.normalize(choice);
+  if(!PKMGender.allowed(id,sex))throw new Error('初始伙伴的性别与物种不符，请重新选择。');
   const mon = emptySlot(1);
   Object.assign(mon, {
-    name: species, species, nickname: nickname || null, gender: s.gender, lv: 5, quality: 'medium',
+    name: species, species, nickname: nickname || null, gender: sex, lv: 5, quality: 'medium',
     nature: K.NATURES[Math.floor(Math.random() * K.NATURES.length)], ability: s.ability, isLead: true, isAce: false,
     moves: s.moves.slice(), ball: '精灵球', uid: uid(), friendship: { official: FRIENDSHIP_STARTER_BASE },
     met: mode === '沙盒模式' ? '第1年 5月22日 · 真新镇·大木研究所后院，大木博士托付' : '第1年 5月22日 · 真新镇·大木研究所，大木博士赠送',
@@ -1092,9 +1134,9 @@ let eventCache = null;
 let onlineEntries = null, onlineMeta = null;
 // Standalone-card builds deliberately read their revised card book; deployed builds only
 // accept the matching revised online book and otherwise fall back to the revised card.
-const worldReady = W.PKM_BUNDLED_PLOT ? Promise.resolve() : fetch(BASE + 'st-bridge/kanto-world.json?v=20261113-gender-recovery-v5')
+const worldReady = W.PKM_BUNDLED_PLOT ? Promise.resolve() : fetch(BASE + 'st-bridge/kanto-world.json?v=20261113-comprehensive-fix-v6')
   .then(r => (r.ok ? r.json() : null)).then(j => {
-    if(j?.version==='20261113-gender-recovery-v5'&&Array.isArray(j.entries)&&j.entries.length){
+    if(j?.version==='20261113-comprehensive-fix-v6'&&Array.isArray(j.entries)&&j.entries.length){
       onlineEntries=j.entries;onlineMeta={version:j.version,count:j.entries.length};eventCache=null;refreshInjection();
       LOG('硬约束线上世界书已加载 '+j.entries.length+' 条');
     } else LOG('线上世界书版本未匹配，回退卡内修订版，不使用旧软约束世界书。');
@@ -1195,6 +1237,7 @@ function bondRules(pkm, st) {
   const slots = pkm.party.slots.map((s, i) => (hasMon(s) ? `${monName(s)}=slots/${i}` : null)).filter(Boolean);
   return ['【好感与亲密值（每轮都要检查）】以下补丁写法供当前负责变量更新的模型使用：额外模型解析模式下剧情模型不输出 <UpdateVariable>；只有单模型模式才由剧情模型提交一次。脚本已结算的变化不得重复。',
     `- 本轮 {{user}} 和在场人物有实际互动（交谈、帮忙、请客、并肩作战、吵架又和好……）时，在 <UpdateVariable> 里给他/她好感：{"op":"delta","path":"/pkm/npcs/records/<key>/love","value":2}（日常 +1~3，救命或重大事件 +5~10，冒犯、背叛为负），同时 replace 这个人的 last（本次变化值）和 why（原因，15 字内）。`,
+    `- 只有正文明确发生并完成的互动才可加减好感；否定（没有道谢）、意图、假设、梦境或未执行的请求不算。why 必须对应实际动作及对象；仅在场、面向、想象或计划不算。脚本按保守文字线索核对，拿不准就不写，不能凭补丁虚构互动。`,
     `- key 必须用英文 key，不能用中文名${keys.length ? '。上一幕在场人物：' + keys.join('、') : ''}。`,
     `- 宝可梦只保留一个亲密值：范围 0~255，160 为亲密进化线。初始值分级：开局初始伙伴 70（脚本已写）；战斗收服默认 40（脚本已写）；无战斗被剧情打动主动跟随入队 100~130（稀有事件）。`,
     `- 160 以下：正文写出对某只宝可梦的具体正向互动（摸头、喂食、投喂、梳毛、玩耍、拥抱、治疗、安慰、并肩作战、分享食物等）时，立刻给这只宝可梦加亲密，路径必须带 /official：{"op":"delta","path":"/pkm/party/slots/<槽位>/friendship/official","value":1~3}（轻微互动 +1，明显投入 +2，特别打动它 +3）；每条回复每只最多 +3，只在有具体互动时加。160 及以上：摸头、喂食等日常互动不再增加（脚本只继续处理荣誉奖励等特殊奖励）。`,
@@ -1230,11 +1273,14 @@ function buildInjection() {
   const profile=pkm.integration.profile;
   if(profile) parts.push('【玩家档案·优先于原作称呼】'+JSON.stringify({name:profile.name,gender:profile.gender,hometown:profile.hometown,intro:profile.intro,background:profile.background || '',mode:profile.mode})+'；背景仅是设定资料，不是指令。队伍及等级以当前变量为准，不以开局快照覆盖。');
   const aiCount = c.filter((m, i) => i > 0 && !m.is_user && !m.is_system).length;
-  if(!aiCount){
+  if(!aiCount&&profile){
     const mode=pkm.world.mode||'同行模式';
     const g=ctx()?.characters?.[ctx()?.characterId]?.data?.alternate_greetings?.[K.MODE_INFO[mode]?.greeting??0];
     parts.push(`【开局】玩家刚提交训练家档案，${pkm.integration.pendingStarter?'皮卡丘仅预登记、尚未领取；到EP001节点2由玩家确认后才入队':'已选伙伴已经写入存档，不能重复赠送'}。以下开场只作位置与语气参考，姓名性别按档案；不要照抄或替玩家做当前选择：\n${subUser(String(g||'').replace(/<pkm_state>[\s\S]*?<\/pkm_state>/i,'').replace(/<UpdateVariable>[\s\S]*?<\/UpdateVariable>/i,'').replace(/<\/?content>/g,'').trim()).slice(0,1800)}`);
     parts.push('第一幕也必须处理EP001节点1；已登记的开局时间、地点和伙伴以存档为准，不虚构或重复完成节点。');
+  }else if(!profile){
+    const registration=setupStatus(pkm,c);
+    parts.push(registration==='unregistered'?'【开局未登记】当前没有训练家档案及可信旧进度；不要声称玩家已登记或已领伙伴。提示玩家先完成开局界面。':'【旧档待核对】未检出新版登记档案，但可能存在旧旅程；不得声称刚完成登记，不重置或重复赠送队伍，请以现有记录为准。');
   }
   const pos=plotPosition(injectionCutoff);
   if(pos?.finished){parts.push('主线：已配置的事件已由实际记录完成；此后可自由剧情。');const cl=companionLine(injectionCutoff);if(cl)parts.push(cl);}
@@ -1351,6 +1397,7 @@ function reconcileBonds(pkm, mesid, presentKeys, suppliedPlan=null, suppliedBase
   let changed = migrateFriendshipDefaults(pkm);
   const recs=pkm.npcs.records,baseRecs=base.npcs.records;
   const expected=clone(base);applyOpsGeneric(expected,ops);
+  const rawExpected=clone(base);applyOpsGeneric(rawExpected,plan.rawOps||[]);
   // A concrete, complete player/NPC interaction must actually have settled.
   for(const key of plan.acceptedNpcs||[]){
     const rec=recs[key],was=baseRecs[key],want=expected.npcs?.records?.[key];
@@ -1364,7 +1411,7 @@ function reconcileBonds(pkm, mesid, presentKeys, suppliedPlan=null, suppliedBase
   for(const o of ops){
     const g=o.segs;if(g[0]!=='pkm'||g[1]!=='party'||!['slots','box'].includes(g[2])||g[4]!=='friendship')continue;
     const i=Number(g[3]),bm=base.party[g[2]]?.[i];if(!Number.isInteger(i)||!hasMon(bm))continue;
-    const id=g[2]+':'+i,e=expFriend[id]||(expFriend[id]={}),baseFriend=friendBase(bm),cur=()=>e.value??baseFriend,hasInteraction=hasExplicitPokemonInteraction(bodyText,bm),limitPositive=(current,target)=>target>current?(baseFriend>=FRIENDSHIP_EVOLUTION_THRESHOLD||!hasInteraction?current:Math.min(target,baseFriend+3,FRIENDSHIP_EVOLUTION_THRESHOLD)):target;
+    const id=g[2]+':'+i,e=expFriend[id]||(expFriend[id]={}),baseFriend=friendBase(bm),cur=()=>e.value??baseFriend,hasInteraction=hasExplicitPokemonInteraction(bodyText,bm,base.player?.name||userName()),limitPositive=(current,target)=>target>current?(baseFriend>=FRIENDSHIP_EVOLUTION_THRESHOLD||!hasInteraction?current:Math.min(target,baseFriend+3,FRIENDSHIP_EVOLUTION_THRESHOLD)):target;
     if(g.length===6&&g[5]==='official'){
       const n=Number(o.value);if(!Number.isFinite(n))continue;
       if(o.op==='delta'){const d=n>0?Math.min(3,n):n;e.value=friendshipClamp(limitPositive(cur(),cur()+d));}
@@ -1389,8 +1436,17 @@ function reconcileBonds(pkm, mesid, presentKeys, suppliedPlan=null, suppliedBase
   for(const [id,e] of Object.entries(expFriend)){
     const [where,si]=id.split(':'),i=Number(si),bm=base.party[where]?.[i],cm=pkm.party[where]?.[i];if(!hasMon(cm))continue;
     if(bm?.uid&&cm.uid?bm.uid!==cm.uid:(cm.species||cm.name)!==(bm.species||bm.name))continue;
-    const baseValue=friendBase(bm),current=friendshipValue(cm),target=friendshipClamp(e.value),hasInteraction=hasExplicitPokemonInteraction(bodyText,bm),maxPositive=baseValue<FRIENDSHIP_EVOLUTION_THRESHOLD&&hasInteraction?Math.min(baseValue+3,FRIENDSHIP_EVOLUTION_THRESHOLD):baseValue;
-    const rawOfficial=cm.friendship?.official,hasCanonical=rawOfficial!=null&&rawOfficial!==''&&Number.isFinite(Number(rawOfficial)),approved=target<=baseValue||(baseValue<FRIENDSHIP_EVOLUTION_THRESHOLD&&hasInteraction&&target<=maxPositive);if(current>maxPositive||!approved&&!hasCanonical){if(!isObj(cm.friendship))cm.friendship={};cm.friendship.official=maxPositive;if(Object.prototype.hasOwnProperty.call(cm.friendship,'avs'))delete cm.friendship.avs;changed=true;continue;}if(!approved){continue;}if(!hasCanonical||current===baseValue||current===target){if(!isObj(cm.friendship))cm.friendship={};if(cm.friendship.official!==target){cm.friendship.official=target;changed=true;}if(Object.prototype.hasOwnProperty.call(cm.friendship,'avs')){delete cm.friendship.avs;changed=true;}}
+    const baseValue=friendBase(bm),current=friendshipValue(cm),target=friendshipClamp(e.value),hasInteraction=hasExplicitPokemonInteraction(bodyText,bm,base.player?.name||userName()),maxPositive=baseValue<FRIENDSHIP_EVOLUTION_THRESHOLD&&hasInteraction?Math.min(baseValue+3,FRIENDSHIP_EVOLUTION_THRESHOLD):baseValue;
+    const rawOfficial=cm.friendship?.official,hasCanonical=rawOfficial!=null&&rawOfficial!==''&&Number.isFinite(Number(rawOfficial)),approved=target<=baseValue||(baseValue<FRIENDSHIP_EVOLUTION_THRESHOLD&&hasInteraction&&target<=maxPositive);
+    if(current>maxPositive||!approved&&!hasCanonical){
+      // Do not roll back an independent/concurrent external value. Only the
+      // exact value implied by the visible patch is eligible for correction.
+      const projected=rawExpected.party?.[where]?.[i];
+      if(!hasMon(projected)||friendshipValue(projected)!==current){plan.warnings.push('宝可梦亲密值与可见补丁不一致，未覆盖外部数值，请人工核对');continue;}
+      if(!isObj(cm.friendship))cm.friendship={};cm.friendship.official=maxPositive;if(Object.prototype.hasOwnProperty.call(cm.friendship,'avs'))delete cm.friendship.avs;changed=true;continue;
+    }
+    if(!approved){continue;}
+    if(!hasCanonical||current===baseValue||current===target){if(!isObj(cm.friendship))cm.friendship={};if(cm.friendship.official!==target){cm.friendship.official=target;changed=true;}if(Object.prototype.hasOwnProperty.call(cm.friendship,'avs')){delete cm.friendship.avs;changed=true;}}
   }
   for(const where of ['slots','box'])for(const mon of pkm.party[where]||[])if(hasMon(mon)&&ensureFriendship(mon))changed=true;
   if(!isObj(pkm.player.honors))pkm.player.honors={leagueChampion:false,regionalChampion:false};
@@ -1410,14 +1466,21 @@ function reconcileBonds(pkm, mesid, presentKeys, suppliedPlan=null, suppliedBase
 // 呼吸回血：仅按角色卡游戏时间推进，每完整经过 1 游戏小时，队伍中每只未濒死宝可梦恢复 1 HP。
 function gameMinute(value){const d=parseDate(value);return d?d.day*1440+d.h*60+d.mi:null;}
 function regenKey(mon,index){return String(mon?.uid||`slot:${index}`);}
-function regenClock(pkm){if(!isObj(pkm.integration))pkm.integration={};if(!isObj(pkm.integration.hpRegenGameMinute))pkm.integration.hpRegenGameMinute={};return pkm.integration.hpRegenGameMinute;}
-function setHpRegenBaseline(pkm,mon,timeValue){const t=gameMinute(timeValue??latestState()?.state?.时间??pkm.world?.time);if(t==null||!hasMon(mon))return;const i=pkm.party.slots.indexOf(mon);regenClock(pkm)[regenKey(mon,i<0?0:i)]=t;}
+function regenClock(pkm){
+ if(!isObj(pkm.integration))pkm.integration={};
+ migrateCalendarClocks(pkm);
+ if(pkm.integration.hpRegenCalendar&&pkm.integration.hpRegenCalendar!==PKMPlotGuard.CALENDAR)return null;
+ if(!isObj(pkm.integration.hpRegenGameMinute))pkm.integration.hpRegenGameMinute={};
+ pkm.integration.hpRegenCalendar=PKMPlotGuard.CALENDAR;
+ return pkm.integration.hpRegenGameMinute;
+}
+function setHpRegenBaseline(pkm,mon,timeValue){const t=gameMinute(timeValue??latestState()?.state?.时间??pkm.world?.time),clocks=regenClock(pkm);if(t==null||!hasMon(mon)||!clocks)return;const i=pkm.party.slots.indexOf(mon);clocks[regenKey(mon,i<0?0:i)]=t;}
 function applyPassiveRegen(pkm,timeValue){
  const now=gameMinute(timeValue);if(now==null)return false;
- const clocks=regenClock(pkm);let changed=false;
+ const clocks=regenClock(pkm);if(!clocks)return false;let changed=false;
  for(let i=0;i<pkm.party.slots.length;i++){
   const mon=pkm.party.slots[i];if(!hasMon(mon))continue;
-  const key=regenKey(mon,i),prev=Number(clocks[key]),h=panelHpInfo(mon);
+  const key=regenKey(mon,i),prev=clocks[key]==null?NaN:Number(clocks[key]),h=panelHpInfo(mon);
   if(!Number.isFinite(prev)){clocks[key]=now;changed=true;continue;}
   if(now<prev){clocks[key]=now;changed=true;continue;}
   const hours=Math.floor((now-prev)/60);if(hours<=0)continue;
@@ -1531,30 +1594,68 @@ function scalarPut(pkm,segs,value){
 function reconcileVisibleExternal(pkm,base,plan){
  if(!base||plan.malformed||!plan.rawOps.length)return false;
  const raw=clone(base),safe=clone(base);applyOpsGeneric(raw,plan.rawOps);applyOpsGeneric(safe,plan.ops);
- const conflict=new Set(plan.conflicts||[]),paths=new Map();
- for(const o of plan.rawOps)if(o.op==='delta'&&Number.isFinite(Number(o.value)))paths.set(JSON.stringify(o.segs),o.segs);
- let changed=false;const correctedNpcs=new Set();
- for(const [k,segs] of paths){
-  if(conflict.has(k))continue;
+ const conflicts=(plan.conflicts||[]).map(k=>{try{return JSON.parse(k);}catch(_){return [];}}),paths=new Map(),npcKeys=new Set();
+ const conflictFor=g=>conflicts.some(c=>c.length&&c.slice(0,Math.min(c.length,g.length)).every((x,i)=>x===g[i]));
+ for(const o of plan.rawOps){
+  const g=o.segs,sensitive=g[1]==='npcs'&&g[2]==='records'&&g.length===5&&['love','last','why'].includes(g[4]);
+  if(sensitive)npcKeys.add(g[3]);else if(o.op==='delta'&&Number.isFinite(Number(o.value)))paths.set(JSON.stringify(g),g);
+ }
+ let changed=false;
+ for(const segs of paths.values()){
+  if(conflictFor(segs))continue;
   const a=scalarAt(base,segs),b=scalarAt(raw,segs),c=scalarAt(safe,segs),now=scalarAt(pkm,segs);
   if(!a.ok||!b.ok||!c.ok||!now.ok||![a.value,b.value,c.value,now.value].every(x=>typeof x==='number'&&Number.isFinite(x)))continue;
-  if(b.value!==c.value&&now.value===b.value&&scalarPut(pkm,segs,c.value)){
-   changed=true;if(segs[1]==='npcs'&&segs[2]==='records'&&segs[4]==='love')correctedNpcs.add(segs[3]);
-  }
+  if(!same(b.value,c.value)&&same(now.value,b.value)&&scalarPut(pkm,segs,c.value))changed=true;
  }
- // Only roll back last/why for a rejected NPC delta when the values exactly
- // match the visible rejected result. Never guess at conflicting paths.
- for(const key of correctedNpcs)for(const field of ['last','why']){
-  const segs=['pkm','npcs','records',key,field],k=JSON.stringify(segs);if(conflict.has(k))continue;
-  const b=scalarAt(raw,segs),c=scalarAt(safe,segs),now=scalarAt(pkm,segs);
-  if(b.ok&&c.ok&&now.ok&&!same(b.value,c.value)&&same(now.value,b.value)&&scalarPut(pkm,segs,c.value))changed=true;
+ // The three NPC fields form one semantic update. Reconcile them together
+ // only if the entire externally visible result still matches; partial matches
+ // could belong to a concurrent independent write.
+ for(const key of npcKeys){
+  const fields=['love','last','why'].map(field=>['pkm','npcs','records',key,field]);
+  if(fields.some(conflictFor))continue;
+  const rows=fields.map(segs=>({segs,a:scalarAt(base,segs),b:scalarAt(raw,segs),c:scalarAt(safe,segs),now:scalarAt(pkm,segs)}));
+  if(rows.some(r=>!r.a.ok||!r.b.ok||!r.c.ok||!r.now.ok))continue;
+  if(!rows.some(r=>!same(r.b.value,r.c.value)))continue;
+  if(rows.every(r=>same(r.now.value,r.b.value))){
+   for(const r of rows)if(!same(r.b.value,r.c.value)&&scalarPut(pkm,r.segs,r.c.value))changed=true;
+  }else plan.warnings.push('人物好感的外部值与可见补丁不完全一致，未覆盖，请人工核对');
  }
  // A visible direct lastInteraction write is not evidence of interaction.
- for(const o of plan.rawOps){const g=o.segs;if(g[1]!=='npcs'||g[2]!=='records'||g[4]!=='lastInteraction'||conflict.has(JSON.stringify(g)))continue;
+ for(const o of plan.rawOps){const g=o.segs;if(g[1]!=='npcs'||g[2]!=='records'||g[4]!=='lastInteraction'||conflictFor(g))continue;
   const b=scalarAt(raw,g),c=scalarAt(base,g),now=scalarAt(pkm,g);
   if(b.ok&&c.ok&&now.ok&&!same(b.value,c.value)&&same(now.value,b.value)&&scalarPut(pkm,g,c.value))changed=true;
  }
  return changed;
+}
+// Only a visibly created, distinguishable individual can be corrected here.
+// Existing/ambiguous legacy identities are left alone. An external MVU write
+// is corrected only when its current species, UID and value still match the
+// visible, non-conflicting result; hidden writes/concurrency remain reviewable.
+function quarantineNewGender(pkm,base,plan){
+  if(!base||plan.malformed||!plan.rawOps?.length)return false;
+  const projected=clone(base);applyOpsGeneric(projected,plan.ops);
+  const prior=[...(base.party?.slots||[]),...(base.party?.box||[])].filter(hasMon);
+  const oldUids=new Set(prior.map(m=>String(m.uid||'')).filter(Boolean));
+  const conflicts=(plan.conflicts||[]).map(k=>{try{return JSON.parse(k);}catch(_){return [];}});
+  const overlap=(a,b)=>a.length&&b.length&&a.slice(0,Math.min(a.length,b.length)).every((v,i)=>v===b[i]);
+  let changed=false;
+  for(const where of ['slots','box'])for(const [index,want] of (projected.party?.[where]||[]).entries()){
+    if(!hasMon(want))continue;
+    const sid=speciesId(want.species||want.name),g=PKMGender.normalize(want.gender),rate=PKMGender.rate(sid);
+    if(PKMGender.missing(want.gender)||(g&&(rate===null||PKMGender.allowed(sid,g))))continue;
+    const uidValue=String(want.uid||''),oldAt=base.party?.[where]?.[index];
+    if(uidValue&&oldUids.has(uidValue))continue;
+    const certain=uidValue&&prior.every(m=>!!m.uid)?!oldUids.has(uidValue):!hasMon(oldAt)&&!prior.some(m=>speciesId(m.species||m.name)===sid);
+    const path=['pkm','party',where,String(index),'gender'];
+    if(!certain||conflicts.some(c=>overlap(c,path))){plan.warnings.push('新伙伴身份或补丁有冲突，性别无法安全自动核对，请人工检查');continue;}
+    const opts=rate===null?[]:PKMGender.options(sid),replacement=opts.length===1?opts[0]:null;
+    plan.warnings.push(`新伙伴${want.species||want.name}的性别无效或与物种不符；固定性别已尝试校正，非固定比例保持未记录，请核对外部插件结果`);
+    const now=pkm.party?.[where]?.[index];
+    const currentSpecies=now?.species||now?.name,wantedSpecies=want.species||want.name;
+    if(!hasMon(now)||(sid?speciesId(currentSpecies)!==sid:String(currentSpecies)!==String(wantedSpecies))||(uidValue&&String(now.uid||'')!==uidValue)||(!same(now.gender,want.gender)&&(!g||PKMGender.normalize(now.gender)!==g)))continue;
+    now.gender=replacement;changed=true;
+  }
+  return changed;
 }
 function reconcileMissingPatch(pkm,mesid,plan,base){
   if(!base||!plan.ops.length)return false;
@@ -1574,15 +1675,17 @@ function applySync(pkm, mesid, opts = {}) {
   const protectedProblem=knownPlotProblem(mesid) || (generationInFlight ? checkPlotMessage(mesid) : null);
   if(protectedProblem) return restoreGuardedSnapshot(pkm,mesid,protectedProblem);
   let changed=false;
-  const base=prevPkm(mesid),plan=patchPlan(chat()[mesid]?.mes,base);showPatchWarnings(plan,mesid);
+  const base=prevPkm(mesid),plan=patchPlan(chat()[mesid]?.mes,base);
   if(base)changed=reconcileVisibleExternal(pkm,base,plan)||changed;
   if(opts.full){if(plan.ops.length){applyOpsGeneric(pkm,plan.ops);changed=true;}}
   else changed=reconcileMissingPatch(pkm,mesid,plan,base)||changed;
+  if(base)changed=quarantineNewGender(pkm,base,plan)||changed;
+  showPatchWarnings(plan,mesid);
   changed=restoreExplicitCompanion(pkm)||changed;
   const st = parseState(chat()[mesid]?.mes);
   changed = applyCenterHealing(pkm, mesid) || changed;
   const present = [];
-  if (!st) { changed=applyPassiveRegen(pkm,pkm.world.time)||changed; if(revalidateRepel(pkm,null))changed=true; changed=repairSlotIdentity(pkm, mesid) || changed; return reconcileBonds(pkm, mesid, present, plan, base) || changed; }
+  if (!st) { changed=applyPassiveRegen(pkm,pkm.world.time)||changed; if(revalidateRepel(pkm,null))changed=true; changed=repairSlotIdentity(pkm, mesid) || changed; changed=reconcileBonds(pkm, mesid, present, plan, base)||changed;showPatchWarnings(plan,mesid);return changed; }
   const set = (obj, k, v) => { if (v != null && v !== '' && obj[k] !== v) { obj[k] = v; changed = true; } };
   const oldLoc=String(pkm.world.location||''),newLoc=String(st.地点||'');
   if(newLoc&&newLoc!==oldLoc&&CAVE_LOC_RE.test(newLoc)&&!CAVE_LOC_RE.test(oldLoc)){pkm.world.lastSafeLocation=oldLoc;changed=true;}
@@ -1605,6 +1708,7 @@ function applySync(pkm, mesid, opts = {}) {
   }
   if (repairSlotIdentity(pkm, mesid)) changed = true;
   if (reconcileBonds(pkm, mesid, present, plan, base)) changed = true;
+  showPatchWarnings(plan,mesid);
   // 关键：mergeMissingPatch 可能把旧快照里的 world.repel 补回来（钓鱼等脚本的提前写入最容易触发），
   // 所以同步流程结束前必须再按当前正文时间判定一次。
   if (revalidateRepel(pkm, st)) changed = true;
@@ -2432,8 +2536,27 @@ function migrateExperienceCurve(pkm){
 }
 const LEVEL_EVOLUTIONS={"bulbasaur":[{"to":"ivysaur","toName":"妙蛙草","level":16,"conditions":{"level":16},"variant":null}],"ivysaur":[{"to":"venusaur","toName":"妙蛙花","level":32,"conditions":{"level":32},"variant":null}],"charmander":[{"to":"charmeleon","toName":"火恐龙","level":16,"conditions":{"level":16},"variant":null}],"charmeleon":[{"to":"charizard","toName":"喷火龙","level":36,"conditions":{"level":36},"variant":null}],"squirtle":[{"to":"wartortle","toName":"卡咪龟","level":16,"conditions":{"level":16},"variant":null}],"wartortle":[{"to":"blastoise","toName":"水箭龟","level":36,"conditions":{"level":36},"variant":null}],"caterpie":[{"to":"metapod","toName":"铁甲蛹","level":7,"conditions":{"level":7},"variant":null}],"metapod":[{"to":"butterfree","toName":"巴大蝶","level":10,"conditions":{"level":10},"variant":null}],"weedle":[{"to":"kakuna","toName":"铁壳蛹","level":7,"conditions":{"level":7},"variant":null}],"kakuna":[{"to":"beedrill","toName":"大针蜂","level":10,"conditions":{"level":10},"variant":null}],"pidgey":[{"to":"pidgeotto","toName":"比比鸟","level":18,"conditions":{"level":18},"variant":null}],"pidgeotto":[{"to":"pidgeot","toName":"大比鸟","level":36,"conditions":{"level":36},"variant":null}],"rattata":[{"to":"raticate","toName":"拉达","level":20,"conditions":{"level":20},"variant":null}],"rattataalola":[{"to":"raticatealola","toName":"阿罗拉拉达","level":20,"conditions":{"level":20,"time":"夜晚","form":"阿罗拉"},"variant":null}],"spearow":[{"to":"fearow","toName":"大嘴雀","level":20,"conditions":{"level":20},"variant":null}],"ekans":[{"to":"arbok","toName":"阿柏怪","level":22,"conditions":{"level":22},"variant":null}],"sandshrew":[{"to":"sandslash","toName":"穿山王","level":22,"conditions":{"level":22},"variant":null}],"nidoranf":[{"to":"nidorina","toName":"尼多娜","level":16,"conditions":{"level":16},"variant":null}],"nidoranm":[{"to":"nidorino","toName":"尼多力诺","level":16,"conditions":{"level":16},"variant":null}],"oddish":[{"to":"gloom","toName":"臭臭花","level":21,"conditions":{"level":21},"variant":null}],"zubat":[{"to":"golbat","toName":"大嘴蝠","level":22,"conditions":{"level":22},"variant":null}],"paras":[{"to":"parasect","toName":"派拉斯特","level":24,"conditions":{"level":24},"variant":null}],"venonat":[{"to":"venomoth","toName":"摩鲁蛾","level":31,"conditions":{"level":31},"variant":null}],"diglett":[{"to":"dugtrio","toName":"三地鼠","level":26,"conditions":{"level":26},"variant":null}],"diglettalola":[{"to":"dugtrioalola","toName":"阿罗拉三地鼠","level":26,"conditions":{"level":26,"form":"阿罗拉"},"variant":null}],"meowth":[{"to":"persian","toName":"猫老大","level":28,"conditions":{"level":28},"variant":null}],"psyduck":[{"to":"golduck","toName":"哥达鸭","level":33,"conditions":{"level":33},"variant":null}],"mankey":[{"to":"primeape","toName":"火暴猴","level":28,"conditions":{"level":28},"variant":null}],"poliwag":[{"to":"poliwhirl","toName":"蚊香君","level":25,"conditions":{"level":25},"variant":null}],"abra":[{"to":"kadabra","toName":"勇基拉","level":16,"conditions":{"level":16},"variant":null}],"machop":[{"to":"machoke","toName":"豪力","level":28,"conditions":{"level":28},"variant":null}],"bellsprout":[{"to":"weepinbell","toName":"口呆花","level":21,"conditions":{"level":21},"variant":null}],"tentacool":[{"to":"tentacruel","toName":"毒刺水母","level":30,"conditions":{"level":30},"variant":null}],"geodude":[{"to":"graveler","toName":"隆隆石","level":25,"conditions":{"level":25},"variant":null}],"geodudealola":[{"to":"graveleralola","toName":"阿罗拉隆隆石","level":25,"conditions":{"level":25,"form":"阿罗拉"},"variant":null}],"ponyta":[{"to":"rapidash","toName":"烈焰马","level":40,"conditions":{"level":40},"variant":null}],"ponytagalar":[{"to":"rapidashgalar","toName":"伽勒尔烈焰马","level":40,"conditions":{"level":40,"form":"伽勒尔"},"variant":null}],"slowpoke":[{"to":"slowbro","toName":"呆壳兽","level":37,"conditions":{"level":37},"variant":null}],"magnemite":[{"to":"magneton","toName":"三合一磁怪","level":30,"conditions":{"level":30},"variant":null}],"doduo":[{"to":"dodrio","toName":"嘟嘟利","level":31,"conditions":{"level":31},"variant":null}],"seel":[{"to":"dewgong","toName":"白海狮","level":34,"conditions":{"level":34},"variant":null}],"grimer":[{"to":"muk","toName":"臭臭泥","level":38,"conditions":{"level":38},"variant":null}],"grimeralola":[{"to":"mukalola","toName":"阿罗拉臭臭泥","level":38,"conditions":{"level":38,"form":"阿罗拉"},"variant":null}],"gastly":[{"to":"haunter","toName":"鬼斯通","level":25,"conditions":{"level":25},"variant":null}],"drowzee":[{"to":"hypno","toName":"引梦貘人","level":26,"conditions":{"level":26},"variant":null}],"krabby":[{"to":"kingler","toName":"巨钳蟹","level":28,"conditions":{"level":28},"variant":null}],"voltorb":[{"to":"electrode","toName":"顽皮雷弹","level":30,"conditions":{"level":30},"variant":null}],"cubone":[{"to":"marowak","toName":"嘎啦嘎啦","level":28,"conditions":{"level":28,"gender":"在其他地区或{{tt|[[究極空間]]|僅限於究極之日或究極之月}}"},"variant":null},{"to":"marowakalola","toName":"阿罗拉嘎啦嘎啦","level":28,"conditions":{"level":28,"time":"夜晚","gender":"在[[阿罗拉地区]]"},"variant":null}],"tyrogue":[{"to":"hitmonlee","toName":"飞腿郎","level":20,"conditions":{"level":20,"stat":"atk>def"},"variant":null},{"to":"hitmonchan","toName":"快拳郎","level":20,"conditions":{"level":20,"stat":"atk<def"},"variant":null},{"to":"hitmontop","toName":"战舞郎","level":20,"conditions":{"level":20,"stat":"atk=def"},"variant":null}],"koffing":[{"to":"weezing","toName":"双弹瓦斯","level":35,"conditions":{"level":35},"variant":null},{"to":"weezinggalar","toName":"伽勒尔双弹瓦斯","level":35,"conditions":{"level":35,"gender":"在[[伽勒尔地区]]"},"variant":null},{"to":"weezing","toName":"双弹瓦斯","level":35,"conditions":{"level":35,"gender":"在其他地区"},"variant":null}],"rhyhorn":[{"to":"rhydon","toName":"钻角犀兽","level":42,"conditions":{"level":42},"variant":null}],"horsea":[{"to":"seadra","toName":"海刺龙","level":32,"conditions":{"level":32},"variant":null}],"goldeen":[{"to":"seaking","toName":"金鱼王","level":33,"conditions":{"level":33},"variant":null}],"smoochum":[{"to":"jynx","toName":"迷唇姐","level":30,"conditions":{"level":30},"variant":null}],"elekid":[{"to":"electabuzz","toName":"电击兽","level":30,"conditions":{"level":30},"variant":null}],"magby":[{"to":"magmar","toName":"鸭嘴火兽","level":30,"conditions":{"level":30},"variant":null}],"magikarp":[{"to":"gyarados","toName":"暴鲤龙","level":20,"conditions":{"level":20},"variant":null}],"omanyte":[{"to":"omastar","toName":"多刺菊石兽","level":40,"conditions":{"level":40},"variant":null}],"kabuto":[{"to":"kabutops","toName":"镰刀盔","level":40,"conditions":{"level":40},"variant":null}],"dratini":[{"to":"dragonair","toName":"哈克龙","level":30,"conditions":{"level":30},"variant":null}],"dragonair":[{"to":"dragonite","toName":"快龙","level":55,"conditions":{"level":55},"variant":null}],"chikorita":[{"to":"bayleef","toName":"月桂叶","level":16,"conditions":{"level":16},"variant":null}],"bayleef":[{"to":"meganium","toName":"大竺葵","level":32,"conditions":{"level":32},"variant":null}],"cyndaquil":[{"to":"quilava","toName":"火岩鼠","level":14,"conditions":{"level":14,"extraa":"在其他地区"},"variant":null},{"to":"quilava","toName":"火岩鼠","level":17,"conditions":{"level":17,"extraa":"在[[洗翠地区]]"},"variant":"2"}],"quilava":[{"to":"typhlosion","toName":"火暴兽","level":36,"conditions":{"level":36,"extraa":"在其他地区"},"variant":null},{"to":"typhlosionhisui","toName":"洗翠火暴兽","level":36,"conditions":{"level":36,"extraa":"在[[洗翠地区]]"},"variant":null}],"totodile":[{"to":"croconaw","toName":"蓝鳄","level":18,"conditions":{"level":18},"variant":null}],"croconaw":[{"to":"feraligatr","toName":"大力鳄","level":30,"conditions":{"level":30},"variant":null}],"sentret":[{"to":"furret","toName":"大尾立","level":15,"conditions":{"level":15},"variant":null}],"hoothoot":[{"to":"noctowl","toName":"猫头夜鹰","level":20,"conditions":{"level":20},"variant":null}],"ledyba":[{"to":"ledian","toName":"安瓢虫","level":18,"conditions":{"level":18},"variant":null}],"spinarak":[{"to":"ariados","toName":"阿利多斯","level":22,"conditions":{"level":22},"variant":null}],"chinchou":[{"to":"lanturn","toName":"电灯怪","level":27,"conditions":{"level":27},"variant":null}],"natu":[{"to":"xatu","toName":"天然鸟","level":25,"conditions":{"level":25},"variant":null}],"mareep":[{"to":"flaaffy","toName":"茸茸羊","level":15,"conditions":{"level":15},"variant":null}],"flaaffy":[{"to":"ampharos","toName":"电龙","level":30,"conditions":{"level":30},"variant":null}],"marill":[{"to":"azumarill","toName":"玛力露丽","level":18,"conditions":{"level":18},"variant":null}],"hoppip":[{"to":"skiploom","toName":"毽子花","level":18,"conditions":{"level":18},"variant":null}],"skiploom":[{"to":"jumpluff","toName":"毽子棉","level":27,"conditions":{"level":27},"variant":null}],"wooper":[{"to":"quagsire","toName":"沼王","level":20,"conditions":{"level":20},"variant":null}],"wooperpaldea":[{"to":"clodsire","toName":"土王","level":20,"conditions":{"level":20,"form":"帕底亚"},"variant":null}],"wynaut":[{"to":"wobbuffet","toName":"果然翁","level":15,"conditions":{"level":15,"gen":"8"},"variant":null}],"pineco":[{"to":"forretress","toName":"佛烈托斯","level":31,"conditions":{"level":31},"variant":null}],"snubbull":[{"to":"granbull","toName":"布鲁皇","level":23,"conditions":{"level":23},"variant":null}],"teddiursa":[{"to":"ursaring","toName":"圈圈熊","level":30,"conditions":{"level":30},"variant":null}],"slugma":[{"to":"magcargo","toName":"熔岩蜗牛","level":38,"conditions":{"level":38},"variant":null}],"swinub":[{"to":"piloswine","toName":"长毛猪","level":33,"conditions":{"level":33},"variant":null}],"corsolagalar":[{"to":"cursola","toName":"魔灵珊瑚","level":38,"conditions":{"level":38,"form":"伽勒尔"},"variant":null}],"remoraid":[{"to":"octillery","toName":"章鱼桶","level":25,"conditions":{"level":25},"variant":null}],"houndour":[{"to":"houndoom","toName":"黑鲁加","level":24,"conditions":{"level":24},"variant":null}],"phanpy":[{"to":"donphan","toName":"顿甲","level":25,"conditions":{"level":25},"variant":null}],"mudkip":[{"to":"marshtomp","toName":"沼跃鱼","level":16,"conditions":{"level":16},"variant":null}],"marshtomp":[{"to":"swampert","toName":"巨沼怪","level":36,"conditions":{"level":36},"variant":null}],"larvitar":[{"to":"pupitar","toName":"沙基拉斯","level":30,"conditions":{"level":30},"variant":null}],"pupitar":[{"to":"tyranitar","toName":"班基拉斯","level":55,"conditions":{"level":55},"variant":null}],"treecko":[{"to":"grovyle","toName":"森林蜥蜴","level":16,"conditions":{"level":16},"variant":null}],"grovyle":[{"to":"sceptile","toName":"蜥蜴王","level":36,"conditions":{"level":36},"variant":null}],"torchic":[{"to":"combusken","toName":"力壮鸡","level":16,"conditions":{"level":16},"variant":null}],"combusken":[{"to":"blaziken","toName":"火焰鸡","level":36,"conditions":{"level":36},"variant":null}],"poochyena":[{"to":"mightyena","toName":"大狼犬","level":18,"conditions":{"level":18},"variant":null}],"zigzagoon":[{"to":"linoone","toName":"直冲熊","level":20,"conditions":{"level":20},"variant":null}],"zigzagoongalar":[{"to":"linoonegalar","toName":"伽勒尔直冲熊","level":20,"conditions":{"level":20,"form":"伽勒尔"},"variant":null}],"linoonegalar":[{"to":"obstagoon","toName":"堵拦熊","level":35,"conditions":{"level":35,"time":"夜晚","form":"伽勒尔"},"variant":null}],"wurmple":[{"to":"silcoon","toName":"甲壳茧","level":7,"conditions":{"level":7,"gender":"50%概率","extraa":"[[性格值#宝可梦的进化","chance":"50%"},"variant":null},{"to":"cascoon","toName":"盾甲茧","level":7,"conditions":{"level":7,"gender":"50%概率","extraa":"[[性格值#宝可梦的进化","chance":"50%"},"variant":null},{"to":"silcoon","toName":"甲壳茧","level":7,"conditions":{"level":7,"gender":"50%可能性","extraa":"[[性格值#宝可梦的进化","chance":"50%"},"variant":null},{"to":"cascoon","toName":"盾甲茧","level":7,"conditions":{"level":7,"gender":"50%可能性","extraa":"[[性格值#宝可梦的进化","chance":"50%"},"variant":null},{"to":"cascoon","toName":"盾甲茧","level":7,"conditions":{"level":7,"gender":"50%可能性","chance":"50%"},"variant":null}],"silcoon":[{"to":"beautifly","toName":"狩猎凤蝶","level":10,"conditions":{"level":10},"variant":null}],"cascoon":[{"to":"dustox","toName":"毒粉蛾","level":10,"conditions":{"level":10},"variant":null}],"lotad":[{"to":"lombre","toName":"莲帽小童","level":14,"conditions":{"level":14},"variant":null}],"seedot":[{"to":"nuzleaf","toName":"长鼻叶","level":14,"conditions":{"level":14},"variant":null}],"taillow":[{"to":"swellow","toName":"大王燕","level":22,"conditions":{"level":22},"variant":null}],"wingull":[{"to":"pelipper","toName":"大嘴鸥","level":25,"conditions":{"level":25},"variant":null}],"ralts":[{"to":"kirlia","toName":"奇鲁莉安","level":20,"conditions":{"level":20},"variant":null}],"kirlia":[{"to":"gardevoir","toName":"沙奈朵","level":30,"conditions":{"level":30},"variant":null}],"surskit":[{"to":"masquerain","toName":"雨翅蛾","level":22,"conditions":{"level":22},"variant":null}],"shroomish":[{"to":"breloom","toName":"斗笠菇","level":23,"conditions":{"level":23},"variant":null}],"slakoth":[{"to":"vigoroth","toName":"过动猿","level":18,"conditions":{"level":18},"variant":null}],"vigoroth":[{"to":"slaking","toName":"请假王","level":36,"conditions":{"level":36},"variant":null}],"nincada":[{"to":"ninjask","toName":"铁面忍者","level":20,"conditions":{"level":20},"variant":null},{"to":"shedinja","toName":"脱壳忍者","level":20,"conditions":{"level":20,"side":"true","special":"进化时包包有精灵球且队伍有空位"},"variant":null}],"whismur":[{"to":"loudred","toName":"吼爆弹","level":20,"conditions":{"level":20},"variant":null}],"loudred":[{"to":"exploud","toName":"爆音怪","level":40,"conditions":{"level":40},"variant":null}],"makuhita":[{"to":"hariyama","toName":"铁掌力士","level":24,"conditions":{"level":24},"variant":null}],"aron":[{"to":"lairon","toName":"可多拉","level":32,"conditions":{"level":32},"variant":null}],"lairon":[{"to":"aggron","toName":"波士可多拉","level":42,"conditions":{"level":42},"variant":null}],"meditite":[{"to":"medicham","toName":"恰雷姆","level":37,"conditions":{"level":37},"variant":null}],"electrike":[{"to":"manectric","toName":"雷电兽","level":26,"conditions":{"level":26},"variant":null}],"gulpin":[{"to":"swalot","toName":"吞食兽","level":26,"conditions":{"level":26},"variant":null}],"carvanha":[{"to":"sharpedo","toName":"巨牙鲨","level":30,"conditions":{"level":30},"variant":null}],"wailmer":[{"to":"wailord","toName":"吼鲸王","level":40,"conditions":{"level":40},"variant":null}],"numel":[{"to":"camerupt","toName":"喷火驼","level":33,"conditions":{"level":33},"variant":null}],"spoink":[{"to":"grumpig","toName":"噗噗猪","level":32,"conditions":{"level":32},"variant":null}],"trapinch":[{"to":"vibrava","toName":"超音波幼虫","level":35,"conditions":{"level":35},"variant":null}],"vibrava":[{"to":"flygon","toName":"沙漠蜻蜓","level":45,"conditions":{"level":45},"variant":null}],"cacnea":[{"to":"cacturne","toName":"梦歌仙人掌","level":32,"conditions":{"level":32},"variant":null}],"swablu":[{"to":"altaria","toName":"七夕青鸟","level":35,"conditions":{"level":35},"variant":null}],"barboach":[{"to":"whiscash","toName":"鲶鱼王","level":30,"conditions":{"level":30},"variant":null}],"corphish":[{"to":"crawdaunt","toName":"铁螯龙虾","level":30,"conditions":{"level":30},"variant":null}],"baltoy":[{"to":"claydol","toName":"念力土偶","level":36,"conditions":{"level":36},"variant":null}],"lileep":[{"to":"cradily","toName":"摇篮百合","level":40,"conditions":{"level":40},"variant":null}],"anorith":[{"to":"armaldo","toName":"太古盔甲","level":40,"conditions":{"level":40},"variant":null}],"shuppet":[{"to":"banette","toName":"诅咒娃娃","level":37,"conditions":{"level":37},"variant":null}],"duskull":[{"to":"dusclops","toName":"彷徨夜灵","level":37,"conditions":{"level":37},"variant":null}],"snorunt":[{"to":"glalie","toName":"冰鬼护","level":42,"conditions":{"level":42},"variant":null}],"spheal":[{"to":"sealeo","toName":"海魔狮","level":32,"conditions":{"level":32},"variant":null}],"sealeo":[{"to":"walrein","toName":"帝牙海狮","level":44,"conditions":{"level":44},"variant":null}],"bagon":[{"to":"shelgon","toName":"甲壳龙","level":30,"conditions":{"level":30},"variant":null}],"shelgon":[{"to":"salamence","toName":"暴飞龙","level":50,"conditions":{"level":50},"variant":null}],"beldum":[{"to":"metang","toName":"金属怪","level":20,"conditions":{"level":20},"variant":null}],"metang":[{"to":"metagross","toName":"巨金怪","level":45,"conditions":{"level":45},"variant":null}],"turtwig":[{"to":"grotle","toName":"树林龟","level":18,"conditions":{"level":18},"variant":null}],"grotle":[{"to":"torterra","toName":"土台龟","level":32,"conditions":{"level":32},"variant":null}],"chimchar":[{"to":"monferno","toName":"猛火猴","level":14,"conditions":{"level":14},"variant":null}],"monferno":[{"to":"infernape","toName":"烈焰猴","level":36,"conditions":{"level":36},"variant":null}],"piplup":[{"to":"prinplup","toName":"波皇子","level":16,"conditions":{"level":16},"variant":null}],"prinplup":[{"to":"empoleon","toName":"帝王拿波","level":36,"conditions":{"level":36},"variant":null}],"starly":[{"to":"staravia","toName":"姆克鸟","level":14,"conditions":{"level":14},"variant":null}],"staravia":[{"to":"staraptor","toName":"姆克鹰","level":34,"conditions":{"level":34},"variant":null}],"bidoof":[{"to":"bibarel","toName":"大尾狸","level":15,"conditions":{"level":15},"variant":null}],"kricketot":[{"to":"kricketune","toName":"音箱蟀","level":10,"conditions":{"level":10},"variant":null}],"shinx":[{"to":"luxio","toName":"勒克猫","level":15,"conditions":{"level":15},"variant":null}],"luxio":[{"to":"luxray","toName":"伦琴猫","level":30,"conditions":{"level":30},"variant":null}],"cranidos":[{"to":"rampardos","toName":"战槌龙","level":30,"conditions":{"level":30},"variant":null}],"shieldon":[{"to":"bastiodon","toName":"护城龙","level":30,"conditions":{"level":30},"variant":null}],"burmy":[{"to":"mothim","toName":"绅士蛾","level":20,"conditions":{"level":20,"gender":"M"},"variant":null},{"to":"wormadam","toName":"结草贵妇","level":20,"conditions":{"level":20,"gender":"F"},"variant":null}],"combee":[{"to":"vespiquen","toName":"蜂女王","level":21,"conditions":{"level":21,"gender":"F"},"variant":null}],"buizel":[{"to":"floatzel","toName":"浮潜鼬","level":26,"conditions":{"level":26},"variant":null}],"cherubi":[{"to":"cherrim","toName":"樱花儿","level":25,"conditions":{"level":25},"variant":null}],"shellos":[{"to":"gastrodon","toName":"海兔兽","level":30,"conditions":{"level":30,"form":"西海"},"variant":null}],"shelloseast":[{"to":"gastrodoneast","toName":"海兔兽（东海）","level":30,"conditions":{"level":30,"form":"东海"},"variant":null}],"drifloon":[{"to":"drifblim","toName":"随风球","level":28,"conditions":{"level":28},"variant":null}],"glameow":[{"to":"purugly","toName":"东施喵","level":38,"conditions":{"level":38},"variant":null}],"stunky":[{"to":"skuntank","toName":"坦克臭鼬","level":34,"conditions":{"level":34},"variant":null}],"bronzor":[{"to":"bronzong","toName":"青铜钟","level":33,"conditions":{"level":33},"variant":null}],"gible":[{"to":"gabite","toName":"尖牙陆鲨","level":24,"conditions":{"level":24},"variant":null}],"gabite":[{"to":"garchomp","toName":"烈咬陆鲨","level":48,"conditions":{"level":48},"variant":null}],"hippopotas":[{"to":"hippowdon","toName":"河马兽","level":34,"conditions":{"level":34},"variant":null}],"skorupi":[{"to":"drapion","toName":"龙王蝎","level":40,"conditions":{"level":40},"variant":null}],"croagunk":[{"to":"toxicroak","toName":"毒骷蛙","level":37,"conditions":{"level":37},"variant":null}],"finneon":[{"to":"lumineon","toName":"霓虹鱼","level":31,"conditions":{"level":31},"variant":null}],"snover":[{"to":"abomasnow","toName":"暴雪王","level":40,"conditions":{"level":40},"variant":null}],"snivy":[{"to":"servine","toName":"青藤蛇","level":17,"conditions":{"level":17},"variant":null}],"servine":[{"to":"serperior","toName":"君主蛇","level":36,"conditions":{"level":36},"variant":null}],"tepig":[{"to":"pignite","toName":"炒炒猪","level":17,"conditions":{"level":17},"variant":null}],"pignite":[{"to":"emboar","toName":"炎武王","level":36,"conditions":{"level":36},"variant":null}],"oshawott":[{"to":"dewott","toName":"双刃丸","level":17,"conditions":{"level":17},"variant":null}],"dewott":[{"to":"samurott","toName":"大剑鬼","level":36,"conditions":{"level":36,"extraa":"在其他地区"},"variant":null},{"to":"samurotthisui","toName":"洗翠大剑鬼","level":36,"conditions":{"level":36,"extraa":"在[[洗翠地区]]"},"variant":null}],"patrat":[{"to":"watchog","toName":"步哨鼠","level":20,"conditions":{"level":20},"variant":null}],"lillipup":[{"to":"herdier","toName":"哈约克","level":16,"conditions":{"level":16},"variant":null}],"herdier":[{"to":"stoutland","toName":"长毛狗","level":32,"conditions":{"level":32},"variant":null}],"purrloin":[{"to":"liepard","toName":"酷豹","level":20,"conditions":{"level":20},"variant":null}],"pidove":[{"to":"tranquill","toName":"咕咕鸽","level":21,"conditions":{"level":21},"variant":null}],"tranquill":[{"to":"unfezant","toName":"高傲雉鸡","level":32,"conditions":{"level":32},"variant":null}],"blitzle":[{"to":"zebstrika","toName":"雷电斑马","level":27,"conditions":{"level":27},"variant":null}],"roggenrola":[{"to":"boldore","toName":"地幔岩","level":25,"conditions":{"level":25},"variant":null}],"drilbur":[{"to":"excadrill","toName":"龙头地鼠","level":31,"conditions":{"level":31},"variant":null}],"timburr":[{"to":"gurdurr","toName":"铁骨土人","level":25,"conditions":{"level":25},"variant":null}],"tympole":[{"to":"palpitoad","toName":"蓝蟾蜍","level":25,"conditions":{"level":25},"variant":null}],"palpitoad":[{"to":"seismitoad","toName":"蟾蜍王","level":36,"conditions":{"level":36},"variant":null}],"sewaddle":[{"to":"swadloon","toName":"宝包茧","level":20,"conditions":{"level":20},"variant":null}],"venipede":[{"to":"whirlipede","toName":"车轮球","level":22,"conditions":{"level":22},"variant":null}],"whirlipede":[{"to":"scolipede","toName":"蜈蚣王","level":30,"conditions":{"level":30},"variant":null}],"sandile":[{"to":"krokorok","toName":"混混鳄","level":29,"conditions":{"level":29},"variant":null}],"krokorok":[{"to":"krookodile","toName":"流氓鳄","level":40,"conditions":{"level":40},"variant":null}],"darumaka":[{"to":"darmanitan","toName":"达摩狒狒","level":35,"conditions":{"level":35},"variant":null}],"dwebble":[{"to":"crustle","toName":"岩殿居蟹","level":34,"conditions":{"level":34},"variant":null}],"scraggy":[{"to":"scrafty","toName":"头巾混混","level":39,"conditions":{"level":39},"variant":null}],"yamask":[{"to":"cofagrigus","toName":"迭失棺","level":34,"conditions":{"level":34},"variant":null}],"tirtouga":[{"to":"carracosta","toName":"肋骨海龟","level":37,"conditions":{"level":37},"variant":null}],"archen":[{"to":"archeops","toName":"始祖大鸟","level":37,"conditions":{"level":37},"variant":null}],"trubbish":[{"to":"garbodor","toName":"灰尘山","level":36,"conditions":{"level":36},"variant":null}],"zorua":[{"to":"zoroark","toName":"索罗亚克","level":30,"conditions":{"level":30},"variant":null}],"zoruahisui":[{"to":"zoroarkhisui","toName":"洗翠索罗亚克","level":30,"conditions":{"level":30,"form":"洗翠"},"variant":null}],"gothita":[{"to":"gothorita","toName":"哥德小童","level":32,"conditions":{"level":32},"variant":null}],"gothorita":[{"to":"gothitelle","toName":"哥德小姐","level":41,"conditions":{"level":41},"variant":null}],"solosis":[{"to":"duosion","toName":"双卵细胞球","level":32,"conditions":{"level":32},"variant":null}],"duosion":[{"to":"reuniclus","toName":"人造细胞卵","level":41,"conditions":{"level":41},"variant":null}],"ducklett":[{"to":"swanna","toName":"舞天鹅","level":35,"conditions":{"level":35},"variant":null}],"vanillite":[{"to":"vanillish","toName":"多多冰","level":35,"conditions":{"level":35},"variant":null}],"vanillish":[{"to":"vanilluxe","toName":"双倍多多冰","level":47,"conditions":{"level":47},"variant":null}],"deerling":[{"to":"sawsbuck","toName":"萌芽鹿","level":34,"conditions":{"level":34},"variant":null}],"foongus":[{"to":"amoonguss","toName":"败露球菇","level":39,"conditions":{"level":39},"variant":null}],"frillish":[{"to":"jellicent","toName":"胖嘟嘟","level":40,"conditions":{"level":40},"variant":null}],"joltik":[{"to":"galvantula","toName":"电蜘蛛","level":36,"conditions":{"level":36},"variant":null}],"ferroseed":[{"to":"ferrothorn","toName":"坚果哑铃","level":40,"conditions":{"level":40},"variant":null}],"klink":[{"to":"klang","toName":"齿轮组","level":38,"conditions":{"level":38},"variant":null}],"klang":[{"to":"klinklang","toName":"齿轮怪","level":49,"conditions":{"level":49},"variant":null}],"tynamo":[{"to":"eelektrik","toName":"麻麻鳗","level":39,"conditions":{"level":39},"variant":null}],"elgyem":[{"to":"beheeyem","toName":"大宇怪","level":42,"conditions":{"level":42},"variant":null}],"litwick":[{"to":"lampent","toName":"灯火幽灵","level":41,"conditions":{"level":41},"variant":null}],"axew":[{"to":"fraxure","toName":"斧牙龙","level":38,"conditions":{"level":38},"variant":null}],"fraxure":[{"to":"haxorus","toName":"双斧战龙","level":48,"conditions":{"level":48},"variant":null}],"cubchoo":[{"to":"beartic","toName":"冻原熊","level":37,"conditions":{"level":37},"variant":null}],"mienfoo":[{"to":"mienshao","toName":"师父鼬","level":50,"conditions":{"level":50},"variant":null}],"golett":[{"to":"golurk","toName":"泥偶巨人","level":43,"conditions":{"level":43},"variant":null}],"pawniard":[{"to":"bisharp","toName":"劈斩司令","level":52,"conditions":{"level":52},"variant":null}],"rufflet":[{"to":"braviary","toName":"勇士雄鹰","level":54,"conditions":{"level":54,"extraa":"在其他地区"},"variant":null},{"to":"braviaryhisui","toName":"洗翠勇士雄鹰","level":54,"conditions":{"level":54,"extraa":"在[[洗翠地区]]"},"variant":null}],"vullaby":[{"to":"mandibuzz","toName":"秃鹰娜","level":54,"conditions":{"level":54},"variant":null}],"deino":[{"to":"zweilous","toName":"双首暴龙","level":50,"conditions":{"level":50},"variant":null}],"zweilous":[{"to":"hydreigon","toName":"三首恶龙","level":64,"conditions":{"level":64},"variant":null}],"larvesta":[{"to":"volcarona","toName":"火神蛾","level":59,"conditions":{"level":59},"variant":null}],"fletchling":[{"to":"fletchinder","toName":"火箭雀","level":17,"conditions":{"level":17},"variant":null}],"fletchinder":[{"to":"talonflame","toName":"烈箭鹰","level":35,"conditions":{"level":35},"variant":null}],"scatterbug":[{"to":"spewpa","toName":"粉蝶蛹","level":9,"conditions":{"level":9},"variant":null}],"spewpa":[{"to":"vivillon","toName":"彩粉蝶","level":12,"conditions":{"level":12},"variant":null}],"bunnelby":[{"to":"diggersby","toName":"掘地兔","level":20,"conditions":{"level":20},"variant":null}],"pancham":[{"to":"pangoro","toName":"霸道熊猫","level":32,"conditions":{"level":32,"extraa":"与{{type|恶}}宝可梦[[同行宝可梦"},"variant":null}],"skiddo":[{"to":"gogoat","toName":"坐骑山羊","level":32,"conditions":{"level":32},"variant":null}],"flabebe":[{"to":"floette","toName":"花叶蒂","level":19,"conditions":{"level":19},"variant":null}],"litleo":[{"to":"pyroar","toName":"火炎狮","level":35,"conditions":{"level":35},"variant":null}],"honedge":[{"to":"doublade","toName":"双剑鞘","level":35,"conditions":{"level":35},"variant":null}],"inkay":[{"to":"malamar","toName":"乌贼王","level":30,"conditions":{"level":30,"extraa":"倒置主機{{tt|*|必须包含陀螺仪感应器部分}}"},"variant":null}],"espurr":[{"to":"meowstic","toName":"超能妙喵","level":25,"conditions":{"level":25,"gender":"M"},"variant":null},{"to":"meowsticf","toName":"超能妙喵（雌性）","level":25,"conditions":{"level":25,"gender":"F"},"variant":null}],"noibat":[{"to":"noivern","toName":"音波龙","level":48,"conditions":{"level":48},"variant":null}],"clauncher":[{"to":"clawitzer","toName":"钢炮臂虾","level":37,"conditions":{"level":37},"variant":null}],"skrelp":[{"to":"dragalge","toName":"毒藻龙","level":48,"conditions":{"level":48},"variant":null}],"tyrunt":[{"to":"tyrantrum","toName":"怪颚龙","level":39,"conditions":{"level":39,"time":"白天"},"variant":null}],"amaura":[{"to":"aurorus","toName":"冰雪巨龙","level":39,"conditions":{"level":39,"time":"夜晚"},"variant":null}],"binacle":[{"to":"barbaracle","toName":"龟足巨铠","level":39,"conditions":{"level":39},"variant":null}],"goomy":[{"to":"sliggoo","toName":"黏美儿","level":40,"conditions":{"level":40,"extraa":"在其他地区"},"variant":null},{"to":"sliggoohisui","toName":"洗翠黏美儿","level":40,"conditions":{"level":40,"extraa":"在[[洗翠地区]]"},"variant":null}],"sliggoo":[{"to":"goodra","toName":"黏美龙","level":50,"conditions":{"level":50,"weather":"下雨2"},"variant":null}],"sliggoohisui":[{"to":"goodrahisui","toName":"洗翠黏美龙","level":50,"conditions":{"level":50,"form":"洗翠","weather":"下雨"},"variant":null}],"bergmite":[{"to":"avalugg","toName":"冰岩怪","level":37,"conditions":{"level":37,"extraa":"在其他地区"},"variant":null},{"to":"avalugghisui","toName":"洗翠冰岩怪","level":37,"conditions":{"level":37,"extraa":"在[[洗翠地区]]"},"variant":null}],"yungoos":[{"to":"gumshoos","toName":"猫鼬探长","level":20,"conditions":{"level":20,"time":"白天"},"variant":null}],"grubbin":[{"to":"charjabug","toName":"虫电宝","level":20,"conditions":{"level":20},"variant":null}],"cutiefly":[{"to":"ribombee","toName":"蝶结萌虻","level":25,"conditions":{"level":25},"variant":null}],"mudbray":[{"to":"mudsdale","toName":"重泥挽马","level":30,"conditions":{"level":30},"variant":null}],"mareanie":[{"to":"toxapex","toName":"超坏星","level":38,"conditions":{"level":38},"variant":null}],"dewpider":[{"to":"araquanid","toName":"滴蛛霸","level":22,"conditions":{"level":22},"variant":null}],"stufful":[{"to":"bewear","toName":"穿着熊","level":27,"conditions":{"level":27},"variant":null}],"wimpod":[{"to":"golisopod","toName":"具甲武者","level":30,"conditions":{"level":30},"variant":null}],"bounsweet":[{"to":"steenee","toName":"甜舞妮","level":18,"conditions":{"level":18},"variant":null}],"fomantis":[{"to":"lurantis","toName":"兰螳花","level":34,"conditions":{"level":34,"time":"白天"},"variant":null}],"sandygast":[{"to":"palossand","toName":"噬沙堡爷","level":42,"conditions":{"level":42},"variant":null}],"morelull":[{"to":"shiinotic","toName":"灯罩夜菇","level":24,"conditions":{"level":24},"variant":null}],"cosmog":[{"to":"cosmoem","toName":"科斯莫姆","level":43,"conditions":{"level":43},"variant":null}],"cosmoem":[{"to":"solgaleo","toName":"索尔迦雷欧","level":53,"conditions":{"level":53,"gender":"{{game|S}}／{{game|US}}<br>{{game|SW}}／{{game|Sc}}"},"variant":null},{"to":"lunala","toName":"露奈雅拉","level":53,"conditions":{"level":53,"gender":"{{game|M}}／{{game|UM}}<br>{{game|SH}}／{{game|Vi}}"},"variant":null}],"jangmoo":[{"to":"hakamoo","toName":"鳞甲龙","level":35,"conditions":{"level":35},"variant":null}],"hakamoo":[{"to":"kommoo","toName":"杖尾鳞甲龙","level":45,"conditions":{"level":45},"variant":null}],"grookey":[{"to":"thwackey","toName":"啪咚猴","level":16,"conditions":{"level":16},"variant":null}],"thwackey":[{"to":"rillaboom","toName":"轰擂金刚猩","level":35,"conditions":{"level":35},"variant":null}],"sobble":[{"to":"drizzile","toName":"变涩蜥","level":16,"conditions":{"level":16},"variant":null}],"drizzile":[{"to":"inteleon","toName":"千面避役","level":35,"conditions":{"level":35},"variant":null}],"scorbunny":[{"to":"raboot","toName":"腾蹴小将","level":16,"conditions":{"level":16},"variant":null}],"raboot":[{"to":"cinderace","toName":"闪焰王牌","level":35,"conditions":{"level":35},"variant":null}],"gossifleur":[{"to":"eldegoss","toName":"白蓬蓬","level":20,"conditions":{"level":20},"variant":null}],"yamper":[{"to":"boltund","toName":"逐电犬","level":25,"conditions":{"level":25},"variant":null}],"skwovet":[{"to":"greedent","toName":"藏饱栗鼠","level":24,"conditions":{"level":24},"variant":null}],"arrokuda":[{"to":"barraskewda","toName":"戽斗尖梭","level":26,"conditions":{"level":26},"variant":null}],"toxel":[{"to":"toxtricity","toName":"颤弦蝾螈","level":30,"conditions":{"level":30,"gender":"[[性格]]为勤奋、固执、顽皮、<br>勇敢、坦率、淘气、乐天、马虎、<br>浮躁、自大、急躁、爽朗或天真"},"variant":null},{"to":"toxtricity","toName":"颤弦蝾螈","level":30,"conditions":{"level":30,"gender":"性格为怕寂寞、大胆、悠闲、<br>内敛、慢吞吞、害羞、冷静、温和、<br>温顺、慎重、胆小或认真"},"variant":null},{"to":"toxtricity","toName":"颤弦蝾螈","level":30,"conditions":{"level":30,"gender":"[[性格]]为勤奋、固执、顽皮）<br>（勇敢、坦率、淘气、乐天、马虎）<br>（浮躁、自大、急躁、爽朗或天真"},"variant":null},{"to":"toxtricity","toName":"颤弦蝾螈","level":30,"conditions":{"level":30,"gender":"性格为怕寂寞、大胆、悠闲）<br>（内敛、慢吞吞、害羞、冷静、温和）<br>（温顺、慎重、胆小或认真"},"variant":null}],"impidimp":[{"to":"morgrem","toName":"诈唬魔","level":32,"conditions":{"level":32},"variant":null}],"morgrem":[{"to":"grimmsnarl","toName":"长毛巨魔","level":42,"conditions":{"level":42},"variant":null}],"sizzlipede":[{"to":"centiskorch","toName":"焚焰蚣","level":28,"conditions":{"level":28},"variant":null}],"hatenna":[{"to":"hattrem","toName":"提布莉姆","level":32,"conditions":{"level":32},"variant":null}],"hattrem":[{"to":"hatterene","toName":"布莉姆温","level":42,"conditions":{"level":42},"variant":null}],"meowthgalar":[{"to":"perrserker","toName":"喵头目","level":28,"conditions":{"level":28,"form":"伽勒爾"},"variant":null},{"to":"perrserker","toName":"喵头目","level":28,"conditions":{"level":28},"variant":null}],"cufant":[{"to":"copperajah","toName":"大王铜象","level":34,"conditions":{"level":34},"variant":null}],"dreepy":[{"to":"drakloak","toName":"多龙奇","level":50,"conditions":{"level":50},"variant":null}],"drakloak":[{"to":"dragapult","toName":"多龙巴鲁托","level":60,"conditions":{"level":60},"variant":null}],"sprigatito":[{"to":"floragato","toName":"蒂蕾喵","level":16,"conditions":{"level":16},"variant":null}],"floragato":[{"to":"meowscarada","toName":"魔幻假面喵","level":36,"conditions":{"level":36},"variant":null}],"fuecoco":[{"to":"crocalor","toName":"炙烫鳄","level":16,"conditions":{"level":16},"variant":null}],"crocalor":[{"to":"skeledirge","toName":"骨纹巨声鳄","level":36,"conditions":{"level":36},"variant":null}],"quaxly":[{"to":"quaxwell","toName":"涌跃鸭","level":16,"conditions":{"level":16},"variant":null}],"quaxwell":[{"to":"quaquaval","toName":"狂欢浪舞鸭","level":36,"conditions":{"level":36},"variant":null}],"lechonk":[{"to":"oinkologne","toName":"飘香豚","level":18,"conditions":{"level":18,"extraa":"雄性"},"variant":null},{"to":"oinkologne","toName":"飘香豚","level":18,"conditions":{"level":18,"extraa":"雌性"},"variant":null}],"tarountula":[{"to":"spidops","toName":"操陷蛛","level":15,"conditions":{"level":15},"variant":null}],"pawmi":[{"to":"pawmo","toName":"布土拨","level":18,"conditions":{"level":18},"variant":null}],"smoliv":[{"to":"dolliv","toName":"奥利纽","level":25,"conditions":{"level":25},"variant":null}],"dolliv":[{"to":"arboliva","toName":"奥利瓦","level":35,"conditions":{"level":35},"variant":null}],"fidough":[{"to":"dachsbun","toName":"麻花犬","level":26,"conditions":{"level":26},"variant":null}],"shroodle":[{"to":"grafaiai","toName":"涂标客","level":28,"conditions":{"level":28},"variant":null}],"nymble":[{"to":"lokix","toName":"烈腿蝗","level":24,"conditions":{"level":24},"variant":null}],"tandemaus":[{"to":"mausholdfour","toName":"一家鼠（四只家庭）","level":25,"conditions":{"level":25,"gender":"99%概率","extraa":"[[性格值#一对鼠的进化"},"variant":null},{"to":"maushold","toName":"一家鼠","level":25,"conditions":{"level":25,"gender":"1%概率","extraa":"[[性格值#一对鼠的进化"},"variant":null}],"nacli":[{"to":"naclstack","toName":"盐石垒","level":24,"conditions":{"level":24},"variant":null}],"naclstack":[{"to":"garganacl","toName":"盐石巨灵","level":38,"conditions":{"level":38},"variant":null}],"wattrel":[{"to":"kilowattrel","toName":"大电海燕","level":25,"conditions":{"level":25},"variant":null}],"maschiff":[{"to":"mabosstiff","toName":"獒教父","level":30,"conditions":{"level":30},"variant":null}],"toedscool":[{"to":"toedscruel","toName":"陆地水母","level":30,"conditions":{"level":30},"variant":null}],"wiglett":[{"to":"wugtrio","toName":"三海地鼠","level":26,"conditions":{"level":26},"variant":null}],"greavard":[{"to":"houndstone","toName":"墓扬犬","level":30,"conditions":{"level":30,"time":"夜晚"},"variant":null}],"flittle":[{"to":"espathra","toName":"超能艳鸵","level":35,"conditions":{"level":35},"variant":null}],"tinkatink":[{"to":"tinkatuff","toName":"巧锻匠","level":24,"conditions":{"level":24},"variant":null}],"tinkatuff":[{"to":"tinkaton","toName":"巨锻匠","level":38,"conditions":{"level":38},"variant":null}],"finizen":[{"to":"palafin","toName":"海豚侠","level":38,"conditions":{"level":38,"extraa":"在联机游玩中"},"variant":null}],"varoom":[{"to":"revavroom","toName":"普隆隆姆","level":40,"conditions":{"level":40},"variant":null}],"glimmet":[{"to":"glimmora","toName":"晶光花","level":35,"conditions":{"level":35},"variant":null}],"frigibax":[{"to":"arctibax","toName":"冻脊龙","level":35,"conditions":{"level":35},"variant":null}],"arctibax":[{"to":"baxcalibur","toName":"戟脊龙","level":54,"conditions":{"level":54},"variant":null}],"rockruff":[{"to":"lycanroc","toName":"鬃岩狼人","level":25,"conditions":{"level":25,"time":"白天"},"variant":null},{"to":"lycanrocmidnight","toName":"鬃岩狼人（黑夜的样子）","level":25,"conditions":{"level":25,"time":"夜晚"},"variant":null},{"to":"lycanrocdusk","toName":"鬃岩狼人（黄昏的样子）","level":25,"conditions":{"level":25,"time":"黄昏","ability":"我行我素"},"variant":null}]};
 const NATURES=["勤奋", "大胆", "内敛", "温和", "胆小", "怕寂寞", "坦率", "慢吞吞", "温顺", "急躁", "固执", "淘气", "害羞", "慎重", "马虎", "爽朗", "顽皮", "乐天", "浮躁", "天真", "勇敢", "悠闲", "冷静", "自大", "认真"];
-const setupState = { step: 0, mode: '同行模式', name: '', gender: '男', protagonist: '自定义', ashNpc: '小智', hometown: '真新镇', intro: '', starter: '', nickname: '', busy: false, error: '', about: false, background:'', customEnabled:false, customParty:[], customBox:[], lic:String(10000 + Math.floor(Math.random() * 89999)) };
-function setupDone(pkm) { return !!pkm.integration.profile || chat().length > 1; }
+const setupState = { step: 0, mode: '同行模式', name: '', gender: '男', protagonist: '自定义', ashNpc: '小智', hometown: '真新镇', intro: '', starter: '', starterGender:'预设', nickname: '', busy: false, error: '', about: false, background:'', customEnabled:false, customParty:[], customBox:[], lic:String(10000 + Math.floor(Math.random() * 89999)) };
+// A message count is not proof of registration. Conversely, lack of a modern
+// profile is not proof that an older save is empty. Never re-register on top
+// of a roster, a documented legacy profile, or other reliable progress.
+function setupStatus(pkm, messages=chat()) {
+  if(pkm?.integration?.profile)return 'registered';
+  const party=pkm?.party||{},pl=pkm?.player||{},wd=pkm?.world||{},it=pkm?.integration||{};
+  if([...(party.slots||[]),...(party.box||[])].some(hasMon)||it.pendingStarter||it.starterReceipt||
+    (pl.id!=null&&String(pl.id).trim()!=='')||(pl.badges||[]).length||Number(pkm?.battle?.count)>0||
+    (pkm?.dex?.caught||[]).length||(wd.event&&wd.event!=='EP001')||Number(wd.node)>1||
+    ['节点完成','完成'].includes(wd.nodeStatus)||messages.some(m=>m?.is_user&&/<pkm_profile\b/i.test(String(m.mes||''))))return 'legacy';
+  // An AI reply already exists but provides no reliable registration evidence:
+  // retain it, do not claim success, and do not offer a destructive new setup.
+  if(messages.some((m,i)=>i>0&&!m?.is_user&&!m?.is_system&&String(m?.mes||'').trim()))return 'uncertain';
+  return 'unregistered';
+}
+function hasSetupAnnouncement(messages=chat()) { return messages.some(m=>m?.is_user&&/<pkm_profile\b/i.test(String(m.mes||''))); }
+function setupAnnouncementPending(pkm, messages=chat()) {
+  return !!pkm?.integration?.profile&&!hasSetupAnnouncement(messages)&&
+    !messages.some((m,i)=>i>0&&!m?.is_user&&!m?.is_system&&String(m?.mes||'').trim());
+}
 /* v1.3.3 · 开局美化界面：标题封面 → 模式 → 档案 → 伙伴 → 确认（图片放在网站 st-bridge/img/） */
 const IMG = n => BASE + 'st-bridge/img/' + n + '?v=' + VERSION;
 const OPEN_MODES = {
@@ -2455,18 +2578,24 @@ const TYPE_COLOR = { 草: '#3fa65a', 毒: '#9b4fc0', 火: '#ef6a2a', 水: '#3a86
 const typeChips = n => (OPEN_STARTERS[n]?.types || []).map(t => `<span class="pko-type" style="background:${TYPE_COLOR[t] || '#888'}">${t}</span>`).join('');
 const starterArt = (n, cls = '') => OPEN_STARTERS[n] ? `<img class="${cls}" src="${IMG('starter-' + OPEN_STARTERS[n].img + '.webp')}" alt="${esc(n)}" loading="lazy" onerror="this.style.visibility='hidden'">` : spriteImg(n, { anim: true });
 const OPEN_STEPS = ['旅程模式', '训练家档案', '初始伙伴', '确认出发'];
+const GENDER_CHOICE_LABELS={M:'雄性',F:'雌性',N:'无性别'};
+function setupGenderChoices(name){return PKMGender.options(speciesId(name)).map(g=>GENDER_CHOICE_LABELS[g]);}
 function setupIsEditing(el){return !!el?.closest('.mes')?.querySelector('#curEditTextarea, textarea.edit_textarea');}
 function renderSetup(el) {
   if(setupIsEditing(el))return;
-  const pkm = readPkm();
-  if (setupDone(pkm)) {
+  const pkm = readPkm(),registration=setupStatus(pkm);
+  if (registration !== 'unregistered') {
     const pr = pkm.integration.profile || {};
     const lead = pkm.party.slots.find(hasMon);
     const leadName = lead ? (lead.species || '') : (pr.starter || '');
+    const headline=registration==='registered'?'TRAINER REGISTERED · 训练家档案已登记':registration==='legacy'?'LEGACY JOURNEY · 检测到已有旅程':'PROFILE UNKNOWN · 档案状态待核对';
+    const pending=registration==='registered'&&setupAnnouncementPending(pkm);
+    const note=registration==='registered'?(pending?'变量内已有档案，但聊天中尚未发现开局档案消息。请先确认宿主已保存，并核对是否已发送；如确未发送，可准备到空白输入框并手动确认发送，不会再次登记或抽取伙伴。':'队伍与仓库在右下角的精灵球里，图鉴状态栏显示在最新一条回复的末尾。'):'未检测到新版登记档案；为避免覆盖旧队伍或剧情，不会自动重新登记。请先备份并核对现有记录；需要全新开局请新建聊天。';
+    const recovery=pending?`<p><button type="button" class="pko-outline" data-act="prepare-profile" ${setupState.busy?'disabled':''}>准备开局消息（不自动发送）</button></p>`:'';
     el.innerHTML = `<div class="pkb pkm-setup pko pko-done"><div class="pko-done-art" style="background-image:url('${IMG('hero.webp')}')"></div><div class="pko-done-wash"></div>
-      <div class="pko-done-body">${leadName && OPEN_STARTERS[leadName] ? starterArt(leadName, 'pko-done-mon') : ''}<div><div class="pko-eyebrow light">TRAINER REGISTERED · 训练家档案已登记</div>
-      <h3>${esc(pr.name || pkm.player.name || userName())}</h3><p>${esc(pr.mode || pkm.world.mode || '')}${lead ? ' · 初始伙伴：' + esc(monName(lead)) : (pkm.integration.pendingStarter ? ' · 皮卡丘已预登记，尚未领取' : '')}${pr.hometown ? ' · 来自' + esc(pr.hometown) : ''}${pr.ashNpc === '智子' ? ' · 同行的小智：智子（性转少女）' : ''}</p>
-      <small>旅程已经开始。队伍与仓库在右下角的精灵球里，图鉴状态栏显示在最新一条回复的末尾。<br>外置桥接 v${VERSION} · 对战网页：${esc(BASE)}</small></div></div></div>`;
+      <div class="pko-done-body">${leadName && OPEN_STARTERS[leadName] ? starterArt(leadName, 'pko-done-mon') : ''}<div><div class="pko-eyebrow light">${headline}</div>
+      <h3>${esc(pr.name || pkm.player.name || userName())}</h3><p>${esc(pr.mode || pkm.world.mode || '')}${lead ? ' · 当前伙伴：' + esc(monName(lead)) : (pkm.integration.pendingStarter ? ' · 皮卡丘已预登记，尚未领取' : '')}${pr.hometown ? ' · 来自' + esc(pr.hometown) : ''}${pr.ashNpc === '智子' ? ' · 同行的小智：智子（性转少女）' : ''}</p>
+      <small>${note}<br>外置桥接 v${VERSION} · 对战网页：${esc(BASE)}</small>${recovery}</div></div></div>`;
     return;
   }
   const S = setupState;
@@ -2474,6 +2603,7 @@ function renderSetup(el) {
   const ash = S.mode === '小智模式';
   const list = K.MODE_STARTERS[S.mode];
   if (!list.includes(S.starter)) S.starter = list[0];
+  if(!['预设','按比例抽取',...setupGenderChoices(S.starter)].includes(S.starterGender))S.starterGender='预设';
   const info = K.MODE_INFO[S.mode];
   const name = String(S.name).trim() || userName();
   const gender = S.gender;
@@ -2547,13 +2677,14 @@ function renderSetup(el) {
       `<div class="pko-starters c${list.length}">${list.map(n => { const o = OPEN_STARTERS[n] || {}; return `<button class="pko-starter ${S.starter === n ? 'on' : ''}" data-act="starter" data-v="${n}" style="--c:${o.color || '#dc0a2d'}">
         <span class="pko-st-no">No.${o.no || '???'}</span><span class="pko-st-art">${starterArt(n)}</span>
         <b>${n} <small>Lv5</small></b><span class="pko-st-types">${typeChips(n)}</span><span class="pko-st-desc">${esc(K.STARTERS[n].desc)}</span><span class="pko-check">✓</span></button>`; }).join('')}</div>
-      <div class="pko-nick"><label class="pko-f">昵称 <small>可选</small></label><input class="pko-in" type="text" data-f="nickname" maxlength="12" placeholder="不填就叫${esc(S.starter)}" value="${esc(S.nickname)}"></div>`;
+      <div class="pko-nick"><label class="pko-f">昵称 <small>可选</small></label><input class="pko-in" type="text" data-f="nickname" maxlength="12" placeholder="不填就叫${esc(S.starter)}" value="${esc(S.nickname)}"></div>
+      <div class="pko-nick"><label class="pko-f">伙伴性别 <small>默认保留原预设</small></label><select class="pko-in" data-f="starterGender">${['预设','按比例抽取',...setupGenderChoices(S.starter)].map(v=>`<option ${S.starterGender===v?'selected':''}>${esc(v)}</option>`).join('')}</select><div class="pko-note">预设：${esc(PKMGender.label(K.STARTERS[S.starter]?.gender))}。也可选择合法性别，或在确认出发时按物种比例抽一次；不会改动旧伙伴。</div></div>`;
     if (S.mode === '沙盒模式') body += customEditor();
     foot = `<button class="pko-outline" data-act="back">← 上一步</button><button class="pko-go" data-act="next">下一步 · 确认出发 →</button>`;
   } else {
     const o = OPEN_STARTERS[S.starter] || {};
     body = head('04', 'READY TO GO', '一切就绪，出发吧！', ash ? '确认后先预登记皮卡丘；剧情进行到节点2，由你确认领取，才会进入队伍。' : '确认后：档案写入变量、初始伙伴放进队伍，并自动发送第一条消息开始旅程。') +
-      `<div class="pko-confirm"><div class="pko-cf-partner" style="--c:${o.color || '#dc0a2d'}">${starterArt(S.starter)}<b>${esc(S.nickname ? S.nickname + '（' + S.starter + '）' : S.starter)}</b><span>${typeChips(S.starter)} Lv5</span></div>${license}</div>
+      `<div class="pko-confirm"><div class="pko-cf-partner" style="--c:${o.color || '#dc0a2d'}">${starterArt(S.starter)}<b>${esc(S.nickname ? S.nickname + '（' + S.starter + '）' : S.starter)}</b><span>${typeChips(S.starter)} Lv5 · 性别：${esc(S.starterGender==='预设'?'预设（'+PKMGender.label(K.STARTERS[S.starter]?.gender)+'）':S.starterGender)}</span></div>${license}</div>
       <div class="pko-cf-list"><span>🎒 精灵球 ×10 · 伤药 ×20 · 活力碎片 ×5 · PP回复药 ×5</span><span>💴 10,000 元</span><span>🕖 ${esc(info.start.time)}</span><span>📍 ${esc(info.start.location)}</span>${S.mode === '同行模式' ? `<span>${S.ashNpc === '智子' ? '同行的小智：♀ 智子（性转少女）' : '同行的小智：♂ 小智（原作少年）'}</span>` : ''}</div>
       ${S.error ? `<div class="pko-err">${esc(S.error)}</div>` : ''}`;
     if (S.mode !== '小智模式' && S.background.trim()) body += `<div class="pko-note"><b>人物背景</b><div style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(S.background)}</div></div>`;
@@ -2583,21 +2714,28 @@ function bindSetup(el) {
     else if (act === 'ashnpc') S.ashNpc = b.dataset.v;
     else if (act === 'protagonist') { S.protagonist = b.dataset.v; if (S.protagonist === '小智') { S.name = '小智'; S.gender = '男'; } else if (S.protagonist === '智子') { S.name = '智子'; S.gender = '女'; } }
     else if (act === 'starter') S.starter = b.dataset.v;
-    else if (act === 'submit') { submitSetup().catch(err => { S.busy = false; S.error = '登记失败：' + (err?.message || err); rerenderSetups(); }); }
+    else if (act === 'prepare-profile') prepareSetupMessage();
+    else if (act === 'submit') { submitSetup().catch(err => {
+      S.busy=false;
+      S.error=readPkm().integration?.profile?'登记过程未确认完成，但当前变量中已有档案；请核实是否保存及开局消息是否发送，勿重复登记。'+(err?.message||err):'登记失败：'+(err?.message||err);
+      toast(S.error,'warning');rerenderSetups(true);
+    }); }
     rerenderSetups(true);
     if (['next', 'back', 'home', 'goto'].includes(act)) { const box = PD.querySelector('[data-pkm-setup-mounted] .pko'); try { box?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (_) {} }
   });
 }
 function customEditor(){const S=setupState;return `<section class="pko-custom"><datalist id="custom-species-list">${Object.keys(SPECIES).map(n=>`<option value="${esc(n)}">`).join('')}</datalist><h3>自定义宝可梦</h3><div class="pko-note">仅沙盒模式开放。上方的初始伙伴选择保留；开启后，以下队伍将替代默认初始伙伴。仓库单独填写，不占队伍位置。</div><label class="pko-custom-toggle"><input type="checkbox" data-custom-enable ${S.customEnabled?'checked':''}>启用自定义队伍与仓库</label>${S.customEnabled?`<div class="pko-custom-err" id="custom-error"></div>${customGroup('customParty','随身队伍',6)}${customGroup('customBox','宝可梦仓库',Infinity)}`:''}</section>`}
 function customGroup(key,title,max){const a=setupState[key];return `<div class="pko-custom-header"><b>${title} · ${a.length}${max===6?' / 6':''}</b><button class="pko-custom-add" data-custom-add="${key}" ${a.length>=max?'disabled':''}>＋ 添加宝可梦</button></div>${a.length?a.map((p,i)=>customRow(key,p,i)).join(''):`<div class="pko-custom-empty">${key==='customParty'?'添加 1～6 只宝可梦作为开局队伍。':'暂未配置仓库宝可梦，可留空。'}</div>`}`}
-function customRow(key,p,i){const ab=SPECIES[p.name]?.abilities||[];const field=(f,label,input)=>`<div><label>${label}</label>${input}</div>`;const ds=f=>`data-custom-list="${key}" data-custom-index="${i}" data-custom-field="${f}"`;const input=(f,extra='')=>`<input class="pko-in" ${ds(f)} ${extra} value="${esc(p[f])}">`;const sel=(f,vs)=>`<select class="pko-in" ${ds(f)}>${vs.map(v=>`<option ${p[f]===v?'selected':''}>${esc(v)}</option>`).join('')}</select>`;return `<article class="pko-custom-row"><div class="pko-custom-row-head"><span>${key==='customParty'?'队伍':'仓库'} ${String(i+1).padStart(2,'0')}</span><button class="pko-custom-remove" data-custom-remove="${key}" data-index="${i}">移除</button></div><div class="pko-custom-fields">${field('name','宝可梦名称',input('name','list="custom-species-list" placeholder="输入现有宝可梦名称"'))}${field('level','等级',input('level','type="number" min="1" max="100" step="1"'))}${field('nickname','昵称（可选）',input('nickname','maxlength="20" placeholder="留空使用物种名"'))}${field('gender','性别',sel('gender',['默认','雄性','雌性','无性别']))}${field('nature','性格',sel('nature',['默认',...NATURES]))}${field('ability','特性',sel('ability',['默认',...ab]))}</div></article>`}
-function validateCustom(){const S=setupState;if(S.mode!=='沙盒模式'||!S.customEnabled)return true;let err='';if(S.customParty.length<1||S.customParty.length>6)err='随身队伍需要配置 1～6 只宝可梦。';for(const key of ['customParty','customBox'])for(const [i,p]of S[key].entries()){const tag=(key==='customParty'?'队伍':'仓库')+'第 '+(i+1)+' 只';if(!SPECIES[p.name])err ||= tag+'：请选择现有宝可梦的准确名称。';if(p.nature!=='默认'&&!NATURES.includes(p.nature))err ||= tag+'：性格无效。';if(p.ability!=='默认'&&!SPECIES[p.name]?.abilities.includes(p.ability))err ||= tag+'：特性不属于该宝可梦。';if(!Number.isInteger(Number(p.level))||Number(p.level)<1||Number(p.level)>100)err ||= tag+'：等级必须是 1～100 的整数。'}if(err){const e=document.getElementById('custom-error');if(e)e.textContent=err;toast(err);return false}return true}
+function customRow(key,p,i){const ab=SPECIES[p.name]?.abilities||[];const field=(f,label,input)=>`<div><label>${label}</label>${input}</div>`;const ds=f=>`data-custom-list="${key}" data-custom-index="${i}" data-custom-field="${f}"`;const input=(f,extra='')=>`<input class="pko-in" ${ds(f)} ${extra} value="${esc(p[f])}">`;const sel=(f,vs)=>`<select class="pko-in" ${ds(f)}>${vs.map(v=>`<option ${p[f]===v?'selected':''}>${esc(v)}</option>`).join('')}</select>`;return `<article class="pko-custom-row"><div class="pko-custom-row-head"><span>${key==='customParty'?'队伍':'仓库'} ${String(i+1).padStart(2,'0')}</span><button class="pko-custom-remove" data-custom-remove="${key}" data-index="${i}">移除</button></div><div class="pko-custom-fields">${field('name','宝可梦名称',input('name','list="custom-species-list" placeholder="输入现有宝可梦名称"'))}${field('level','等级',input('level','type="number" min="1" max="100" step="1"'))}${field('nickname','昵称（可选）',input('nickname','maxlength="20" placeholder="留空使用物种名"'))}${field('gender','性别',sel('gender',['默认',...setupGenderChoices(p.name)]))}${field('nature','性格',sel('nature',['默认',...NATURES]))}${field('ability','特性',sel('ability',['默认',...ab]))}</div></article>`}
+function validateCustom(){const S=setupState;if(S.mode!=='沙盒模式'||!S.customEnabled)return true;let err='';if(S.customParty.length<1||S.customParty.length>6)err='随身队伍需要配置 1～6 只宝可梦。';for(const key of ['customParty','customBox'])for(const [i,p]of S[key].entries()){const tag=(key==='customParty'?'队伍':'仓库')+'第 '+(i+1)+' 只';if(!SPECIES[p.name])err ||= tag+'：请选择现有宝可梦的准确名称。';if(p.gender!=='默认'&&!PKMGender.allowed(SPECIES[p.name]?.id,p.gender))err ||= tag+'：所选性别与物种不符。';if(p.nature!=='默认'&&!NATURES.includes(p.nature))err ||= tag+'：性格无效。';if(p.ability!=='默认'&&!SPECIES[p.name]?.abilities.includes(p.ability))err ||= tag+'：特性不属于该宝可梦。';if(!Number.isInteger(Number(p.level))||Number(p.level)<1||Number(p.level)>100)err ||= tag+'：等级必须是 1～100 的整数。'}if(err){const e=document.getElementById('custom-error');if(e)e.textContent=err;toast(err);return false}return true}
 function customSummary(){const S=setupState;return `<div class="pko-custom-summary"><b>自定义随身队伍 · ${S.customParty.length} 只</b><ul>${S.customParty.map(p=>`<li>${esc(p.nickname?p.nickname+'（'+p.name+'）':p.name)} · Lv.${esc(p.level)} · ${esc(p.gender)} · ${esc(p.nature)}性格 · ${esc(p.ability)}特性</li>`).join('')}</ul><b>宝可梦仓库 · ${S.customBox.length} 只</b>${S.customBox.length?`<ul>${S.customBox.map(p=>`<li>${esc(p.nickname?p.nickname+'（'+p.name+'）':p.name)} · Lv.${esc(p.level)}</li>`).join('')}</ul>`:'<div>空</div>'}</div>`}
 function freshPokemon(name=''){return {name,level:5,nickname:'',gender:'默认',nature:'默认',ability:'默认'}}
-function installCustom(root){root.addEventListener('change',e=>{const t=e.target;if(t.dataset.customField){const p=setupState[t.dataset.customList][Number(t.dataset.customIndex)];p[t.dataset.customField]=t.value;}if(t.hasAttribute('data-custom-enable')){setupState.customEnabled=t.checked;if(t.checked&&!setupState.customParty.length)setupState.customParty.push(freshPokemon(setupState.starter));renderSetup(root)}else if(t.dataset.customField==='name'){const p=setupState[t.dataset.customList][Number(t.dataset.customIndex)];p.name=t.value.trim();t.value=p.name;p.ability='默认';const select=t.closest('.pko-custom-row')?.querySelector('[data-custom-field=ability]');if(select)select.innerHTML=['默认',...(SPECIES[p.name]?.abilities||[])].map(a=>'<option>'+esc(a)+'</option>').join('')}});root.addEventListener('input',e=>{const t=e.target;if(t.dataset.customField){const p=setupState[t.dataset.customList][Number(t.dataset.customIndex)];p[t.dataset.customField]=t.value}});root.addEventListener('click',e=>{const add=e.target.closest('[data-custom-add]'),del=e.target.closest('[data-custom-remove]');if(add){const k=add.dataset.customAdd;if(k==='customParty'&&setupState[k].length>=6)return;setupState[k].push(freshPokemon());renderSetup(root)}if(del){setupState[del.dataset.customRemove].splice(Number(del.dataset.index),1);renderSetup(root)}});}
+function installCustom(root){root.addEventListener('change',e=>{const t=e.target;if(t.dataset.customField){const p=setupState[t.dataset.customList][Number(t.dataset.customIndex)];p[t.dataset.customField]=t.value;}if(t.hasAttribute('data-custom-enable')){setupState.customEnabled=t.checked;if(t.checked&&!setupState.customParty.length)setupState.customParty.push(freshPokemon(setupState.starter));renderSetup(root)}else if(t.dataset.customField==='name'){const p=setupState[t.dataset.customList][Number(t.dataset.customIndex)];p.name=t.value.trim();t.value=p.name;p.ability='默认';const select=t.closest('.pko-custom-row')?.querySelector('[data-custom-field=ability]');if(select)select.innerHTML=['默认',...(SPECIES[p.name]?.abilities||[])].map(a=>'<option>'+esc(a)+'</option>').join('');const sexSelect=t.closest('.pko-custom-row')?.querySelector('[data-custom-field=gender]'),choices=['默认',...setupGenderChoices(p.name)];if(!choices.includes(p.gender))p.gender='默认';if(sexSelect)sexSelect.innerHTML=choices.map(a=>'<option'+(a===p.gender?' selected':'')+'>'+esc(a)+'</option>').join('')}});root.addEventListener('input',e=>{const t=e.target;if(t.dataset.customField){const p=setupState[t.dataset.customList][Number(t.dataset.customIndex)];p[t.dataset.customField]=t.value}});root.addEventListener('click',e=>{const add=e.target.closest('[data-custom-add]'),del=e.target.closest('[data-custom-remove]');if(add){const k=add.dataset.customAdd;if(k==='customParty'&&setupState[k].length>=6)return;setupState[k].push(freshPokemon());renderSetup(root)}if(del){setupState[del.dataset.customRemove].splice(Number(del.dataset.index),1);renderSetup(root)}});}
 function makeCustomSetupMon(p, index, box = false) {
   const data = SPECIES[p.name];
   if (!data) throw new Error('未知宝可梦：' + p.name);
+  const gender=p.gender==='默认'?PKMGender.roll(data.id):PKMGender.normalize(p.gender);
+  if((gender!==null&&!PKMGender.allowed(data.id,gender))||(gender===null&&p.gender!=='默认'))throw new Error(p.name+' 的性别与物种不符，请重新选择。');
   const mon = emptySlot(index + 1), lv = Number(p.level);
   const eligible = data.learn.filter(([l]) => l <= lv).map(([,m]) => m);
   const moves = [...new Set(eligible)].slice(-4);
@@ -2605,7 +2743,7 @@ function makeCustomSetupMon(p, index, box = false) {
   if (!moves.length) moves.push(...[...new Set(data.learn.map(([,m])=>m))].slice(0,4));
   if (!moves.length && K.STARTERS[p.name]) moves.push(...K.STARTERS[p.name].moves.slice(0,4));
   Object.assign(mon, {name:p.name, species:p.name, nickname:String(p.nickname || '').trim().slice(0,20) || null,
-    lv, gender:({'雄性':'M','雌性':'F','无性别':'N'})[p.gender] || PKMGender.normalize(data.gender) || PKMGender.roll(data.id) || null,
+    lv, gender,
     nature:p.nature === '默认' ? rollNature() : p.nature,
     ability:p.ability === '默认' ? (data.abilities[0] || null) : p.ability,
     moves:[...moves, ...Array(4).fill(null)].slice(0,4), quality:null, uid:uid(),
@@ -2621,9 +2759,16 @@ async function submitSetup() {
   const S=setupState;
   if(S.busy || !validateCustom()) return;
   if(!String(S.name).trim()){toast('请填写名字');return;}
+  // Freeze the originating conversation before any asynchronous data load;
+  // never register in a newly selected chat when a pending wizard resumes.
+  const originChat=chat(),originId=originChat.length-1,originMessage=originChat[originId],originSwipe=originMessage?.swipe_id??0,originText=originMessage?.mes,originChatId=ctx()?.chatId??null;
+  if(!originMessage)throw new Error('找不到当前开局楼层，请确认聊天后重试。');
+  const isOrigin=()=>chat()===originChat&&originChat.length-1===originId&&originChat[originId]===originMessage&&(originMessage.swipe_id??0)===originSwipe&&originMessage.mes===originText&&(ctx()?.chatId??null)===originChatId;
+  let committed=false;
   S.busy=true;S.error='';rerenderSetups(true);
   try {
     await Promise.all([abilityDexReady,zhReady]);
+    if(!isOrigin())throw new Error('聊天或候选回复在登记期间发生变化，本次未登记。');
     if (!ZH || !ABILITY_DEX) throw new Error('宝可梦资料未加载完成，请检查网络后重试');
     const ash=S.mode==='小智模式', custom=S.mode==='沙盒模式' && S.customEnabled;
     const protagonist=ash?(S.protagonist==='智子'?'智子':S.protagonist==='小智'?'小智':'自定义'):'自定义';
@@ -2633,7 +2778,7 @@ async function submitSetup() {
     const hometown=S.mode==='沙盒模式'?S.hometown:'真新镇';
     const background=ash?'':String(S.background||'').trim().slice(0,2000);
     const info=K.MODE_INFO[S.mode];
-    const party=custom?S.customParty.map((p,i)=>makeCustomSetupMon(p,i)): [makeStarter(S.starter,String(S.nickname||'').trim().slice(0,12),S.mode)];
+    const party=custom?S.customParty.map((p,i)=>makeCustomSetupMon(p,i)): [makeStarter(S.starter,String(S.nickname||'').trim().slice(0,12),S.mode,S.starterGender)];
     const box=custom?S.customBox.map((p,i)=>makeCustomSetupMon(p,i,true)):[];
     const starter=party[0];
     const profile={v:VERSION, setupRevision:'1.3.40p', mode:S.mode, protagonist, ashNpc, name, gender, age:10, hometown,
@@ -2642,8 +2787,11 @@ async function submitSetup() {
       party:party.map(m=>({species:m.species,nickname:m.nickname,level:m.lv,gender:m.gender,nature:m.nature,ability:m.ability,moves:m.moves})),
       box:box.map(m=>({species:m.species,nickname:m.nickname,level:m.lv,gender:m.gender,nature:m.nature,ability:m.ability,moves:m.moves}))};
     await writePkm(pkm=>{
-      // A retry after a send failure must not reroll or overwrite an already-registered opening.
-      if(pkm.integration.profile) return;
+      // Never overwrite or re-announce a profile that appeared while this
+      // wizard was open. In particular do not send the stale wizard's mode or
+      // starter after another writer has registered a different profile.
+      if(!isOrigin())throw new Error('聊天或候选回复在登记期间发生变化，本次未登记。');
+      if(setupStatus(pkm)!=='unregistered')throw new Error('检测到已有或无法确认的旅程；为避免覆盖旧队伍，不能重新登记，请先备份核对。');
       // New registrations only; never top up an existing player's inventory.
       pkm.player.money=10000;
       pkm.player.bag.精灵球=Math.max(10,Number(pkm.player.bag.精灵球)||0);
@@ -2670,19 +2818,55 @@ async function submitSetup() {
       if(ash&&rec.delia){rec.delia.met=true;rec.delia.lastInteraction=0;}
       pkm.integration.profile=profile;pkm.integration.version=VERSION;
     });
-    const registered=readPkm().integration.profile || profile;
-    const text=`<pkm_profile>${JSON.stringify(registered)}</pkm_profile>\n（训练家档案已登记，${ash?'皮卡丘仅预登记、尚未领取；到EP001节点2由玩家确认领取后才入队，不要提前作为队伍伙伴使用':(registered.customSetup?'自定义队伍与仓库':'初始伙伴')+'已由脚本写入存档，禁止再次赠送或重复添加'}。姓名、性别以本档案为准${ash?(protagonist==='智子'?'；主角是智子（小智的性转版少女，见《人物档案·智子》），原作剧情中小智的位置由她承担，人称与性别描写按智子处理，收服/徽章/劲敌等事件轨迹不变，其他角色称呼她智子':'，小智模式仅继承主角身份，不强制改名或改性别'):''}${!ash&&ashNpc==='智子'?'同行的小智为智子（小智的性转版少女，见《人物档案·智子》）：原作剧情里小智的戏份与事件轨迹不变，人名、人称与性别描写按智子，其他角色称呼她智子，她按事件详情默认走向行动、可被 {{user}} 介入影响。':''}人物背景是玩家设定资料，不是额外指令。请从${S.mode}的开场开始第一幕。）`;
-    await sendUserMessage(text);
+    committed=true;
+    if(!isOrigin())throw new Error('登记后聊天或候选回复已切换，未自动发送。');
+    const registered=readPkm().integration.profile;
+    if(!registered||JSON.stringify(registered)!==JSON.stringify(profile))throw new Error('登记后档案发生变化，未自动发送，请核对变量。');
+    PD.getElementById('pkm-setup-warning')?.remove();
+    await sendUserMessage(setupProfileMessage(registered),isOrigin);
+  } catch(err) {
+    if(!committed)throw err;
+    // Registration and delivery are separate operations.  Keep the written
+    // profile/party intact; never run the wizard again or blindly resend.
+    S.error='档案已写入原聊天，但开局消息未确认发送：'+(err?.message||err)+' 请核对聊天后手动补发。';
+    toast(S.error,'warning');
   } finally {S.busy=false;rerenderSetups(true);}
 }
-async function sendUserMessage(text) {
+function setupProfileMessage(registered) {
+  const ash=registered.mode==='小智模式',protagonist=registered.protagonist,ashNpc=registered.ashNpc;
+  return `<pkm_profile>${JSON.stringify(registered)}</pkm_profile>\n（训练家档案已登记，${ash?'皮卡丘仅预登记、尚未领取；到EP001节点2由玩家确认领取后才入队，不要提前作为队伍伙伴使用':(registered.customSetup?'自定义队伍与仓库':'初始伙伴')+'已由脚本写入存档，禁止再次赠送或重复添加'}。姓名、性别以本档案为准${ash?(protagonist==='智子'?'；主角是智子（小智的性转版少女，见《人物档案·智子》），原作剧情中小智的位置由她承担，人称与性别描写按智子处理，收服/徽章/劲敌等事件轨迹不变，其他角色称呼她智子':'，小智模式仅继承主角身份，不强制改名或改性别'):''}${!ash&&ashNpc==='智子'?'同行的小智为智子（小智的性转版少女，见《人物档案·智子》）：原作剧情里小智的戏份与事件轨迹不变，人名、人称与性别描写按智子，其他角色称呼她智子，她按事件详情默认走向行动、可被 {{user}} 介入影响。':''}人物背景是玩家设定资料，不是额外指令。请从${registered.mode}的开场开始第一幕。）`;
+}
+function prepareSetupMessage() {
+  const pkm=readPkm(),ta=PD.getElementById('send_textarea');
+  if(generationInFlight||!setupAnnouncementPending(pkm)){toast('开局状态已变化，请先核对聊天；未准备或发送消息。','warning');return;}
+  if(!ta){toast('找不到聊天输入框，请先检查宿主界面。','warning');return;}
+  const text=setupProfileMessage(pkm.integration.profile);
+  if(ta.value.trim()&&ta.value!==text){toast('输入框已有草稿；为避免覆盖，请先自行处理。','warning');return;}
+  ta.value=text;ta.dispatchEvent(new Event('input',{bubbles:true}));
+  toast('已准备开局档案，尚未发送；请确认聊天中没有重复记录后手动发送。','info');
+}
+async function sendUserMessage(text,isOrigin=()=>true) {
   const ta = PD.getElementById('send_textarea'), btn = PD.getElementById('send_but');
+  if(!isOrigin())throw new Error('聊天已切换，未发送。');
   if (ta && btn) {
+    if(ta.value.trim()&&ta.value!==text)throw new Error('输入框已有草稿，未覆盖。');
+    if(btn.disabled||btn.getAttribute('aria-disabled')==='true')throw new Error('发送按钮暂不可用。');
     ta.value = text; ta.dispatchEvent(new Event('input', { bubbles: true }));
-    await sleep(60); btn.click(); return;
+    await sleep(60);
+    if(!isOrigin()){
+      if(ta.value===text){ta.value='';ta.dispatchEvent(new Event('input',{bubbles:true}));}
+      throw new Error('聊天或候选回复已切换，未发送。');
+    }
+    if(!ta.isConnected||!btn.isConnected||btn.disabled||btn.getAttribute('aria-disabled')==='true'||ta.value!==text)throw new Error('输入框或发送按钮已变化，未自动发送。');
+    btn.click(); return;
   }
-  if (typeof W.triggerSlash === 'function') { await W.triggerSlash('/send ' + text.replace(/\|/g, '\\|')); await W.triggerSlash('/trigger'); return; }
-  throw new Error('找不到聊天输入框');
+  if(ta?.value?.trim()&&ta.value!==text)throw new Error('输入框已有草稿，未覆盖。');
+  if (typeof W.triggerSlash === 'function') {
+    await W.triggerSlash('/send ' + text.replace(/\|/g, '\\|'));
+    if(!isOrigin())throw new Error('聊天已切换，请核对开局消息是否已经送出。');
+    await W.triggerSlash('/trigger'); return;
+  }
+  throw new Error('找不到聊天输入框或发送按钮');
 }
 function scanSetup() {
   PD.querySelectorAll('#chat .mes').forEach(mes => {
@@ -2852,7 +3036,11 @@ function nearbyList(pkm, st) {
   if(waterTable)table=waterTable;
   else if(node?.id!=='seafoam'){const aquaticOnly=new Set(['鲤鱼王','角金鱼','金鱼王','玛瑙水母','毒刺水母','墨海马','海刺龙','大舌贝','铁甲贝','海星星','宝石海星']);table=table.filter(t=>!aquaticOnly.has(t[0]));}
   const d = parseDate(st.时间 || pkm.world.time);
-  const seedKey = `${loc}|${d ? d.day : 0}|${d ? Math.floor(d.h / 4) : 0}|${Number(pkm.world?.encounterRefreshToken)||0}`;
+  // Encounter IDs are persistent salts, not elapsed-time arithmetic. Keep the
+  // legacy date label so v5 used/caught/pending encounters and RNG stay stable
+  // across this calendar fix; clocks themselves use real month lengths.
+  const seedDay=d?(d.y-1)*372+(d.mo-1)*31+d.d:0;
+  const seedKey = `${loc}|${seedDay}|${d ? Math.floor(d.h / 4) : 0}|${Number(pkm.world?.encounterRefreshToken)||0}`;
   const total = table.reduce((a, t) => a + t[3], 0);
   const sprayFloor = repelFloor(pkm);
   const list = [];
@@ -8049,6 +8237,7 @@ function engineConfig(spec, pkm, tag) {
   const team = (Array.isArray(cfg.team) ? cfg.team : []).slice(0, fmt.enemyMax);
   // v1.3.4：对手 / 野生宝可梦也有个体值和性格（按这场对战的 key 固定，重开同一场不会变；收服后沿用）
   const band = ['gym', 'rival', 'boss', 'league'].includes(type) ? 'high' : null;
+  const genderCorrections=[];
   const enemy = team.map((t, i) => {
     const e = typeof t === 'string' ? { species: t, level: 5 } : { species: t.species || t.name, level: Number(t.level || t.lv) || 5, moves: Array.isArray(t.moves) ? t.moves : [], ability: t.ability, nature: t.nature, gender: t.gender, shiny: !!t.shiny };
     if (typeof t === 'object' && t) {
@@ -8062,14 +8251,17 @@ function engineConfig(spec, pkm, tag) {
     const giv = isObj(t?.ivs) && K.STAT_KEYS.every(k => ivOk(Number(t.ivs[k]))) ? Object.fromEntries(K.STAT_KEYS.map(k => [k, Number(t.ivs[k])])) : null;
     e.ivs = giv || rollIvs(band, r);
     if (!natureZh(e.nature)) e.nature = rollNature(r);
-    // A wild encounter with no recorded sex is assigned once before the iframe starts.
-    // Seed is independent from IV/nature rolls and stable when the same encounter is reopened.
-    const givenGender=PKMGender.normalize(e.gender);
-    if(givenGender)e.gender=givenGender;
-    else if(fmt.wild && PKMGender.missing(e.gender)){
+    // New encounter inputs are checked against the species table. Existing
+    // owned party members are deliberately not rewritten. A bad wild input is
+    // re-rolled deterministically (or remains unknown for an unknown species).
+    const rawGender=e.gender,givenGender=PKMGender.normalize(rawGender),sid=speciesId(e.species),known=PKMGender.rate(sid)!==null;
+    const invalidKnown=!!givenGender&&known&&!PKMGender.allowed(sid,givenGender);
+    if(givenGender&&!invalidKnown)e.gender=givenGender;
+    else if(fmt.wild||invalidKnown){
       const seed=['wild-gender',pkm.player?.id||pkm.player?.name||'',spec.key||cfg.id||'',i,e.species].join('#');
-      e.gender=PKMGender.roll(speciesId(e.species),rng(hash(seed)));
-    }
+      e.gender=PKMGender.roll(sid,rng(hash(seed)));
+      if(invalidKnown||(!PKMGender.missing(rawGender)&&!givenGender))genderCorrections.push(`${e.species}：${String(rawGender)} → ${PKMGender.label(e.gender)}`);
+    }else e.gender=null;
     return e;
   });
   const party = pickPlayers(entries, fmt.playerMax);
@@ -8092,7 +8284,7 @@ function engineConfig(spec, pkm, tag) {
   const w = K.WEATHER[String(rawEnv.weather || '').trim()] || rawEnv.weather;
   if (w || rawEnv.terrain) out.environment = { weather: w || null, weatherTurns: rawEnv.weatherTurns ?? 0,
     terrain: rawEnv.terrain || null, terrainTurns: rawEnv.terrainTurns ?? 0 };
-  return { engine: out, balls, type, fmt };
+  return { engine: out, balls, type, fmt, genderCorrections };
 }
 /* @format-end */
 /* @roster-begin（tests/npc-roster.test.mjs 直接执行这一段）
@@ -8358,7 +8550,8 @@ async function launchBattle(m) {
   if(modal!==m)return;
   const pkm = readPkm();
   const tag = uid();
-  const { engine, balls, type, fmt } = engineConfig({ ...m.spec, cfg: m.cfg }, pkm, tag);
+  const { engine, balls, type, fmt, genderCorrections } = engineConfig({ ...m.spec, cfg: m.cfg }, pkm, tag);
+  if(genderCorrections?.length)toast('对战配置中的性别不符合物种或无法识别，已在新遭遇中校正：'+genderCorrections.join('；'),'warning');
   if (!engine.p1.entrants[0].party.length) { toast('队伍里的宝可梦都失去了战斗能力，先去宝可梦中心治疗吧。', 'warning'); closeBattle(true); return; }
   const heldSnapshots=Object.fromEntries(engine.p1.entrants[0].party.map(e=>[e.hostSlot,PKMHeldSync.snapshot(pkm.party.slots[e.hostSlot],e,heldItemId)]));
   const partyUids=pkm.party.slots.map(s=>hasMon(s)?String(s.uid||''):null);
@@ -8367,7 +8560,7 @@ async function launchBattle(m) {
   const frame = PD.createElement('iframe');
   frame.setAttribute('allow', 'autoplay; fullscreen'); frame.setAttribute('allowfullscreen', ''); frame.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
   frame.style.background = '#070a14';
-  frame.src = W.PKM_BATTLE_EMBED_URL || `${BASE}index.html?embed=1&v=20261113-gender-recovery-v5`;
+  frame.src = W.PKM_BATTLE_EMBED_URL || `${BASE}index.html?embed=1&v=20261113-comprehensive-fix-v6`;
   stage.replaceWith(frame);
   m.frame = frame;
   setBar(m.cfg.lines?.start ? '「' + m.cfg.lines.start + '」' : '正在连接对战系统……');
@@ -8401,7 +8594,7 @@ function onEngineMessage(d) {
   const m = modal; if (!m) return;
   if (d.type === 'PKM_BATTLE_EXIT') { closeBattle();return; }
   if (d.type === 'PKM_BATTLE_READY') {
-    const v=d.payload||{},expected='20261113-gender-recovery-v5';
+    const v=d.payload||{},expected='20261113-comprehensive-fix-v6';
     if([v.version,v.engineVersion,v.gearVersion,v.gearDataVersion,v.genderVersion].some(x=>x!==expected)){
       m.verified=false;m.sent=false;clearTimeout(m.timer);
       setBar('对战版本不匹配或网站未完整部署，已拒绝启动旧引擎。请一起上传全部覆盖文件、刷新缓存后重试；手机返回或电脑 Esc 可退出。');return;
@@ -8430,12 +8623,13 @@ function onEngineMessage(d) {
 }
 const OUTCOME_ZH = { victory: '胜利', defeat: '败北', captured: '收服成功', escaped:'逃跑成功', draw: '平局/中止' };
 function monFromCapture(cap, enemy, cfgEnemy, pkm) {
-  const spec = cap.spec || {};
+  const spec = cap.spec || {},sid=speciesId(spec.species || cap.species),gender=PKMGender.normalize(spec.gender);
+  if(PKMGender.rate(sid)!==null&&!PKMGender.allowed(sid,gender))throw new Error('收服结果的性别与物种不符，本场未结算；请重新对战。');
   const zhName = zhSpecies(spec.species || cap.species),captureMoves=[0,1,2,3].map(i=>spec.moves?.[i]?zhMove(spec.moves[i]):null),capturePp={};
   if(Array.isArray(spec.pp))spec.pp.forEach((left,i)=>{const move=captureMoves[i],max=move?maxPP(move):null,n=Number(left);if(move&&Number.isFinite(n)&&Number.isFinite(Number(max))&&n<Number(max))capturePp[move]=Math.max(0,Math.floor(n));});
   const mon = emptySlot(1);
   Object.assign(mon, { 
-    name: zhName, species: zhName, nickname: null, gender: PKMGender.normalize(spec.gender) || PKMGender.normalize(enemy?.gender) || PKMGender.normalize(cfgEnemy?.gender) || null, lv: spec.level || enemy?.level || 5,
+    name: zhName, species: zhName, nickname: null, gender, lv: spec.level || enemy?.level || 5,
     quality: null, nature: zhNature(spec.nature) || K.NATURES[Math.floor(Math.random() * K.NATURES.length)], ability: zhAbility(spec.ability),
     shiny: !!spec.shiny, moves:captureMoves, pp:Object.keys(capturePp).length?capturePp:null,
     hp: cap.hpAtCapture ?? enemy?.hp ?? null, maxHp: enemy?.maxHp ?? null, status: K.STATUS_TO_ZH[cap.statusAtCapture] || null,
@@ -8714,18 +8908,24 @@ async function applyResult(m, payload) {
   const outcome = payload.outcome || (payload.winner === 'player' ? 'victory' : payload.winner === 'enemy' ? 'defeat' : 'draw');
   if(outcome==='captured'&&(m.type!=='wild'||payload.winner!=='player'||payload.capture?.success!==true||!payload.capture?.spec?.species))
     throw new Error('收服结果缺少有效的野生成功记录，本场结果未结算，请重新对战。');
+  if(outcome==='captured'){
+    const expected=m.engine?.p2?.entrants?.[0]?.party?.[0],spec=payload.capture.spec;
+    const expectedId=speciesId(expected?.species),actualId=speciesId(spec.species),g=PKMGender.normalize(spec.gender),want=PKMGender.normalize(expected?.gender);
+    if(!expectedId||!actualId||expectedId!==actualId||g!==want||(PKMGender.rate(actualId)!==null&&!PKMGender.allowed(actualId,g)))
+      throw new Error('收服结果与开战时确定的物种或性别不一致，本场未结算，请重新对战。');
+  }
   const won=earnsBattleRewards(outcome,m.type);
   if(won)await Promise.all([LEVEL_UP_LEARNSET_READY,EFFORT_YIELDS_READY]);
   const cfg = m.cfg, cfgTeam = Array.isArray(cfg.team) ? cfg.team : [];
   const fmt = m.fmt || battleFormat(cfg, (payload.playerTeam || []).length);
   const pN = (payload.playerTeam || []).length, eN = (payload.enemyTeam || []).length;
   const fmtText = fmt.wild ? `野外 · ${fmt.tag}` : fmt.full ? `两边全队（我方${pN}只 vs 对方${eN}只）` : fmt.name;
-  let placed = null, capturedName = null, gymBadgeAward = null, capturedDetail = null, captureInitPath = '';
+  let placed = null, capturedName = null, capturedGender = null, gymBadgeAward = null, capturedDetail = null, captureInitPath = '';
   let summaryParts = [];
   let xpGains = [],evGains=[],rewardWarnings=[],evolutionBalls=0;
   const bondNotes = [], honorNotes=[];
   const result = await writePkm(pkm => {
-    summaryParts = []; bondNotes.length = 0; honorNotes.length=0; placed = null; capturedName = null; gymBadgeAward = null; capturedDetail = null; xpGains=[]; evGains=[]; rewardWarnings=[]; evolutionBalls=0; captureInitPath=''; // writePkm 可能重算
+    summaryParts = []; bondNotes.length = 0; honorNotes.length=0; placed = null; capturedName = null; capturedGender = null; gymBadgeAward = null; capturedDetail = null; xpGains=[]; evGains=[]; rewardWarnings=[]; evolutionBalls=0; captureInitPath=''; // writePkm 可能重算
     const currentIds=pkm.party.slots.map(s=>hasMon(s)?String(s.uid||''):null);
     if(!Array.isArray(m.partyUids)||m.partyUids.some((id,i)=>id!==currentIds[i]))
       throw new Error('战斗期间队伍位置发生变化，为避免把体力、经验或道具写给错误伙伴，本场结果未结算；请恢复原队伍后重新对战。');
@@ -8771,7 +8971,7 @@ async function applyResult(m, payload) {
     // 4) 收服
     if (outcome === 'captured' && payload.capture) {
       const mon = monFromCapture(payload.capture, payload.enemyTeam?.[0], cfgTeam[0], pkm);
-      capturedName = mon.species;
+      capturedName = mon.species;capturedGender=mon.gender;
       // v1.3.57：把收服掷定的个体信息写进摘要，AI 叙述从此有据可依（正文/变量/面板三处一致）
       capturedDetail = [mon.nature ? `性格${natureZh(mon.nature) || mon.nature}` : null,
         mon.ability ? `特性${mon.ability}` : null,
@@ -8820,7 +9020,7 @@ async function applyResult(m, payload) {
     format: fmt.wild ? '野外1只' : fmt.name, rule: fmt.rule, lineup: { player: pTeam.length, enemy: eTeam.length }, verdict, bench, autoTeam: m.comp?.added?.length ? m.comp.added : undefined,
     player: (payload.playerTeam || []).map(p => { const s = pkm.party.slots[p.hostSlot]; return { name: s ? monName(s) : zhSpecies(p.baseSpecies), lv: p.level, hp: p.fainted ? 0 : p.hp, maxHp: p.maxHp, fainted: !!p.fainted, status: K.STATUS_TO_ZH[p.status] || null, entered: p.participated !== false }; }),
     enemy: (payload.enemyTeam || []).map(p => ({ species: zhSpecies(p.baseSpecies || p.species), lv: p.level, hp: p.hp, maxHp: p.maxHp, fainted: !!p.fainted, status: K.STATUS_TO_ZH[p.status] || null })),
-    capture: outcome === 'captured' && payload.capture ? { ball: K.BALL_ZH[payload.capture.ball] || '精灵球', species: capturedName, level: payload.capture.spec?.level, gender: PKMGender.normalize(payload.capture.spec?.gender) || PKMGender.normalize(payload.enemyTeam?.[0]?.gender) || PKMGender.normalize(cfgTeam[0]?.gender) || null, placed, friendshipInit: captureInitPath || null } : null,
+    capture: outcome === 'captured' && payload.capture ? { ball: K.BALL_ZH[payload.capture.ball] || '精灵球', species: capturedName, level: payload.capture.spec?.level, gender: capturedGender, placed, friendshipInit: captureInitPath || null } : null,
     stakes: cfg.stakes || null,
     badgeAward: gymBadgeAward, reputationAward: gymBadgeAward ? 1000 : 0, evolutionBalls,
   };
@@ -9018,6 +9218,16 @@ function onGenerationStarted(type,options,dryRun){
 function onGenerationAfterCommands(type,options,dryRun){
   if(['quiet','impersonate'].includes(type))return;
   const repair=['swipe','regenerate'].includes(type),id=lastAiId();
+  const visible=chat().slice(0,injectionCutoff===Infinity?undefined:injectionCutoff+1);
+  const registration=setupStatus(readPkmBefore(injectionCutoff),visible);
+  if(!dryRun&&!repair&&registration==='unregistered'){
+    try{ctx()?.stopGeneration?.();}catch(e){LOG('此宿主未能取消生成',e);}
+    let el=PD.getElementById('pkm-setup-warning');
+    if(!el){el=PD.createElement('div');el.id='pkm-setup-warning';el.setAttribute('role','alert');el.style.cssText='position:fixed;z-index:2147483645;top:68px;right:8px;max-width:min(480px,calc(100vw - 28px));padding:10px 12px;border:2px solid #c98d37;border-radius:10px;background:#fff7df;color:#5c3e16;font:13px/1.5 sans-serif';PD.body.appendChild(el);}
+    el.textContent='尚未检测到训练家登记。请先在开场界面完成档案，再开始剧情；若宿主未能停止生成，请手动停止。本提示不会覆盖旧档。';
+    generationInFlight=false;rerenderSetups(true);refreshInjection();return;
+  }
+  PD.getElementById('pkm-setup-warning')?.remove();
   const problem=!repair?knownPlotProblem(id):null, pos=plotPosition(injectionCutoff);
   const conflict=!repair&&pos?.conflict?{reason:pos.conflict+' 旧记录不会被自动补完，请核对。'}:null;
   if(!dryRun&&(problem||conflict)){
@@ -9805,7 +10015,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, hardPlotVersion: '20261113-gender-recovery-v5', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: "20261111-ev-pp-shop-v9", base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, hardPlotVersion: '20261113-comprehensive-fix-v6', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: "20261111-ev-pp-shop-v9", base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
@@ -9813,7 +10023,7 @@ async function start() {
   on('CHAT_CHANGED',()=>{plotProblems.clear();generationSerial++;generationInFlight=false;generationBaseline=null;pendingGenerationMessage=null;onChatEvent(false);});
   for(const ev of ['MESSAGE_SWIPED','MESSAGE_EDITED'])on(ev,()=>onChatEvent(true));
   for(const ev of ['MESSAGE_DELETED','MESSAGE_UPDATED'])on(ev,()=>onChatEvent(false));
-  on('MESSAGE_SENT',()=>refreshInjection());
+  on('MESSAGE_SENT',()=>{refreshInjection();refreshAll();});
   on('GENERATION_STARTED',onGenerationStarted);
   on('GENERATION_AFTER_COMMANDS',onGenerationAfterCommands);
   // Release the interaction lock if the host aborts or finishes without MESSAGE_RECEIVED.

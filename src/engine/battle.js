@@ -74,6 +74,16 @@
     for (const [id, extra] of Object.entries(MOVE_EFFECT_PATCH)) if (MOVES[id]) Object.assign(MOVES[id], extra);
   }
   const normId = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  // Unknown is deliberately not genderless and cannot satisfy a move that
+  // requires two explicitly known, opposite sexes. Works without the UI module.
+  function battleGender(value) {
+    const s=String(value??'').trim().toLowerCase();
+    if(['m','male','♂','公','雄','雄性','男'].includes(s))return 'M';
+    if(['f','female','♀','母','雌','雌性','女'].includes(s))return 'F';
+    if(['n','genderless','neuter','无性别','没有性别','无'].includes(s))return 'N';
+    return null;
+  }
+  const oppositeGenders=(a,b)=>{const x=battleGender(a?.gender),y=battleGender(b?.gender);return (x==='M'&&y==='F')||(x==='F'&&y==='M');};
   const MECH = root.PKMMechanics || null;
   const TYPE_ITEMS = MECH?.TYPE_ITEMS || {};
   const abilityId = p => p?._abilitySuppressed ? '' : normId(p?.ability || '');
@@ -564,6 +574,14 @@
     alive(side) { return this.teams[side].filter(p => !p.fainted); }
     other(side) { return 1 - side; }
     sideOf(p) { return p?._side ?? this.teams.findIndex(team => team.includes(p)); }
+    clearInfatuationFrom(source) {
+      const side=this.sideOf(source),index=this.teams[side]?.indexOf(source);
+      if(index==null||index<0)return;
+      for(const p of this.teams.flat()){
+        const a=p.volatile?.attract;
+        if(a&&a.sourceSide===side&&a.sourceIndex===index){delete p.volatile.attract;this.say(`${p.name} 的着迷状态解除了。`);}
+      }
+    }
 
     setWeather(id, turns = 5) {
       const map = { sunnyday: 'sun', raindance: 'rain', sandstorm: 'sand', snowscape: 'snow', hail: 'snow', sun: 'sun', rain: 'rain', sand: 'sand', snow: 'snow' };
@@ -970,6 +988,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       // v1.3.54：妖精之锁 / 被盯住（黑色目光、挡路、蛛网） / 蛸固 —— 无法交换
       if (!opts.forced && (this.field.pseudoWeather?.fairylock > 0)) { this.say('妖精之锁封住了场地，无法交换！'); return false; }
       if (!opts.forced && (old.volatile?.cannotEscape || old.volatile?.octolock)) { this.say(`${old.name} 被盯住，无法逃走！`); return false; }
+      this.clearInfatuationFrom(old);
       if (old.dynamaxed && !old.fainted) this.endDynamax(old);
       if (!old.fainted && hasAbility(old, 'regenerator')) this.heal(old, Math.floor(old.maxHp / 3), '再生力回复了体力');
       if (!old.fainted && hasAbility(old, 'naturalcure') && old.status) { old.status = null; this.say(`${old.name} 的自然回复治愈了异常状态。`); }
@@ -1193,7 +1212,12 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
           return false;
         }
       }
-      if (p.volatile?.attract && this.rng() < 0.5) { this.say(`${p.name} 被迷住了，无法行动！`); return false; }
+      if (p.volatile?.attract) {
+        const a=p.volatile.attract,source=this.teams[a.sourceSide]?.[a.sourceIndex];
+        if(!source||source.fainted||source.hp<=0||!this.activeMons(a.sourceSide).includes(source)){
+          delete p.volatile.attract;this.say(`${p.name} 的着迷状态解除了。`);
+        }else if(this.rng()<0.5){this.say(`${p.name} 被迷住了，无法行动！`);return false;}
+      }
       if (p.volatile.flinch) { delete p.volatile.flinch; if (p.dynamaxed) { /* Dynamax cannot flinch */ } else { this.say(`${p.name} 退缩了，无法行动！`); if (hasAbility(p, 'steadfast')) this.changeStages(p, { spe: 1 }, p); return false; } }
       return true;
     }
@@ -1203,7 +1227,9 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       const firstAction = !shared || !shared.started;
       if (shared?.cancelled) return;
       let move = shared?.move || baseMove;
-      let wantsZ = shared ? !!shared.wantsZ : (opts.mechanic === 'z' && !this.mechanicUsed[side].z && user.mechanic === 'z' && user.zType === baseMove.type);
+      // The first target receives an empty shared object as well. Compute the
+      // Z decision there, then reuse it for the remaining spread targets.
+      let wantsZ = firstAction ? (opts.mechanic === 'z' && !this.mechanicUsed[side].z && user.mechanic === 'z' && user.zType === baseMove.type) : !!shared.wantsZ;
       if (firstAction) {
         if (wantsZ) move = makeZMove(user, baseMove);
         if (user.dynamaxed) move = makeMaxMove(user, baseMove);
@@ -1243,7 +1269,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       let realTarget = move.id === 'curse' ? (ghostCurse ? target : user) : (move.target === 'self' ? user : target);
       // v1.3.55：魔法反射 / 抢夺 —— 弹回对手的变化招式
       if (target && target !== user && move.category === 'Status' && !move.sideCondition && !move.pseudoWeather) {
-        if (target.volatile?.magiccoat && move.target !== 'self') { this.say(`${target.name} 的魔法反射把招式弹了回去！`); realTarget = user; }
+        if (target.volatile?.magiccoat && move.target !== 'self') { this.say(`${target.name} 的魔法反射把招式弹了回去！`); realTarget = user; opts._reflectedBy = target; }
         else if (target.volatile?.snatch && (move.heal || (move.boosts && move.target === 'self'))) { this.say(`${target.name} 抢夺了对手的招式效果！`); realTarget = target; opts._snatched = true; }
       }
       if (realTarget !== user) realTarget._moveAgainst = move.id;
@@ -1397,8 +1423,11 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
 
     applyEffects(user, target, move, eff, context = {}) {
       if (!eff) return;
+      // For a reflected gender-dependent move the reflector is the effective
+      // source; the actual recipient can be the original user.
+      const effectSource=context._reflectedBy&&['attract','captivate'].includes(move.id)?context._reflectedBy:user;
       // v1.3.54：戏法防守 —— 对手的变化招式无效（不影响自己一方的自我招式与场地类）
-      if (eff === move && move.category === 'Status' && target && target._side !== user._side
+      if (eff === move && move.category === 'Status' && target && target._side !== effectSource._side
         && !move.sideCondition && !move.pseudoWeather && (this.field.sides[this.sideOf(target)]?.craftyshield > 0)) {
         this.say(`${target.name} 一方被戏法防守保护着！`); return;
       }
@@ -1741,6 +1770,11 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         }
         if (move.id === 'courtchange') { const tmp = this.field.sides[0]; this.field.sides[0] = this.field.sides[1]; this.field.sides[1] = tmp; this.say('双方交换了场地效果！'); }
       }
+      // Apply the check after Z-status self effects, but before target effects.
+      // Spread moves are evaluated separately for each actual target.
+      if(eff===move&&['attract','captivate'].includes(move.id)&&!oppositeGenders(effectSource,target)){
+        this.say('但是失败了！（只有性别已确认且互为异性时才生效；未知性别不作推定。）');return;
+      }
       if ((eff.volatileStatus === 'protect' || eff.volatileStatus === 'maxguard') && target === user) {
         user.volatile.protect = true; this.say(`${user.name} 摆出了守护的姿势！`);
       }
@@ -1808,11 +1842,15 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
             who.volatile.yawn = 2;
             this.say(`${who.name} 开始打哈欠了！`);
             break;
-          case 'attract':
+          case 'attract': {
             if (who.volatile.attract) { this.say('但是失败了！'); break; }
-            who.volatile.attract = { turns: 99 };
+            if (hasAbility(who,'oblivious')) { this.say(`${who.name} 的迟钝使其不会陷入着迷！`); break; }
+            const sourceSide=this.sideOf(effectSource),sourceIndex=this.teams[sourceSide]?.indexOf(effectSource);
+            if(sourceIndex==null||sourceIndex<0){this.say('但是失败了！');break;}
+            who.volatile.attract = { sourceSide,sourceIndex };
             this.say(`${who.name} 陷入了着迷状态！`);
             break;
+          }
           case 'aquaring':
             who.volatile.aquaring = true; this.say(`${who.name} 被水幕包裹，每回合回复体力！`); break;
           case 'ingrain':
@@ -1842,7 +1880,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       }
       if (eff.boosts) {
         const who = context?._snatched ? target : (eff === move.self || eff.target === 'self' ? user : target);
-        this.changeStages(who, eff.boosts, who === user ? user : user);
+        this.changeStages(who, eff.boosts, effectSource);
       }
     }
 
@@ -1860,7 +1898,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       const count = this.double ? 2 : 1;
       for (const side of [0, 1]) for (let slot = 0; slot < count; slot++) {
         const p = this.cur(side, slot);
-        if (p && !p.fainted && p.hp <= 0) { p.fainted = true; this.say(`${p.name} 失去了战斗能力！`); }
+        if (p && !p.fainted && p.hp <= 0) { p.fainted = true; this.say(`${p.name} 失去了战斗能力！`); this.clearInfatuationFrom(p); }
       }
       if (deferReplacement) return;
       // Marking and replacement are separate: previously marked fainted slots remain eligible.
@@ -2105,7 +2143,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     }
   }
 
-  const api = { version:'20261113-gender-recovery-v5', setData, specialDamageInfo, FIXED_DAMAGE_IDS, VARIABLE_POWER_IDS, createPokemon, calcStats, effStat, estimateDamage, Battle, normId, STATUS_NAMES, abilityId, itemId, isGrounded, transformMove, makeZMove, makeMaxMove, stabMultiplier };
+  const api = { version:'20261113-comprehensive-fix-v6', setData, specialDamageInfo, FIXED_DAMAGE_IDS, VARIABLE_POWER_IDS, createPokemon, calcStats, effStat, estimateDamage, Battle, normId, STATUS_NAMES, abilityId, itemId, isGrounded, transformMove, makeZMove, makeMaxMove, stabMultiplier };
   root.PKMBattle = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -26,8 +26,9 @@
     return value<1-r/8?'M':'F';
   }
   function options(id){const r=rate(id);return r===null?['M','F','N']:r<0?['N']:r===0?['M']:r===8?['F']:['M','F'];}
+  function allowed(id,value){const g=normalize(value);return !!g&&options(id).includes(g);}
   function label(g){const x=normalize(g);return x==='M'?'♂ 雄性':x==='F'?'♀ 雌性':x==='N'?'无性别':missing(g)?'性别未记录':'性别未识别';}
   function symbol(g){const x=normalize(g);return x==='M'?'♂':x==='F'?'♀':x==='N'?'无性别':'';}
-  const api=Object.freeze({version:'20261113-gender-recovery-v5',rate,roll,options,normalize,missing,label,symbol});
+  const api=Object.freeze({version:'20261113-comprehensive-fix-v6',rate,roll,options,allowed,normalize,missing,label,symbol});
   root.PKMGender=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

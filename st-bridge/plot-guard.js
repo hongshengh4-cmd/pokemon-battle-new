@@ -2,13 +2,42 @@
 (function(root){'use strict';
   const PLOT_RE = /([A-Z]{2,3}\d{2,3})\s*[｜|]\s*节点\s*(\d+)\s*[｜|]\s*(进行中|节点完成|完成|跳过)/;
   const FREE_RE = /自由\s*[｜|]\s*节点\s*0\s*[｜|]\s*进行中/;
+  // The story has numbered fictional years, not a real-world epoch. To retain
+  // the existing EP199 next-morning boundary, numbered year 3 is the first
+  // leap year; thereafter use the Gregorian 4/100/400 rule (year N ≡ N+1).
+  // This is an explicit clock convention, not a claim about real history.
+  const CALENDAR='story-calendar-year3-leap-v1';
+  const leap=y=>{const n=y+1;return n%4===0&&(n%100!==0||n%400===0);};
+  const finiteMinute=v=>v!==null&&v!==undefined&&v!==''&&Number.isSafeInteger(Number(v))?Number(v):null;
   function date(text) {
     const m=String(text||'').match(/第\s*(\d+)\s*年\s*(\d+)\s*月\s*(\d+)\s*日(?:\s*(\d{1,2})[:：](\d{2}))?/);
     if(!m)return null;
     const [y,mo,d]=m.slice(1,4).map(Number),hasTime=m[4]!==undefined,h=hasTime?Number(m[4]):0,mi=hasTime?Number(m[5]):0;
-    if(y<1||mo<1||mo>12||d<1||d>31||([4,6,9,11].includes(mo)&&d>30)||(mo===2&&d>29)||h>23||mi>59)return null;
-    const day=(y-1)*372+(mo-1)*31+d, minute=day*1440+h*60+mi;
+    if(!Number.isSafeInteger(y)||y<1||y>1000000||mo<1||mo>12||d<1||h>23||mi>59)return null;
+    const lengths=[31,leap(y)?29:28,31,30,31,30,31,31,30,31,30,31];
+    if(d>lengths[mo-1])return null;
+    const priorYears=(y-1)*365+Math.floor(y/4)-Math.floor(y/100)+Math.floor(y/400);
+    const day=priorYears+lengths.slice(0,mo-1).reduce((a,b)=>a+b,0)+d,minute=day*1440+h*60+mi;
     return {y,mo,d,h,mi,day,minute,hasTime,text:`第${y}年 ${mo}月${d}日${hasTime?` ${String(h).padStart(2,'0')}:${String(mi).padStart(2,'0')}`:''}`};
+  }
+  // v5 persisted a synthetic 31-day-per-month minute count. Decode its
+  // calendar labels first; never treat that number as the new clock directly.
+  // A fictitious/invalid legacy day cannot safely be inferred and returns null.
+  function legacyMinute(value){
+    const n=finiteMinute(value);if(n===null||n<1440)return null;
+    const day=Math.floor(n/1440),tod=n-day*1440,z=day-1;
+    const y=Math.floor(z/372)+1,mo=Math.floor((z%372)/31)+1,d=z%31+1;
+    return date(`第${y}年 ${mo}月${d}日 ${String(Math.floor(tod/60)).padStart(2,'0')}:${String(tod%60).padStart(2,'0')}`)?.minute??null;
+  }
+  function repelDeadline(repel){
+    if(!repel||typeof repel!=='object')return null;
+    const end=finiteMinute(repel.expiresAtGameMinute);if(end===null)return null;
+    if(repel.gameClock===CALENDAR)return {start:finiteMinute(repel.startedAtGameMinute),expires:end};
+    if(repel.gameClock)return null; // unknown or explicitly unresolved version
+    const rawStart=finiteMinute(repel.startedAtGameMinute),start=rawStart===null?end-1440:rawStart,duration=end-start;
+    if(!Number.isSafeInteger(duration)||duration<=0||duration>7*1440)return null;
+    const converted=legacyMinute(start);if(converted===null)return null;
+    return {start:converted,expires:converted+duration};
   }
   function makeEvents(entries){
     const list=[], stages={}, seen=new Set();
@@ -104,7 +133,8 @@
   }
   // Only directly stated, unambiguous cross-day facts are machine checked.
   // Other prose chronology remains a prompt constraint and cannot be semantically proven by this module.
-  // Fictional year numbering does not establish leap years: Feb 29 is a conservative earliest possible day, not a claim that it exists.
+  // Under the explicit fictional calendar above, year 3 includes Feb 29.
+  // This keeps EP199's established next-morning guard without inventing a real-world year.
   const NODE_OPEN={
     EP005:{4:"第1年 6月14日 00:00"},
     EP033:{4:"第1年 11月5日 00:00"},
@@ -311,6 +341,6 @@
     if(t.minute>pos.limit)return fail(`${pos.event.id} 尚未结束，时间不能越过它的明确结束范围或下一事件的开始窗口。`);
     return {ok:true,event:m[1],node:Number(m[2]),status:m[3]};
   }
-  const api={PLOT_RE,FREE_RE,date,makeEvents,position,validate,NODE_OPEN,NODE_FINISH};root.PKMPlotGuard=api;
+  const api={version:'20261113-comprehensive-fix-v6',PLOT_RE,FREE_RE,CALENDAR,leap,date,legacyMinute,repelDeadline,makeEvents,position,validate,NODE_OPEN,NODE_FINISH};root.PKMPlotGuard=api;
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

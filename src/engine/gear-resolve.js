@@ -81,5 +81,5 @@
     if((directKind==='tera'||source.teraType)&&typeName(source.teraType)){out.mechanic='tera';out.teraType=typeName(source.teraType);}
     return out;
   }
-  root.PKMGearResolve={version:'20261113-gender-recovery-v5',resolve};if(typeof module!=='undefined'&&module.exports)module.exports=root.PKMGearResolve;
+  root.PKMGearResolve={version:'20261113-comprehensive-fix-v6',resolve};if(typeof module!=='undefined'&&module.exports)module.exports=root.PKMGearResolve;
 })(typeof globalThis!=='undefined'?globalThis:this);
