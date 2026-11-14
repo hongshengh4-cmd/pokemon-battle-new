@@ -107,8 +107,8 @@ installSpriteRecovery(document);
   const EMBED = new URLSearchParams(location.search).has('embed');
   if (EMBED) document.documentElement.classList.add('embed');
   let dataReady = false, pendingHostConfig = null, hostTag = null, hostMode = false;
-  const APP_VERSION = '20261113-hardplot-doubles-capture-v3';
-  const hostVersions = () => ({version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||''});
+  const APP_VERSION = '20261113-gender-recovery-v5';
+  const hostVersions = () => ({version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||'',genderVersion:window.PKMGender?.version||''});
   let formatTag = '', formatRule = ''; // v1.3.8：角色卡发来的赛制（例：3v3、3只 vs 1只），显示在行动菜单的标签上
   let typeLabel = ''; // v1.3.9：角色卡发来的对战类型（道馆战 / 训练家对战 / 劲敌对战 / 火箭队……），标签第一段
   // 宿主模式：球袋来自角色卡变量（MVU），只存在本页内存里，不读写本机存档。
@@ -1311,6 +1311,15 @@ installSpriteRecovery(document);
       const name = info.querySelector('.name'), sub = info.querySelector('.sub');
       const hp = info.querySelector('.hpfill'), hpText = info.querySelector('.hptext');
       name.textContent = displayPokemonName(p) + (p.status ? `（${PKMBattle.STATUS_NAMES[p.status] || p.status}）` : '');
+      // Keep the sex visible in both single and doubles (where .sub is hidden).
+      // An unknown value is not the same as a genderless Pokémon.
+      const genderBadge = info.querySelector('.battle-gender'), gender = window.PKMGender?.normalize(p.gender);
+      const genderLabel = window.PKMGender?.label(p.gender) || '性别未记录';
+      if (genderBadge) {
+        genderBadge.textContent = gender === 'M' ? '♂' : gender === 'F' ? '♀' : genderLabel;
+        genderBadge.dataset.gender = gender || 'unknown'; genderBadge.title = genderLabel;
+        genderBadge.setAttribute('aria-label', genderLabel);
+      }
       const ab = PKMMechanics.abilityInfo(p.ability), it = p.item ? PKMMechanics.itemInfo(p.item) : null;
       const badges = [];
       if (p.captured) badges.push('已收服'); if (p.isMega) badges.push('超级进化');
@@ -1656,7 +1665,7 @@ installSpriteRecovery(document);
     return '';
   }
   const STATUS_ALIASES = { par: 'par', brn: 'brn', psn: 'psn', tox: 'tox', slp: 'slp', frz: 'frz', '麻痹': 'par', '灼伤': 'brn', '烧伤': 'brn', '中毒': 'psn', '剧毒': 'tox', '睡眠': 'slp', '睡着': 'slp', '冰冻': 'frz' };
-  const GENDER_ALIASES = { M: 'M', F: 'F', m: 'M', f: 'F', '公': 'M', '雄': 'M', '♂': 'M', '男': 'M', '母': 'F', '雌': 'F', '♀': 'F', '女': 'F' };
+  // Preserve M/F/N (including legacy Chinese/English aliases); N is genderless, not an omitted field.
   function buildFromConfigParty(party) {
     // Party entries: "Species" | {name|species:Species, lv|level, moves:[...], hp, maxHp, status}
     const out = [];
@@ -1692,7 +1701,7 @@ installSpriteRecovery(document);
       if (hostMode && !opts.ivs) opts.ivs = Object.fromEntries(['hp', 'atk', 'def', 'spa', 'spd', 'spe'].map(k => [k, Math.floor(Math.random() * 32)]));
       opts.ability = PKMAbilityChoice.select(opts.ability, PKMBattle._dex[species].abilities || [], ZH.abilities || {}) || undefined;
       if (opts.nature) { const want = String(opts.nature); const hit = Object.entries(ZH.natures || {}).find(([id, zh]) => zh === want || id === normId(want)); opts.nature = hit ? hit[0] : ''; }
-      if (opts.gender) opts.gender = GENDER_ALIASES[opts.gender] || null;
+      opts.gender = window.PKMGender?.normalize(opts.gender) || null;
       if (opts.nickname === rawSpecies) delete opts.nickname;
       const p = PKMBattle.createPokemon(species, level, moves, opts);
       for (const mv of p.moves) if (mv.id in ppById) mv.ppLeft = Math.max(0, Math.min(mv.pp ?? 10, Math.round(ppById[mv.id])));
@@ -1799,6 +1808,8 @@ installSpriteRecovery(document);
       weather = environment.weather || null;
       const wt = environment.weatherTurns;
       if (cfg.encounter?.type === 'wild' && enemyTeam.length !== 1) throw new Error('当前野生遭遇仅支持一只野生宝可梦。');
+      // Safety fallback for standalone/config callers: never overwrite an explicitly supplied sex.
+      if (wild && window.PKMGender) for (const p of enemyTeam) if (window.PKMGender.missing(p.gender)) p.gender = window.PKMGender.roll(p.speciesId);
       if (doubleMode && (playerTeam.filter(p => !p.fainted).length < 2 || enemyTeam.filter(p => !p.fainted).length < 2)) throw new Error('双打模式需要双方各至少两只尚未失去战斗能力的宝可梦。');
       battle = new PKMBattle.Battle(playerTeam, enemyTeam, { double: doubleMode, firstFaintLoses: cfg.rules?.firstFaintLoses === true, difficulty, weather, weatherTurns: typeof wt !== 'undefined' ? wt : 0,
         encounterType: cfg.encounter?.type, balls: worldStore.state.balls, itemStock:cfg.host?.battleItems||{}, seed: cfg.seed, captureContext:cfg.host?.captureContext||{} });
@@ -1815,7 +1826,7 @@ installSpriteRecovery(document);
       if (isWild) {
         const pool = ['pikachu','eevee','growlithe','psyduck','vulpix','oddish','zubat','geodude','riolu'];
         const id = pool[Math.floor(Math.random()*pool.length)], level = 30 + Math.floor(Math.random()*16);
-        enemyTeam = [PKMBattle.createPokemon(id, level, autoMoves(id, level))];
+        enemyTeam = [PKMBattle.createPokemon(id, level, autoMoves(id, level), {gender:window.PKMGender?.roll(id) || null})];
       }
       if (isWild) doubleMode = false;
       if (doubleMode && (playerTeam.filter(p => !p.fainted).length < 2 || enemyTeam.filter(p => !p.fainted).length < 2)) { alert('双打模式需要双方各至少两只宝可梦。'); return; }
@@ -1838,7 +1849,8 @@ installSpriteRecovery(document);
   const LS_KEY = 'pkm-custom-teams-v2';
   function resolveSpeciesId(text) {
     const raw = String(text || '').trim();
-    const n = normId(raw);
+    // Nidoran♀ and Nidoran♂ are distinct species; do not strip the symbol.
+    const n = normId(raw.replace(/♀/g, 'f').replace(/♂/g, 'm'));
     if (PKMBattle._dex[n]) return n;
     for (const [id, sp] of Object.entries(PKMBattle._dex)) if (normId(sp.name) === n) return id;
     if (speciesZhToId[raw]) return speciesZhToId[raw];

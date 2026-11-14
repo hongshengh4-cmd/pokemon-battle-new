@@ -236,6 +236,7 @@
       }
       if(!m||indexes[m[1]]===undefined)return '旧记录的剧情状态缺失、格式不明或事件不在当前世界书；无法核对节点顺序。';
       const id=m[1],node=Number(m[2]),status=m[3],i=indexes[id],e=list[i];
+      const wrongStage=stageFailure(st,e);if(wrongStage)return '旧记录的'+wrongStage;
       if(!seenPlot){
         if(i!==0||node!==1)return `可见聊天从 ${id} 节点${node}开始，缺少主线起点；不能推定此前节点已发生，请恢复并核对完整记录。`;
         seenPlot=true;
@@ -261,6 +262,15 @@
     }
     return '';
   }
+  function stageFailure(state,event){
+    const raw=String(state?.阶段||'').trim(),expected=String(event?.stage||'').trim();
+    if(!raw||!expected)return '';
+    const a=raw.match(/^S\s*(\d+)(?:\s+(.+))?$/i),b=expected.match(/^S\s*(\d+)(?:\s+(.+))?$/i);
+    if(!a||!b||Number(a[1])!==Number(b[1]))return `阶段与当前事件不一致，应为 ${expected}。`;
+    const clean=x=>String(x||'').replace(/[\s·・:：()（）]/g,'');
+    if(a[2]&&b[2]&&clean(a[2])!==clean(b[2]))return `阶段名称与当前事件不一致，应为 ${expected}。`;
+    return '';
+  }
   function validate(book,pos,previousState,nextState,world={}){
     if(!pos||pos.finished)return {ok:true};
     const fail=reason=>({ok:false,reason,event:pos.event.id,node:pos.node});
@@ -284,6 +294,7 @@
       return fail('不能只靠状态标签认定剧情完成；需要有可核对的正文，不得凭空完成节点。');
     if(m[1]!==pos.event.id||Number(m[2])!==pos.node)
       return fail(`应处理 ${pos.event.id} 节点${pos.node}，不能跳到 ${m[1]} 节点${m[2]}。`);
+    const wrongStage=stageFailure(nextState,pos.event);if(wrongStage)return fail(wrongStage);
     if(m[3]==='完成'&&pos.node!==pos.total)return fail(`只有演完 ${pos.event.id} 最后一个节点（${pos.total}）才能写“完成”。`);
     if(t.minute<pos.event.startMinute)return fail(`${pos.event.id} 尚未到固定开始时间 ${pos.event.dateLabel}。`);
     const nodeOpen=nodeMinimum(NODE_OPEN,pos.event.id,pos.node);

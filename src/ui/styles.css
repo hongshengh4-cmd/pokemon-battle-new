@@ -204,6 +204,11 @@ button.red, .start-button { color: #fff; background: linear-gradient(135deg, var
 .side-label { display: inline-flex; margin-bottom: 2px; padding: 1px 7px; color: #fff; background: var(--pink); font-size: 9px; font-weight: 1000; letter-spacing: .14em; }
 .player-label { background: var(--blue-deep); }
 .name { font-size: clamp(17px, 1.9vw, 21px); line-height: 1.08; font-weight: 1000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fighter-name-row { display:flex; align-items:baseline; gap:4px; min-width:0; }
+.fighter-name-row .name { flex:1 1 auto; min-width:0; }
+.battle-gender { flex:none; white-space:nowrap; font-size:clamp(9px,1.15vw,11px); font-weight:800; color:#596474; }
+.battle-gender[data-gender="M"] { color:#2266ad; }
+.battle-gender[data-gender="F"] { color:#b63e70; }
 .sub { margin-top: 1px; color: var(--muted); font-size: 10.5px; line-height: 1.35; font-weight: 750; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hptext { margin-top: 2px; color: var(--ink); font-size: 11px; font-weight: 1000; text-align: right; font-variant-numeric: tabular-nums; }
 .fighter.enemy .hptext { display: none; }

@@ -118,7 +118,7 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
   const NPC_NEW = { delia: ['花子', 30, true], joy: ['乔伊小姐', 0, false], jenny: ['君莎小姐', 0, false], erika: ['莉佳', 0, false], sabrina: ['娜姿', 0, false], aya: ['绫女', 0, false] };
   const PAL = ['#e0457b', '#3b8be0', '#4fa35b', '#a050c8', '#f08a3c', '#2c9c9c', '#c9a227', '#7b4bd1', '#d0503c'];
   const hash = s => { let h = 7; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; };
-  const genderOf = g => { const s = String(g == null ? '' : g).trim().toLowerCase(); if (/^(f|female|母|雌|♀|女)/.test(s)) return 'f'; if (/^(m|male|公|雄|♂|男)/.test(s)) return 'm'; return ''; };
+  const genderOf = g => { const s = String(g == null ? '' : g).trim().toLowerCase(); if (/^(f|female|母|雌|♀|女)/.test(s)) return 'f'; if (/^(m|male|公|雄|♂|男)/.test(s)) return 'm'; if (/^(n|genderless|neuter|无性别|没有性别|无)$/.test(s)) return 'n'; return ''; };
   const MAP_H = w => ((w || host).innerWidth <= 600 ? 420 : 520);
   let legacySeen = false;
   const num = (v, d) => (v === null || v === undefined || v === '' || !isFinite(+v)) ? d : +v;
@@ -524,7 +524,7 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
       const P = $('[data-p=tr]'), p = S.player; const r = REP.filter(x => p.rep >= x[0]).pop(), nx = REP.find(x => x[0] > p.rep);
       const pct = nx ? Math.round((p.rep - r[0]) / (nx[0] - r[0]) * 100) : 100;
       P.innerHTML = `<div class="tcard"><div class="tc-ava">${esc(p.name[0] || '?')}</div><div>
-    <div class="tc-id">TRAINER CARD · ID No.${esc(p.id)}</div><div class="tc-name">${esc(p.name)} ${p.gender ? `<span style="font-size:15px;color:${p.gender === 'f' ? '#e0457b' : '#3b7be0'}">${p.gender === 'f' ? '♀' : '♂'}</span>` : ''}</div>
+    <div class="tc-id">TRAINER CARD · ID No.${esc(p.id)}</div><div class="tc-name">${esc(p.name)} ${['f','m'].includes(p.gender) ? `<span style="font-size:15px;color:${p.gender === 'f' ? '#e0457b' : '#3b7be0'}">${p.gender === 'f' ? '♀' : '♂'}</span>` : ''}</div>
     <span class="tc-title">${esc(p.title)}</span>
     <div class="tc-rows"><div><span>持有金钱</span><b class="money">₽ ${p.money.toLocaleString()}</b><b style="margin-left:10px;color:#8b5bd6">声望 ${p.rep.toLocaleString()}</b>${S.pendingMoney ? `<small style="display:block;margin-top:3px;color:#9a6b00">回复变更未同步：${S.pendingMoney.delta > 0 ? '+' : '−'}₽ ${Math.abs(S.pendingMoney.delta).toLocaleString()}；预计 ₽ ${S.pendingMoney.expected.toLocaleString()}</small>` : ''}</div><div><span>出身</span><b>${esc(p.hometown)}</b></div>
      <div><span>宝可梦图鉴</span><b>${nSeen}</b> 遇见 / <b>${nCaught}</b> 录入</div><div><span>对战战绩</span><b>${S.battle.wins}</b> 胜 / ${S.battle.count} 战</div></div>
@@ -606,7 +606,7 @@ import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.j
     window.addEventListener('message', relayMapPoint);
     if (host !== window) host.addEventListener('message', relayMapPoint);
   } catch (_) {}
-  const api = { johtoMapVersion: '20261113-johto-map-1', version: '1.3.25-map-shop-18', mountDex,
+  const api = { johtoMapVersion: '20261113-johto-map-1', genderVersion: '20261113-gender-recovery-v5', version: '1.3.25-map-shop-18', mountDex,
     dispose() { stopped = true; [...mounts.values()].forEach(m => m.cleanup()); if (host.PKMKantoLegacyStatus === api) delete host.PKMKantoLegacyStatus; }
   };
   host.PKMKantoLegacyStatus = api;
