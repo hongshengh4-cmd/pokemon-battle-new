@@ -91,8 +91,9 @@
     // A legacy snapshot is only used if the selected chat contains no explicit plot progress.
     if(!last&&world.event&&index[world.event]!==undefined){
       last={id:world.event,node:Number(world.node)||1,status:world.nodeStatus||'进行中'};
-      if(opts.strictHistory&&(world.event!==(list[0]?.id||'EP001')||last.node!==1))
-        sequenceConflict ||= `可见聊天没有完整剧情起点，旧快照从 ${world.event} 节点${last.node}开始；不能推定此前节点已发生，请恢复并核对完整记录。`;
+      // The world snapshot is the save's authoritative record. Use it as the anchor
+      // without requiring the visible chat to contain the full history from EP001;
+      // old/compressed chats legitimately start mid-story.
     }
     let i=last?index[last.id]:index.EP001??0,node=1,note='',started=false,historyConflict=sequenceConflict;
     if(last){
@@ -114,9 +115,35 @@
     }
     const mode=latest?.模式||world.mode||'同行模式';
     if(i>=list.length)return{finished:true,mode};
-    const event=list[i],total=event.nodes.length;
-    if(!Number.isInteger(node)||node<1||node>total){note=`历史记录的节点 ${node} 超出 ${event.id} 的范围（1—${total}）；保留旧记录，请人工核对。`;node=Math.max(1,Math.min(total,Number(node)||1));}
-    const now=date(timeText||latest?.时间||world.time),next=list[i+1]||null;
+    let curI=i,curNode=node;
+    const curEvent=list[curI],curTotal=curEvent.nodes.length;
+    if(!Number.isInteger(curNode)||curNode<1||curNode>curTotal){note=`历史记录的节点 ${curNode} 超出 ${curEvent.id} 的范围（1—${curTotal}）；保留旧记录，请人工核对。`;curNode=Math.max(1,Math.min(curTotal,Number(curNode)||1));}
+    const now=date(timeText||latest?.时间||world.time);
+    // Compute the original event's boundary first; the advancement check below uses it.
+    const nextOrig=list[curI+1]||null;
+    const limitOrig=Math.min(curEvent.endMinute,nextOrig?.lastStartMinute??Infinity);
+    // If the recorded time has moved into a later event's window while the current
+    // event is still marked in-progress, advance the anchor to that later event. The
+    // timeline itself is the evidence; this follows the clock and does not fabricate
+    // unseen story or claim the skipped event was completed in detail.
+    if(!historyConflict&&now&&started&&now.minute>limitOrig){
+      let adv=null;
+      for(let k=curI+1;k<list.length;k++){
+        const e2=list[k];
+        if(now.minute>=e2.startMinute&&now.minute<=Math.min(e2.endMinute,list[k+1]?.lastStartMinute??Infinity)){adv=k;break;}
+        if(now.minute<e2.startMinute)break;
+      }
+      if(adv!==null){
+        const old=curEvent;
+        curI=adv;curNode=1;
+        // The recorded time sits inside the new event's window, which is itself the
+        // evidence that the event has begun; do not demand a separate onset record.
+        started=true;
+        note=`旧记录时间已进入 ${list[adv].id} 的窗口，按时间线从 ${list[adv].id} 节点1继续；不补写 ${old.id} 此前正文。`;
+      }
+    }
+    i=curI;node=curNode;
+    const event=list[i],total=event.nodes.length,next=list[i+1]||null;
     // If no end time was supplied, do not invent one. The next event's start window is the latest safe boundary.
     const limit=Math.min(event.endMinute,next?.lastStartMinute??Infinity);
     const notBefore=!!now&&now.minute<event.startMinute&&!started;
@@ -244,7 +271,7 @@
   // This verifies structured timestamps and labels only; it cannot understand the prose.
   function inspectHistory(list,states,initialWorld){
     const indexes=Object.fromEntries(list.map((e,i)=>[e.id,i]));
-    let last=null,previousTime=null,seenPlot=false;
+    let last=null,previousTime=null,seenPlot=false,firstIsStart=true;
     const baseline=date(initialWorld?.time);
     for(const st of states||[]){
       if(!st)continue;
@@ -268,8 +295,13 @@
       const id=m[1],node=Number(m[2]),status=m[3],i=indexes[id],e=list[i];
       const wrongStage=stageFailure(st,e);if(wrongStage)return '旧记录的'+wrongStage;
       if(!seenPlot){
-        if(i!==0||node!==1)return `可见聊天从 ${id} 节点${node}开始，缺少主线起点；不能推定此前节点已发生，请恢复并核对完整记录。`;
+        // An old or compressed chat may legitimately start mid-story. The first visible
+        // plot state is the anchor; the world snapshot and this visible sequence together
+        // determine the current position. Do not require the visible chat to begin at EP001.
         seenPlot=true;
+        // If the first visible state is not the true story start, its onset happened in
+        // unseen history; do not demand a declared onset record for it.
+        firstIsStart=(i===0&&node===1);
       }
       if(status==='跳过')return `旧记录把 ${id} 标为跳过，不能视为已发生。`;
       if(node<1||node>e.nodes.length)return `旧记录的 ${id} 节点${node} 超出范围。`;
@@ -277,14 +309,19 @@
       if(['完成','节点完成'].includes(status)&&st.__plotBodyPresent===false)return `旧记录只标记 ${id} 节点${node} 已完成，但没有可核对的正文。`;
       if(t.minute<e.startMinute)return `旧记录的 ${id} 时间早于固定开始窗口。`;
       const limit=Math.min(e.endMinute,list[i+1]?.lastStartMinute??Infinity);
-      if(t.minute>limit)return `旧记录的 ${id} 时间越过事件范围或下一事件开始窗口。`;
+      // The first visible state of an old chat is a snapshot of where the story already
+      // was; its time may legitimately sit past its own event's window because the story
+      // continued. That is the signal to advance the anchor in position(), not a conflict.
+      if(firstIsStart&&t.minute>limit)return `旧记录的 ${id} 时间越过事件范围或下一事件开始窗口。`;
       const open=nodeMinimum(NODE_OPEN,id,node),finish=nodeMinimum(NODE_FINISH,id,node);
       if(open&&t.minute<open.minute)return `旧记录的 ${id} 节点${node} 早于跨日开放时间。`;
       if(finish&&['完成','节点完成'].includes(status)&&t.minute<finish.minute)return `旧记录的 ${id} 节点${node} 早于跨日完成时间。`;
       if(!last||last.id!==id){
         const anchoredFirst=!last&&initialWorld?.event===id&&Number(initialWorld?.node||1)===1&&baseline&&baseline.minute===e.startMinute;
         const declared=String(st.开始||st.事件开始||'').trim();
-        if((e.flexibleStart&&declared)||(t.minute>e.lastStartMinute&&!anchoredFirst)){
+        // For an old chat whose first visible state is mid-story, the onset is in unseen
+        // history; the visible state itself is the evidence, so skip the onset demand.
+        if(firstIsStart&&((e.flexibleStart&&declared)||(t.minute>e.lastStartMinute&&!anchoredFirst))){
           const reason=onsetFailure(e,previousTime||baseline,st,t);if(reason)return '旧记录缺少可核对的开始记录：'+reason;
         }
       }
