@@ -1,5 +1,5 @@
 import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.js?v=1.3.31';
-import './plot-guard.js?v=20261113-comprehensive-fix-v6';
+import './plot-guard.js?v=20261115-worldbook-date-event-ability-v1';
 if(globalThis.PKMPlotGuard?.version!=='20261113-comprehensive-fix-v6')throw new Error('剧情和计时模块版本不匹配，请完整部署并刷新缓存。');
 // External status runtime 20261030-all-requested-fixes-v8; original card UI retained.
 // v1.3.17 + v1.2.1 状态栏：只读 UI，独立命名空间，保留现有外置桥接。

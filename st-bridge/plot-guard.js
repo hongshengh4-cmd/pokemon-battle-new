@@ -42,19 +42,24 @@
   function makeEvents(entries){
     const list=[], stages={}, seen=new Set();
     for(const e of entries||[]){
-      const keys=e.keys||e.key||[], evt=keys.find(k=>/^EVT_/.test(k)), stg=keys.find(k=>/^STAGE_\d+/.test(k));
-      if(evt){
-        if(seen.has(evt))continue;seen.add(evt);
+      const keys=e.keys||e.key||[], secondary=e.secondary_keys||e.keysecondary||[];
+      const legacyEvent=keys.find(k=>/^EVT_/.test(String(k)));
+      const commentId=(String(e.comment||'').match(/事件详情·([A-Z]{2,3}\d{2,3})/)||[])[1];
+      const keyedId=secondary.find(k=>/^(?:EP|SP|MOV)\d{2,3}$/.test(String(k)));
+      const eventId=commentId||keyedId||(legacyEvent?String(legacyEvent).slice(4):'');
+      const stg=keys.find(k=>/^STAGE_\d+/.test(String(k)));
+      if(eventId){
+        if(seen.has(eventId))continue;seen.add(eventId);
         const content=String(e.content||''),line=(content.match(/(?:^|\n)-\s*时间[:：]\s*([^\n]+)/)||[])[1]||'';
         const dates=[...line.matchAll(/第\s*\d+\s*年\s*\d+\s*月\s*\d+\s*日(?:\s*\d{1,2}[:：]\d{2})?/g)].map(m=>date(m[0])).filter(Boolean);
         const start=dates[0]||null, end=dates.length>1?dates[1]:null;
         const block=(content.split(/\n- 节点[:：]\s*\n/)[1]||'').split(/\n\s*介入点[：:]|\n- 对战机会|\n- 收尾|\n- 涉及角色|\n<\/Plot_Event>/)[0];
         const nodes=block?block.split(/\n(?=\s{2}\d+\.\s)/).map(t=>t.trim()).filter(Boolean):[];
         // SP03 is a player-confirmed flexible preparation window, not a May 11 launch mandate.
-        const flexibleStart=evt==='EVT_SP03' && !!end;
+        const flexibleStart=eventId==='SP03' && !!end;
         const lastStart=flexibleStart?(end.hasTime?end.minute:end.day*1440+1439):(start?(start.hasTime?start.minute:start.day*1440+1439):Infinity);
         const finish=end?(end.hasTime?end.minute:end.day*1440+1439):Infinity;
-        list.push({id:evt.slice(4),title:String(e.comment||'').split('｜').slice(1).join('｜')||evt,content,
+        list.push({id:eventId,title:String(e.comment||'').split('｜').slice(1).join('｜')||eventId,content,
           stage:(content.match(/阶段[:：]\s*(S\d+[^\n]*)/)||[])[1]||'', date:start, endDate:end,
           startMinute:start?.minute??-Infinity, lastStartMinute:lastStart, endMinute:finish, flexibleStart,
           dateLabel:line, nodes:nodes.length?nodes:['（全事件）'],
@@ -67,7 +72,7 @@
   function position(book,states,world={},timeText='',opts={}){
     const list=book?.list||[];if(!list.length)return null;
     const index=Object.fromEntries(list.map((e,i)=>[e.id,i]));
-    let last=null,freeTail=false,latest=null,sequenceConflict=opts.strictHistory?inspectHistory(list,states,opts.initialWorld||{}):'';
+    let last=null,freeTail=false,latest=null,sequenceConflict=opts.strictHistory?inspectHistory(list,states,opts.initialWorld||{}):'',sequenceWarning='';
     for(const st of states||[]){
       if(!st)continue; latest=st;
       const g=String(st.剧情||''),m=g.match(PLOT_RE);
@@ -79,7 +84,8 @@
           else if(['完成','节点完成'].includes(last.status)&&last.bodyPresent===false)sequenceConflict=`旧记录缺少可核对正文，不能只凭 ${last.id} 的完成标签推进。`;
           else if(b===a){
             const expected=last.status==='节点完成'&&last.node<total?last.node+1:last.node;
-            if(last.status==='完成'||cur.node!==expected)sequenceConflict=`旧记录从 ${last.id} 节点${last.node}（${last.status}）跳到节点${cur.node}，请核对。`;
+            if(last.status==='完成'||cur.node<expected)sequenceConflict=`旧记录从 ${last.id} 节点${last.node}（${last.status}）跳到节点${cur.node}，请核对。`;
+            else if(cur.node>expected)sequenceWarning=`剧情记录从 ${last.id} 节点${last.node}前进到节点${cur.node}；按较后节点接续，中间节点不补记为单独完成。`;
           }else if(b!==a+1||last.status!=='完成'||last.node!==total)
             sequenceConflict=`旧记录从 ${last.id} 节点${last.node} 跳到 ${cur.id} 节点${cur.node}，未证明前序节点按顺序完成。`;
           else if(cur.node!==1)sequenceConflict=`${cur.id} 不能从节点${cur.node}开始，请核对旧记录。`;
@@ -102,7 +108,7 @@
       if(!Number.isInteger(node)||node<1||node>priorTotal)
         historyConflict ||= `旧记录的 ${last.id} 节点${node} 超出范围（1—${priorTotal}），未自动推进。`;
       else if(last.status==='跳过')
-        historyConflict ||= `旧记录将 ${last.id} 标为跳过；硬约束版不会自动认定它发生或完成，请核对。`;
+        historyConflict ||= `旧记录将 ${last.id} 标为跳过；阵容兜底无法可靠推断后续队伍。`;
       else if(['完成','节点完成'].includes(last.status)&&last.bodyPresent===false)
         historyConflict ||= `旧记录只标记 ${last.id} 节点${node} 已完成，但没有可核对的正文；未自动推进。`;
       else if(last.status==='完成'&&node!==priorTotal)
@@ -144,6 +150,7 @@
     }
     i=curI;node=curNode;
     const event=list[i],total=event.nodes.length,next=list[i+1]||null;
+    if(!note&&sequenceWarning&&last?.id===event.id)note=sequenceWarning;
     // If no end time was supplied, do not invent one. The next event's start window is the latest safe boundary.
     const limit=Math.min(event.endMinute,next?.lastStartMinute??Infinity);
     const notBefore=!!now&&now.minute<event.startMinute&&!started;
@@ -338,46 +345,11 @@
     if(a[2]&&b[2]&&clean(a[2])!==clean(b[2]))return `阶段名称与当前事件不一致，应为 ${expected}。`;
     return '';
   }
+  // Narrative progression is governed by the character book, not enforced by this runtime.
+  // Keep the API shape for compatibility, but never block, rewrite, or classify a reply as invalid.
   function validate(book,pos,previousState,nextState,world={}){
-    if(!pos||pos.finished)return {ok:true};
-    const fail=reason=>({ok:false,reason,event:pos.event.id,node:pos.node});
-    if(pos.conflict)return fail(pos.conflict+' 不能自动补写或跳过，请核对并编辑/重选已有状态后继续。');
-    if(!nextState)return fail('回复缺少 <pkm_state>，无法校验时间和剧情节点。');
-    const t=date(nextState.时间);
-    if(!t||!t.hasTime)return fail('状态栏时间必须写完整日期和 HH:MM；不能猜测缺失时刻。');
-    const prev=date(previousState?.时间||world.time);
-    if(prev&&t.minute<prev.minute)return fail('正文时间倒退；请修正或重新生成，不会自动改写旧正文。');
-    const g=String(nextState.剧情||''),m=g.match(PLOT_RE);
-    if(FREE_RE.test(g)){
-      const waitingForNode=pos.nodeNotBefore&&pos.nodeOpen&&t.minute<pos.nodeOpen.minute;
-      const waitingForEvent=!pos.started&&(t.minute<pos.event.startMinute||(pos.event.flexibleStart&&t.minute<=pos.event.lastStartMinute));
-      if(!waitingForNode&&!waitingForEvent)return fail(`固定事件 ${pos.event.id} 已开始或到达开始窗口，不能用“自由”掩盖待处理节点。`);
-      if(t.minute>pos.limit)return fail('不能越过固定事件范围或下个事件的开始窗口。');
-      return {ok:true};
-    }
-    if(!m)return fail('状态栏剧情格式无法识别；应写事件ID｜节点N｜进行中/节点完成/完成，或未到期时写自由｜节点0｜进行中。');
-    if(m[3]==='跳过')return fail('新回复不能自动跳过固定主线节点。');
-    if(['完成','节点完成'].includes(m[3])&&nextState.__plotBodyPresent===false)
-      return fail('不能只靠状态标签认定剧情完成；需要有可核对的正文，不得凭空完成节点。');
-    if(m[1]!==pos.event.id||Number(m[2])!==pos.node)
-      return fail(`应处理 ${pos.event.id} 节点${pos.node}，不能跳到 ${m[1]} 节点${m[2]}。`);
-    const wrongStage=stageFailure(nextState,pos.event);if(wrongStage)return fail(wrongStage);
-    if(m[3]==='完成'&&pos.node!==pos.total)return fail(`只有演完 ${pos.event.id} 最后一个节点（${pos.total}）才能写“完成”。`);
-    if(t.minute<pos.event.startMinute)return fail(`${pos.event.id} 尚未到固定开始时间 ${pos.event.dateLabel}。`);
-    const nodeOpen=nodeMinimum(NODE_OPEN,pos.event.id,pos.node);
-    if(nodeOpen&&t.minute<nodeOpen.minute)return fail(`${pos.event.id} 节点${pos.node}依原文跨日顺序，不应早于 ${nodeOpen.text}。`);
-    const nodeFinish=nodeMinimum(NODE_FINISH,pos.event.id,pos.node);
-    if(nodeFinish&&['节点完成','完成'].includes(m[3])&&t.minute<nodeFinish.minute)
-      return fail(`${pos.event.id} 节点${pos.node}包含后续日期/时刻，不能在 ${nodeFinish.text} 前标完成。`);
-    const declared=String(nextState.开始||nextState.事件开始||'').trim();
-    if(!pos.started&&((pos.event.flexibleStart&&declared)||t.minute>pos.event.lastStartMinute)){
-      // The status time denotes the end of this message, not the beginning of the scene.
-      // A declared flexible onset is the actual date within the range, never the range's first day by default.
-      const reason=onsetFailure(pos.event,prev,nextState,t);if(reason)return fail(reason);
-    }
-    if(t.minute>pos.limit)return fail(`${pos.event.id} 尚未结束，时间不能越过它的明确结束范围或下一事件的开始窗口。`);
-    return {ok:true,event:m[1],node:Number(m[2]),status:m[3]};
+    return {ok:true,policy:'worldbook-only-v1'};
   }
-  const api={version:'20261113-comprehensive-fix-v6',PLOT_RE,FREE_RE,CALENDAR,leap,date,legacyMinute,repelDeadline,makeEvents,position,validate,NODE_OPEN,NODE_FINISH};root.PKMPlotGuard=api;
+  const api={version:'20261113-comprehensive-fix-v6',worldbookStoryPolicy:'worldbook-only-v1',PLOT_RE,FREE_RE,CALENDAR,leap,date,legacyMinute,repelDeadline,makeEvents,position,validate,NODE_OPEN,NODE_FINISH};root.PKMPlotGuard=api;
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

@@ -1,12 +1,13 @@
 import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './sprite-recovery.js?v=1.3.31';
 import * as K from './kanto-data.js?v=20261113-comprehensive-fix-v6';
-import './gender.js?v=20261113-comprehensive-fix-v6';
+import './gender.js?v=20261115-gender-bond-hotfix1';
 import './battle-mechanics.js?v=20261113-comprehensive-fix-v6';
-import './plot-guard.js?v=20261113-comprehensive-fix-v6';
-import './patch-guard.js?v=20261113-comprehensive-fix-v6';
+import './plot-guard.js?v=20261115-worldbook-date-event-ability-v1';
+import './patch-guard.js?v=20261115-gender-bond-hotfix1';
 import '../src/engine/gear-resolve.js?v=20261113-comprehensive-fix-v6';
 import '../src/engine/held-sync.js?v=20261113-comprehensive-fix-v6';
 import '../src/engine/ability-choice.js?v=1.3.31';
+import './ability-random.js?v=20261115-normal-ability-random-v2';
 import {habitatAt, habitatPool, HABITAT_LABELS, indoorAt, isCenterLocation, completedTreatment} from './field-fixes.js?v=20261113-comprehensive-fix-v6';
 // 宝可梦·关都之旅 · 20261026-six-fixes-1（保留竖屏与多随行；水域/治疗/配音修复）
 // v1.3.62（friend-v62）：① 亲密度日常互动修复——AI 常写的 5 段路径 delta（/pkm/party/slots/N/friendship）不再被静默丢弃；160 以下每楼可 +1~+3（需具体互动）
@@ -21,7 +22,7 @@ import {habitatAt, habitatPool, HABITAT_LABELS, indoorAt, isCenterLocation, comp
 // 面板布局依 v1.3.0 机制修复卡恢复：蓝色队伍卡、绿色六列仓库；队伍／仓库操作仍读写实时 MVU 变量。
 // 负责：开局登记界面、图鉴状态栏（PKMKanto.mountDex）、右下角精灵球（队伍/仓库/跟随）、
 //       附近野生遭遇、对战窗口（pkm-modal-v1 通道 ↔ 自己的 pokemon-battle 网页）、
-//       战斗结果写回 MVU 变量、生成前注入“剧情节点 + 变量摘要”、在场人物同步“已结识”。
+//       战斗结果写回 MVU 变量、生成前注入游戏状态摘要、在场人物同步“已结识”。
 // v1.3.8 新增：① 配音二选一：精灵球面板里每只宝可梦都能选 🎬 动漫配音 / 🎮 游戏配音（全局默认 + 单只覆盖）；
 //       动漫配音有录音播录音，没有录音时用语音合成喊名字（按体型调音高），也可改成播游戏叫声或不出声。
 //       ② 赛制：野外 / 捕捉 = 对方 1 只 vs 我方能战斗的全部（最多 6 只，不足不补）；道馆按该馆规矩 NvN（缺 teamSize 时按道馆规矩表兜底），
@@ -38,7 +39,7 @@ import {habitatAt, habitatPool, HABITAT_LABELS, indoorAt, isCenterLocation, comp
 //       ④ 变量摘要里电脑仓库每只附带性格/资质，收服摘要附带完整个体信息，AI 叙述与变量不再出现两套数值。
 
 const EXPECTED_BUILD='20261113-comprehensive-fix-v6';
-if(K.VERSION!=='1.3.66-comprehensive-v6'||globalThis.PKMGender?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.version!==EXPECTED_BUILD||globalThis.PKMPatchGuard?.version!==EXPECTED_BUILD||globalThis.PKMGearResolve?.version!==EXPECTED_BUILD||globalThis.PKMBattleGear?.fixVersion!==EXPECTED_BUILD)
+if(K.VERSION!=='1.3.66-comprehensive-v6'||globalThis.PKMNormalAbility?.version!=='20261115-normal-ability-random-v2'||globalThis.PKMGender?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.worldbookStoryPolicy!=='worldbook-only-v1'||globalThis.PKMPatchGuard?.version!==EXPECTED_BUILD||globalThis.PKMGearResolve?.version!==EXPECTED_BUILD||globalThis.PKMBattleGear?.fixVersion!==EXPECTED_BUILD)
   throw new Error('修复模块版本不完整：请先部署本包全部覆盖文件并刷新缓存。');
 const VERSION = K.VERSION;
 const W = window;
@@ -123,11 +124,42 @@ function toast(text, kind = 'info') {
 
 /* ---------- 中文名 ↔ 引擎 id（精灵图、捕获结果换算） ---------- */
 let ZH = null, ABILITY_DEX = null;
-const abilityDexReady = (BUNDLED_REWARD_DATA?.pokedex ? Promise.resolve(BUNDLED_REWARD_DATA.pokedex) : fetch(BASE + 'src/data/pokedex.json?v=' + VERSION).then(r => { if (!r.ok) throw Error('pokedex HTTP ' + r.status); return r.json(); })).then(d => { ABILITY_DEX = d; refreshAll(); }).catch(e => LOG('特性校验表暂不可用', e));
+const abilityDexReady = (BUNDLED_REWARD_DATA?.pokedex ? Promise.resolve(BUNDLED_REWARD_DATA.pokedex) : fetch(BASE + 'src/data/pokedex.json?v=' + VERSION).then(r => { if (!r.ok) throw Error('pokedex HTTP ' + r.status); return r.json(); })).then(d => { ABILITY_DEX = d; refreshAll(); }).catch(e => LOG('特性校验表暂不可用；桥接器内嵌物种表仍可用于普通特性选择', e));
+function speciesAbilityRow(name, id = speciesId(name)) {
+  const direct = SPECIES?.[String(name || '').trim()];
+  if (direct) return direct;
+  return Object.values(SPECIES || {}).find(row => row?.id === id) || null;
+}
+function localizedAbility(value) {
+  if (!value) return null;
+  const key = W.PKMNormalAbility.abilityKey(value);
+  return (key && ZH?.abilities?.[key]) || value;
+}
+function selectSpeciesAbility(name, current = null, random = Math.random) {
+  const id = speciesId(name), row = speciesAbilityRow(name, id);
+  const local = Array.isArray(row?.abilities) ? row.abilities : [];
+  const dex = Array.isArray(ABILITY_DEX?.[id]?.abilities) ? ABILITY_DEX[id].abilities : [];
+  const zh = ZH?.abilities || {};
+  const localKeep = W.PKMNormalAbility.findLegal(current, local, zh);
+  if (localKeep) return localizedAbility(localKeep);
+  const dexKeep = W.PKMNormalAbility.findLegal(current, dex, zh);
+  if (dexKeep) return localizedAbility(dexKeep);
+  const tokens = W.PKMNormalAbility.tokens(current);
+  // Before the external dex finishes loading, preserve an unresolved Latin-name
+  // record rather than replacing a possibly legal English selection prematurely.
+  if (!dex.length && tokens.length && /^[\x00-\x7F]+$/.test(tokens[0])) return tokens[0];
+  const pool = local.length ? local : dex;
+  const selected = W.PKMNormalAbility.pick(id, pool, random);
+  return localizedAbility(selected);
+}
+function stableAbilityRandom(mon, speciesName = mon?.species || mon?.name) {
+  const id = speciesId(speciesName), identity = mon?.uid || [mon?.slot ?? '', mon?.species || mon?.name || '', mon?.nickname || '', mon?.lv ?? mon?.level ?? '', mon?.gender ?? '', mon?.nature || '', mon?.met || '', Array.isArray(mon?.moves) ? mon.moves.join('|') : '', JSON.stringify(mon?.stats_meta?.ivs || {})].join('::');
+  return rng(hash('individual-ability-v1|' + identity + '|' + id));
+}
 function singleAbility(mon) {
-  const legal = ABILITY_DEX?.[speciesId(mon.species || mon.name)]?.abilities || [];
-  const value = W.PKMAbilityChoice.select(mon.ability, legal, ZH?.abilities || {});
-  return value ? (ZH?.abilities?.[value.toLowerCase().replace(/[^a-z0-9]/g, '')] || value) : null;
+  if (!mon) return null;
+  const name = mon.species || mon.name;
+  return selectSpeciesAbility(name, mon.ability, stableAbilityRandom(mon, name));
 }
 
 const zhReady = (BUNDLED_REWARD_DATA?.zh ? Promise.resolve(BUNDLED_REWARD_DATA.zh) : fetch(BASE + 'src/data/zh-names.json?v=' + VERSION).then(r => (r.ok ? r.json() : null))).then(z => {
@@ -650,26 +682,14 @@ function migrateCalendarClocks(pkm){
     else r.gameClock='legacy-unresolved';
   }
 }
-const plotProblems = new Map();
+
 let injectionCutoff = Infinity, generationInFlight = false, generationSerial = 0;
 // SillyTavern's message event carries a message id, not a generation token.
 // Remember what existed at generation start so a late earlier message cannot unlock a new turn.
 let generationBaseline = null, pendingGenerationMessage = null;
-function plotMessageKey(id) {
-  const m=chat()[id]; return m ? `${id}:${m.swipe_id ?? 0}:${hash(String(m.mes || ''))}` : '';
-}
-// The marker is stored per selected message/swipe, not globally across the chat.
-function knownPlotProblem(id) {
-  const key=plotMessageKey(id); if(!key)return null;
-  if(plotProblems.has(key))return plotProblems.get(key);
-  try { const guard=getMsgVars(id)?.stat_data?.pkm?.integration?.plotGuard;
-    if(guard?.key===key && guard?.reason)return guard;
-  } catch (_) {}
-  return null;
-}
 function latestState(beforeId = Infinity) {
   const c = chat();
-  for (let i = Math.min(c.length - 1, beforeId); i >= 0; i--) { if (c[i]?.is_user || knownPlotProblem(i)) continue; const st = parseState(c[i]?.mes); if (st) return { id: i, state: st }; }
+  for (let i = Math.min(c.length - 1, beforeId); i >= 0; i--) { if (c[i]?.is_user) continue; const st = parseState(c[i]?.mes); if (st) return { id: i, state: st }; }
   return null;
 }
 function lastAiId() { const c = chat(); for (let i = c.length - 1; i >= 0; i--) if (!c[i]?.is_user && !c[i]?.is_system) return i; return -1; }
@@ -731,7 +751,6 @@ function findStat() {
   const c = chat();
   for (let i = c.length - 1; i >= 0; i--) {
     const v = getMsgVars(i), pkm = v?.stat_data?.pkm;
-    if (knownPlotProblem(i)) continue;
     if (pkm && !isStaleInitialSnapshot(i, pkm)) return { id: i, vars: v };
   }
   return null;
@@ -1036,20 +1055,17 @@ function readPkmBefore(beforeId = Infinity) {
   const c=chat();
   for(let i=Math.min(c.length-1,beforeId);i>=0;i--){
     const p=getMsgVars(i)?.stat_data?.pkm;
-    if(p&&!knownPlotProblem(i)&&!isStaleInitialSnapshot(i,p))return normalize(clone(p));
+    if(p&&!isStaleInitialSnapshot(i,p))return normalize(clone(p));
   }
   return normalize(defaultPkm());
 }
 let writeChain = Promise.resolve();
-function plotWriteBlockReason(){
-  if(generationInFlight)return '正文生成期间请勿操作队伍、道具或战斗，等待回复完成后再试。';
-  const id=lastAiId();if(id>=0&&knownPlotProblem(id))return '当前回复有剧情时间冲突，请先编辑、重生成或选择正确回复，再操作队伍、道具或战斗。';
-  const pos=plotPosition();if(pos?.conflict)return '旧剧情记录尚待核对：'+pos.conflict;
-  return '';
+function writeBlockReason(){
+  return generationInFlight?'正文生成期间请勿操作队伍、道具或战斗，等待回复完成后再试。':'';
 }
-function writePkm(mutator,opts={}) {
+function writePkm(mutator) {
   const run = async (attempt = 0) => {
-    if(!opts.guardRecovery){const reason=plotWriteBlockReason();if(reason){toast(reason,'warning');throw new Error(reason);}}
+    const reason=writeBlockReason();if(reason){toast(reason,'warning');throw new Error(reason);}
     const startSerial=generationSerial;
     const c = chat(); const id = Math.max(0, c.length - 1);
     const targetSwipe=c[id]?.swipe_id??0,targetMessage=c[id]?.mes;
@@ -1065,6 +1081,7 @@ function writePkm(mutator,opts={}) {
     }
     if (!isObj(vars.stat_data)) vars.stat_data = {};
     const pkm = normalize(vars.stat_data.pkm ? vars.stat_data.pkm : defaultPkm());
+    if(isObj(pkm.integration))delete pkm.integration.plotGuard;
     for (const s of [...pkm.party.slots, ...pkm.party.box]) if (hasMon(s) && !s.uid) s.uid = uid();
     const result = await mutator(pkm);
     ensureAllIndividuals(pkm);
@@ -1077,11 +1094,9 @@ function writePkm(mutator,opts={}) {
     const f2 = findStat();
     const changedSource=(f2?.id??null)!==(f?.id??null)||JSON.stringify(f2?.vars?.stat_data?.pkm??null)!==sourceSnapshot;
     if(changedSource){if(attempt<2)return run(attempt+1);throw new Error('变量并发变化，本次操作未保存，请重试。');}
-    if(!opts.guardRecovery){
-      const reason=plotWriteBlockReason();
-      if(reason||startSerial!==generationSerial||chat()!==c||c.length-1!==id)
-        throw new Error(reason||'聊天或生成状态在写入期间发生变化，本次操作未保存，请重试。');
-    }
+    const writeBlock=writeBlockReason();
+    if(writeBlock||startSerial!==generationSerial||chat()!==c||c.length-1!==id)
+      throw new Error(writeBlock||'聊天或生成状态在写入期间发生变化，本次操作未保存，请重试。');
     vars.stat_data.pkm = pkm;
     await setMsgVars(id, vars);
     return result;
@@ -1118,7 +1133,7 @@ function makeStarter(species, nickname, mode, choice='预设') {
   const mon = emptySlot(1);
   Object.assign(mon, {
     name: species, species, nickname: nickname || null, gender: sex, lv: 5, quality: 'medium',
-    nature: K.NATURES[Math.floor(Math.random() * K.NATURES.length)], ability: s.ability, isLead: true, isAce: false,
+    nature: K.NATURES[Math.floor(Math.random() * K.NATURES.length)], ability: selectSpeciesAbility(species, null, Math.random), isLead: true, isAce: false,
     moves: s.moves.slice(), ball: '精灵球', uid: uid(), friendship: { official: FRIENDSHIP_STARTER_BASE },
     met: mode === '沙盒模式' ? '第1年 5月22日 · 真新镇·大木研究所后院，大木博士托付' : '第1年 5月22日 · 真新镇·大木研究所，大木博士赠送',
     notes: mode === '小智模式' ? '大木博士给的最后一只宝可梦，不肯进精灵球' : '大木博士给的第一只宝可梦',
@@ -1128,7 +1143,7 @@ function makeStarter(species, nickname, mode, choice='预设') {
 }
 
 /* ======================================================================
- * 3. 剧情节点（读取卡内世界书的事件详情 / 阶段条目）
+ * 3. 世界书事件数据（仅供游戏侧被动读取；不提示或强制推进剧情）
  * ==================================================================== */
 let eventCache = null;
 let onlineEntries = null, onlineMeta = null;
@@ -1138,37 +1153,31 @@ const worldReady = W.PKM_BUNDLED_PLOT ? Promise.resolve() : fetch(BASE + 'st-bri
   .then(r => (r.ok ? r.json() : null)).then(j => {
     if(j?.version==='20261113-comprehensive-fix-v6'&&Array.isArray(j.entries)&&j.entries.length){
       onlineEntries=j.entries;onlineMeta={version:j.version,count:j.entries.length};eventCache=null;refreshInjection();
-      LOG('硬约束线上世界书已加载 '+j.entries.length+' 条');
-    } else LOG('线上世界书版本未匹配，回退卡内修订版，不使用旧软约束世界书。');
+      LOG('世界书事件数据已加载 '+j.entries.length+' 条（仅供伙伴阵容等玩法读取）');
+    } else LOG('线上世界书版本未匹配，回退卡内事件数据；不会向生成提示注入剧情节点。');
   }).catch(e=>LOG('线上世界书加载失败，回退卡内修订版',e?.message||e));
 // Prefer the actual card's book; a partial book must not be silently mixed with
 // a different online chronology. Only a completely absent card book may fall back.
-const REQUIRED_EVENT_IDS = new Set(["EP001","EP002","EP003","EP004","EP005","EP006","EP007","EP008","EP009","EP010","EP011","EP012","EP013","EP014","EP015","EP016","EP017","EP018","EP019","EP020","EP021","EP022","EP023","EP024","EP025","EP026","EP027","EP028","EP029","EP030","EP031","EP032","EP033","EP034","EP035","EP036","EP037","EP038","EP039","EP040","EP041","EP042","EP043","EP044","EP045","EP046","EP047","EP048","EP049","EP050","EP051","EP052","EP053","EP054","EP055","EP056","EP057","EP058","EP059","EP060","EP061","EP062","EP063","EP066","EP067","EP068","EP069","EP070","EP071","EP072","EP073","EP074","EP075","EP076","EP077","EP078","EP079","EP080","EP081","EP082","EP083","EP084","EP085","EP086","EP087","EP088","EP089","EP090","EP091","EP092","EP093","EP094","EP095","EP096","EP097","EP098","EP099","EP100","EP101","EP102","EP103","EP104","EP105","EP106","EP107","EP108","EP109","EP110","EP111","EP112","EP113","EP114","EP115","EP116","EP117","EP118","EP119","EP120","EP121","EP122","EP123","EP124","EP125","EP126","EP127","EP128","EP129","EP130","EP131","EP132","EP133","EP134","EP135","EP136","EP137","EP138","EP139","EP140","EP141","EP142","EP143","EP144","EP145","EP146","EP147","EP148","EP149","EP150","EP151","EP152","EP153","EP154","EP155","EP156","EP157","EP158","EP159","EP160","EP161","EP162","EP163","EP164","EP165","EP166","EP167","EP168","EP169","EP170","EP171","EP172","EP173","EP174","EP175","EP176","EP177","EP178","EP179","EP180","EP181","EP182","EP183","EP184","EP185","EP186","EP187","EP188","EP189","EP190","EP191","EP192","EP193","EP194","EP195","EP196","EP197","EP198","EP199","EP200","EP201","EP202","EP203","EP204","EP205","EP206","EP207","EP208","EP209","EP210","EP211","EP212","EP213","EP214","EP215","EP216","EP217","EP218","EP219","EP220","EP221","EP222","EP223","EP224","EP225","EP226","EP227","EP228","EP229","EP230","EP231","EP232","EP233","EP234","EP235","EP236","EP237","EP238","EP239","EP240","EP241","EP242","EP243","EP244","EP245","EP246","EP247","EP248","EP249","EP250","EP251","EP252","EP253","EP254","EP255","EP256","EP257","EP258","EP259","EP260","EP261","EP262","EP263","EP264","EP265","EP266","EP267","EP268","EP269","EP270","EP271","EP272","EP273","EP274","EP275","MOV01","MOV02","MOV03","MOV04","MOV05","SP01","SP02","SP03"]);
-let worldProblem='';
-function inspectWorldEntries(entries){
- if(!Array.isArray(entries))return {count:0,valid:false};
- const ev=entries.flatMap(e=>(Array.isArray(e?.keys)?e.keys:[]).filter(k=>/^EVT_/.test(String(k))).map(k=>({id:String(k).slice(4),entry:e})));
- if(!ev.length)return {count:0,valid:false};
- const seen=new Set();let bad='';
- for(const x of ev){const body=String(x.entry?.content||'');if(seen.has(x.id))bad='重复事件';seen.add(x.id);
-  if(!/时间[:：]\s*第\s*\d+\s*年/.test(body)||!/\n- 节点[:：]\s*\n\s+1\./.test(body))bad='事件格式不完整';}
- const missing=[...REQUIRED_EVENT_IDS].filter(id=>!seen.has(id));
- return {count:ev.length,valid:!bad&&!missing.length,reason:bad||(missing.length?'缺少 '+missing.slice(0,3).join('、'):'')};
+function worldEventId(e){
+ const comment=(String(e?.comment||'').match(/事件详情·([A-Z]{2,3}\d{2,3})/)||[])[1];if(comment)return comment;
+ const keys=[...(Array.isArray(e?.keys)?e.keys:[]),...(Array.isArray(e?.secondary_keys)?e.secondary_keys:[])];
+ const legacy=keys.find(k=>/^EVT_/.test(String(k)));if(legacy)return String(legacy).slice(4);
+ return keys.find(k=>/^(?:EP|SP|MOV)\d{2,3}$/.test(String(k)))||'';
 }
 function worldEntries(){
- const card=cardEntries(),local=inspectWorldEntries(card);
- if(local.count){worldProblem=local.valid?'':`世界书事件不完整：卡内${local.reason}；不会拼入线上内容。`;return local.valid?card:[];}
- const online=inspectWorldEntries(onlineEntries);
- if(online.valid){worldProblem='';return onlineEntries;}
- worldProblem='世界书事件不完整：卡内没有事件，匹配版本的线上世界书尚未加载或不完整。';return [];
+ // These entries are read only for NPC roster fallback. World Info activation itself
+ // is entirely SillyTavern's date + event-ID keyword matching, not bridge validation.
+ const card=cardEntries();
+ if(card.some(e=>worldEventId(e)))return card;
+ return Array.isArray(onlineEntries)?onlineEntries:[];
 }
 function events(){return eventCache||(eventCache=PKMPlotGuard.makeEvents(worldEntries()));}
 
 function plotPosition(beforeId=Infinity){
-  const book=events();if(worldProblem)return {conflict:worldProblem};
+  const book=events();if(!book?.list?.length)return null;
   const c=chat(),states=[];let firstStateId=-1;
   for(let i=0;i<Math.min(c.length,beforeId+1);i++){
-    if(c[i]?.is_user||c[i]?.is_system||knownPlotProblem(i))continue;
+    if(c[i]?.is_user||c[i]?.is_system)continue;
     const text=String(c[i]?.mes||''),st=parseState(text);
     if(st){
       const body=text.replace(/<pkm_state>[\s\S]*?<\/pkm_state>/gi,'').replace(/<UpdateVariable>[\s\S]*?<\/UpdateVariable>/gi,'').replace(/<pkm_result>[\s\S]*?<\/pkm_result>/gi,'').replace(/<[^>]+>/g,'').trim();
@@ -1180,14 +1189,14 @@ function plotPosition(beforeId=Infinity){
   return PKMPlotGuard.position(book,states,pkm.world||{},st?.时间||pkm.world?.time||'',{strictHistory:true,initialWorld});
 }
 /* ======================================================================
- * 4. 生成前注入：剧情节点 + 变量摘要
+ * 4. 生成前注入：变量摘要与非剧情游戏规则
  * ==================================================================== */
 function summaryText(pkm) {
   const pl = pkm.player, lines = [];
   const title = pl.title || K.TITLES.find(([n]) => (pl.reputation || 0) >= n)[1];
   lines.push(`训练家：${pl.name || userName()}${pl.gender ? '（' + pl.gender + '）' : ''}｜模式：${pkm.world.mode || '—'}｜金钱 ${pl.money} 元｜声望 ${pl.reputation}（${title}）｜徽章 关都 ${pl.badges.filter(b=>K.BADGES.slice(0,8).includes(b)).length}/8、城都 ${pl.badges.filter(b=>K.JOHTO_BADGES.includes(b)).length}/8${pl.badges.length ? '：' + pl.badges.join('、') : ''}；首次赢得道馆徽章由桥接器奖励 1000 声望并自动写入，不得重复增加。`);
-  if (pkm.world.protagonist === '智子') lines.push('主角设定：本存档扮演智子（小智的性转版少女，档案见《人物档案·智子》）：剧情、事件详情、节点表与台词里凡"小智"指主角处，一律按智子处理——名字写智子、人称用"她"、性别描写按女性，收服/徽章/劲敌/进化等事件轨迹与原作一致；其他角色称呼她"智子"，禁止把她写成男性或改叫小智。');
-  else if (pkm.world.ashNpc === '智子') lines.push('同伴设定：与你同行的小智由智子担任（小智的性转版少女，档案见《人物档案·智子》）：剧情、事件详情、节点表与台词里凡"小智"指这位同伴处，一律按智子处理——名字写智子、人称用"她"、性别描写按女性；她仍是独立 NPC，按事件详情默认走向行动、可被 {{user}} 介入影响，收服/徽章/劲敌/进化等事件轨迹与原作一致；其他角色称呼她"智子"，禁止把她写成男性或改叫小智。');
+  if (pkm.world.protagonist === '智子') lines.push('主角身份：本存档扮演智子（小智的性转版少女，档案见《人物档案·智子》）；提及主角时使用智子的姓名与女性代词，不要误写为男性或称作小智。');
+  else if (pkm.world.ashNpc === '智子') lines.push('同行设定：与你同行的小智由智子担任（小智的性转版少女，档案见《人物档案·智子》）；她是独立 NPC，姓名与女性代词按智子设定使用，不要误写为男性或称作小智。');
   const earnedHonors=Object.entries(FRIENDSHIP_HONOR_REWARDS).filter(([key])=>pkm.player.honors?.[key]).map(([,v])=>v.label);if(earnedHonors.length)lines.push('已获冠军荣誉：'+earnedHonors.join('、')+'（不可重复领取亲密值奖励）');
   const party = pkm.party.slots.map((s, i) => {
     if (!hasMon(s)) return null;
@@ -1198,7 +1207,7 @@ function summaryText(pkm) {
       + `｜${s.nature ? '性格' + (natureZh(s.nature) || s.nature) : ''}｜亲密度 ${friendship}/255｜努力值 已获得 ${effortEarned(s)}/510（单项上限 252、合计 510；HP ${Number(ev.hp)||0}/攻击 ${Number(ev.atk)||0}/防御 ${Number(ev.def)||0}/特攻 ${Number(ev.spa)||0}/特防 ${Number(ev.spd)||0}/速度 ${Number(ev.spe)||0}）｜叫声${cryText(s)}`;
   }).filter(Boolean);
   lines.push('队伍：' + (party.length ? '\n  ' + party.join('\n  ') : '（还没有宝可梦，不能发起对战）'));
-  if(pkm.integration?.pendingStarter)lines.push('小智模式的皮卡丘仅预登记，尚不在队伍、身边或图鉴中。EP001节点2，玩家在研究所室内、大木博士在场并在正文提出交付后，在 <pkm_state> 加“领取：皮卡丘待确认”；尚未确认前保持该字段。玩家点击“确认领取皮卡丘”后才入队；未确认前节点2不能标完成，不得代为领取或战斗。');
+  if(pkm.integration?.pendingStarter)lines.push('皮卡丘目前仅预登记，尚未进入队伍或图鉴；玩家确认领取后才加入队伍。未领取前请勿把它当作可出战伙伴。');
   // v1.3.8：能战斗的只数（对战名额按这个算，不要默认写成 6 只）
   if (party.length) {
     const ready = pkm.party.slots.filter(s => hasMon(s) && s.status !== '濒死' && s.hp !== 0);
@@ -1249,23 +1258,11 @@ function bondRules(pkm, st) {
     '【宝可梦叫声】宝可梦（会说话的喵喵除外）只会喊自己的名字或名字的音节，队伍里的叫法见上面的“叫声”。不要把名字截成不存在的叫法（例如小火龙不叫“小火小火”，应是“小火龙～！”“小～火龙！”）。',
     '【能力与 PP】宝可梦的个体值、性格、能力值和招式剩余 PP 由脚本维护；只有实际完成宝可梦中心治疗后才将队伍每只 hp、status、pp replace 为 null（全部回满）；正文要明确说明治疗完成，路过、预约或治疗中不能回满。局部治疗只更新实际治疗对象。'].join('\n');
 }
-// v1.3.9：小智一行现在带着的宝可梦（按原作进度）。和他们对战时 team 要写全；没约定几对几就是两边全队
-function companionLine(beforeId = Infinity) {
-  const pos = storyPos(beforeId); if (!pos) return '';
-  const out = [];
-  for (const r of Object.values(K.NPC_ROSTERS || {})) {
-    if (r.skipMode && String(pos.mode || '').includes(r.skipMode)) continue; // 小智模式：{{user}} 就是小智
-    if (r.since && !pos.finished) { const i = pos.index(r.since); if (i < 0 || i > pos.cur) continue; }
-    const now = rosterNow(r, pos), soon = (r.members || []).filter(m => joiningNow(m.join, pos)).map(m => m.forms[0]);
-    if (now.length) out.push(`${r.name} ${now.length} 只（${now.map(m => m.species).join('、')}${soon.length ? `；这一段剧情里会加入${soon.join('、')}，加入后也算进去` : ''}）`);
-  }
-  return out.length ? `【伙伴阵容】小智一行现在随身带着（按原作进度，剧情里有变化以正文为准）：${out.join('；')}。和他们对战时 pkm_battle 的 team 写对方现在带着的全部；没约定几对几就是两边全队，只数可以和 {{user}} 不一样。` : '';
-}
 function buildInjection() {
   const c = chat().slice(0, injectionCutoff === Infinity ? undefined : injectionCutoff + 1); if (!c.length) return '';
   const pkm = readPkmBefore(injectionCutoff);
   if (c.length <= 1) return ''; // 还停在开局登记界面
-  const parts = ['【动画主线·自动剧情注入】（外置桥接脚本在生成前计算，供你定位剧情；不要向玩家复述本段，也不要提前泄露后面的节点。）'];
+  const parts = ['【关都之旅·存档与玩法摘要】'];
   const st = latestState(injectionCutoff)?.state;
   parts.push(`当前：模式 ${st?.模式 || pkm.world.mode || '—'}｜时间 ${st?.时间 || pkm.world.time || '—'}｜地点 ${st?.地点 || pkm.world.location || '—'}`);
   parts.push('【榴柑道馆特例】EP109 的琉丽道馆赛写 type: gym、event: EP109、opponent: 琉丽，双方各两只；引擎自动采用双打且任一只倒下整组落败。该规则不套用于同集的火箭队遭遇；双方同一步骤均倒下时不自动决出胜者，请裁定。');
@@ -1276,38 +1273,12 @@ function buildInjection() {
   if(!aiCount&&profile){
     const mode=pkm.world.mode||'同行模式';
     const g=ctx()?.characters?.[ctx()?.characterId]?.data?.alternate_greetings?.[K.MODE_INFO[mode]?.greeting??0];
-    parts.push(`【开局】玩家刚提交训练家档案，${pkm.integration.pendingStarter?'皮卡丘仅预登记、尚未领取；到EP001节点2由玩家确认后才入队':'已选伙伴已经写入存档，不能重复赠送'}。以下开场只作位置与语气参考，姓名性别按档案；不要照抄或替玩家做当前选择：\n${subUser(String(g||'').replace(/<pkm_state>[\s\S]*?<\/pkm_state>/i,'').replace(/<UpdateVariable>[\s\S]*?<\/UpdateVariable>/i,'').replace(/<\/?content>/g,'').trim()).slice(0,1800)}`);
-    parts.push('第一幕也必须处理EP001节点1；已登记的开局时间、地点和伙伴以存档为准，不虚构或重复完成节点。');
+    parts.push(`【开局】玩家刚提交训练家档案，${pkm.integration.pendingStarter?'皮卡丘仅预登记、尚未领取；玩家确认后才进入队伍':'已选伙伴已经写入存档，不能重复赠送'}。以下开场只作位置与语气参考，姓名性别按档案；不要照抄或替玩家做当前选择：\n${subUser(String(g||'').replace(/<pkm_state>[\s\S]*?<\/pkm_state>/i,'').replace(/<UpdateVariable>[\s\S]*?<\/UpdateVariable>/i,'').replace(/<\/?content>/g,'').trim()).slice(0,1800)}`);
   }else if(!profile){
     const registration=setupStatus(pkm,c);
     parts.push(registration==='unregistered'?'【开局未登记】当前没有训练家档案及可信旧进度；不要声称玩家已登记或已领伙伴。提示玩家先完成开局界面。':'【旧档待核对】未检出新版登记档案，但可能存在旧旅程；不得声称刚完成登记，不重置或重复赠送队伍，请以现有记录为准。');
   }
-  const pos=plotPosition(injectionCutoff);
-  if(pos?.finished){parts.push('主线：已配置的事件已由实际记录完成；此后可自由剧情。');const cl=companionLine(injectionCutoff);if(cl)parts.push(cl);}
-  else if(pos && !pos.event){parts.push(`【冲突待处理】${pos.conflict} 请先核对角色卡与网站世界书。`);}
-  else if(pos){
-    const e=pos.event,cl=companionLine(injectionCutoff);
-    parts.push(`【主线硬约束】${e.id}｜${e.title}（${e.stage}）｜固定窗口：${e.dateLabel}｜待处理节点 ${pos.node}/${pos.total}。原文明确的前夜、次日、先后必须遵守；未指定时刻不能虚构。`);
-    if(!pos.started&&!e.flexibleStart)parts.push(`新事件若从固定窗口开始、而本幕状态时间已过窗口，请在状态栏增加“开始：${e.id}｜${e.date?.text||e.dateLabel}”；时间标的是本幕结尾，正文须实际从窗口开始，不能倒填。`);
-    if(pos.conflict){
-      parts.push(`【冲突待处理】${pos.conflict} 不得倒回时间、补写、跳过或声称事件已完成；保留旧正文，请玩家检查并修正/重选真实记录。`);
-    } else if(pos.notBefore){
-      parts.push('固定开始窗口尚未到：只写实际可达的日常与路途，时间停在窗口之前或恰好开始该事件，不得跨过；状态栏写“自由｜节点0｜进行中”，一旦开始就写该事件当前节点。');
-    } else if(pos.nodeNotBefore){
-      parts.push(`上一个节点已经真实完成，本节点按原文跨日顺序不早于 ${pos.nodeOpen.text}。此前只写等待与合理日常，状态栏写“自由｜节点0｜进行中”，不可声称节点已开始或完成；到时继续本节点。`);
-    } else {
-      if(e.flexibleStart&&!pos.started)parts.push(`SP03 是玩家确认的5月11日—7月24日弹性准备期：窗口内可安排合理等待并写“自由｜节点0｜进行中”，也可开始节点1；不规定某天必须开始。若填写开始标签，记录正文实际开始的范围内日期，不默认首日或虚构时刻。不能越过7月24日，也不得自动替玩家报名或训练。`);
-      parts.push(`处理节点 ${pos.node} 时一轮一幕，在需要玩家回应时停；状态栏写“剧情：${e.id}｜节点${pos.node}｜进行中”；确实演完才写“节点完成”${pos.node===pos.total?'，本事件最后节点真实收束才写“完成”':''}。不得写“跳过”、跨节点或用自由掩盖已经开始的节点。`);
-      parts.push('【玩家不在场】NPC可在固定时间独立行动：用【幕后／玩家角色尚不知情】场景实际演出当前节点，演完才能标完成，不得因日期到了就自动补完。玩家角色不知道未经亲历或合理转述的幕后内容；状态栏“地点”“在场”仍是玩家本人所在地点及其身边人物，不把镜头切换写成玩家瞬移。不得替玩家发言、行动或决定；涉及玩家本人不可代替的决定或参与而无法执行时，节点保持进行中并停住，请玩家决定。');
-      if(pos.note)parts.push(pos.note);
-      parts.push(`【当前节点】\n${pos.nodeText}`);
-      if(e.hook)parts.push('介入点（不替玩家决定）：'+e.hook);
-      if(e.battle)parts.push('对战机会（真实对战结果为准）：'+e.battle);
-      const ef=K.EVENT_FORMATS?.[e.id];if(ef)parts.push(`本事件赛制：${ef.rule}（${ef.n}对${ef.n}）。发起时顶层写 "teamSize":${ef.n}；同时出战数按正文赛制。`);
-      if(cl)parts.push(cl);
-      const stageNo=(e.stage.match(/S\d+/)||[])[0];for(const stg of events().stages[stageNo]||[])parts.push(stg.content);
-    }
-  }
+
 
   const lastUser = [...c].reverse().find(m => m.is_user);
   if (lastUser && /<pkm_result>/i.test(lastUser.mes || '')) parts.push('【对战结果】玩家的上一条消息带有 <pkm_result>：按结果续写战斗经过，不改写胜负。HP/状态、精灵球消耗、收服入队、图鉴登记已由脚本写入变量，不要重复写。');
@@ -1353,14 +1324,21 @@ function showPatchWarnings(plan,mesid){
  const warnings=plan?.warnings||[];let el=PD.getElementById('pkm-patch-warning');
  if(!warnings.length){el?.remove();return;}
  if(!el){el=PD.createElement('div');el.id='pkm-patch-warning';el.setAttribute('role','alert');el.style.cssText='position:fixed;z-index:2147483645;top:68px;right:8px;max-width:min(480px,calc(100vw - 28px));padding:10px 12px;border:2px solid #c98d37;border-radius:10px;background:#fff7df;color:#5c3e16;font:13px/1.5 sans-serif;box-shadow:0 4px 20px #0003';PD.body.appendChild(el);}
- el.textContent='变量补丁提醒：'+warnings.join('；')+'。外部插件可能另行写入，请人工核对。';
+ const signature=JSON.stringify([mesid,warnings]);
+ if(el.dataset.signature===signature)return;
+ el.dataset.signature=signature;el.replaceChildren();
+ const details=PD.createElement('details'),summary=PD.createElement('summary'),body=PD.createElement('div');
+ summary.textContent='变量补丁待核对（'+warnings.length+'项，点击展开）';summary.style.cursor='pointer';
+ body.textContent=warnings.join('；')+'。桥接校验不等于已拦截外部 MVU 写入；请核对本楼变量。';
+ details.append(summary,body);el.append(details);
+ el.style.maxHeight='35vh';el.style.overflow='auto';
 }
 
 const hasOwnStat = id => { const pkm = getMsgVars(id)?.stat_data?.pkm; return !!pkm && !isStaleInitialSnapshot(id, pkm); };
 function prevPkm(mesid) {
   for (let i = mesid - 1; i >= 0; i--) {
     const v = getMsgVars(i), pkm = v?.stat_data?.pkm;
-    if (pkm && !knownPlotProblem(i) && !isStaleInitialSnapshot(i, pkm)) return normalize(clone(pkm));
+    if (pkm && !isStaleInitialSnapshot(i, pkm)) return normalize(clone(pkm));
   }
   return null;
 }
@@ -1618,7 +1596,7 @@ function reconcileVisibleExternal(pkm,base,plan){
   if(!rows.some(r=>!same(r.b.value,r.c.value)))continue;
   if(rows.every(r=>same(r.now.value,r.b.value))){
    for(const r of rows)if(!same(r.b.value,r.c.value)&&scalarPut(pkm,r.segs,r.c.value))changed=true;
-  }else plan.warnings.push('人物好感的外部值与可见补丁不完全一致，未覆盖，请人工核对');
+  }else if(!rows.every(r=>same(r.now.value,r.a.value))&&!rows.every(r=>same(r.now.value,r.c.value))) plan.warnings.push(`人物 ${key} 的好感值与旧快照、安全结果、可见补丁均不一致，未覆盖，请人工核对`);
  }
  // A visible direct lastInteraction write is not evidence of interaction.
  for(const o of plan.rawOps){const g=o.segs;if(g[1]!=='npcs'||g[2]!=='records'||g[4]!=='lastInteraction'||conflictFor(g))continue;
@@ -1642,7 +1620,8 @@ function quarantineNewGender(pkm,base,plan){
   for(const where of ['slots','box'])for(const [index,want] of (projected.party?.[where]||[]).entries()){
     if(!hasMon(want))continue;
     const sid=speciesId(want.species||want.name),g=PKMGender.normalize(want.gender),rate=PKMGender.rate(sid);
-    if(PKMGender.missing(want.gender)||(g&&(rate===null||PKMGender.allowed(sid,g))))continue;
+    if(PKMGender.missing(want.gender)&&![ -1,0,8 ].includes(rate))continue;
+    if(g&&(rate===null||PKMGender.allowed(sid,g)))continue;
     const uidValue=String(want.uid||''),oldAt=base.party?.[where]?.[index];
     if(uidValue&&oldUids.has(uidValue))continue;
     const certain=uidValue&&prior.every(m=>!!m.uid)?!oldUids.has(uidValue):!hasMon(oldAt)&&!prior.some(m=>speciesId(m.species||m.name)===sid);
@@ -1672,8 +1651,6 @@ function restoreExplicitCompanion(pkm){
 }
 
 function applySync(pkm, mesid, opts = {}) {
-  const protectedProblem=knownPlotProblem(mesid) || (generationInFlight ? checkPlotMessage(mesid) : null);
-  if(protectedProblem) return restoreGuardedSnapshot(pkm,mesid,protectedProblem);
   let changed=false;
   const base=prevPkm(mesid),plan=patchPlan(chat()[mesid]?.mes,base);
   if(base)changed=reconcileVisibleExternal(pkm,base,plan)||changed;
@@ -1740,7 +1717,8 @@ function repairSlotIdentity(pkm, mesid) {
       if (bm.met && m.met !== bm.met) put('met');
       if (bm.nickname && !m.nickname) put('nickname');
       if (!m.notes && bm.notes) put('notes');
-      if (bm.gender && m.gender !== bm.gender) put('gender');
+      const confirmedGenderCorrection=genderNeedsRepair(bm)&&m.genderRepair?.method==='invalid-gender-player-confirmed'&&same(m.genderRepair.previous,bm.gender)&&m.genderRepair.value===m.gender&&PKMGender.allowed(speciesId(m.species||m.name),m.gender);
+      if (bm.gender && m.gender !== bm.gender&&!confirmedGenderCorrection) put('gender');
       else if(PKMGender.missing(bm.gender)&&!isObj(m.genderRepair)&&!same(m.gender,bm.gender))put('gender'); // 旧档缺失需玩家确认，不能由 AI 猜测
     }
     const prevFriend = bm ? friendshipValue(bm) : null;
@@ -2482,7 +2460,7 @@ function repairPersistentMon(mon){
  const max=target==='shedinja'?1:Math.floor((2*info.hp+iv)*lv/100)+lv+10;
  mon.maxHp=max;
  if(oldHp!=null&&Number.isFinite(Number(oldHp))){const ratio=oldMax>0?Math.max(0,Math.min(1,Number(oldHp)/oldMax)):Math.max(0,Math.min(1,Number(oldHp)/max));mon.hp=Number(oldHp)<=0?0:Math.max(1,Math.min(max,Math.round(ratio*max)));}
- mon.ability=W.PKMAbilityChoice.select(mon.ability,SPECIES[info.name]?.abilities||[],{});
+ mon.ability=singleAbility(mon);
  return true;
 }
 function repairPersistentRoster(pkm){for(const mon of [...(pkm.party?.slots||[]),...(pkm.party?.box||[])])if(hasMon(mon))repairPersistentMon(mon);}
@@ -2672,7 +2650,7 @@ function renderSetup(el) {
       </div>${license}</div>`;
     foot = `<button class="pko-outline" data-act="back">← 上一步</button><button class="pko-go" data-act="next">下一步 · 初始伙伴 →</button>`;
   } else if (S.step === 3) {
-    const note = { 同行模式: '小茂已先领走杰尼龟；你可选择妙蛙种子或小火龙，确认后直接入队。', 小智模式: '皮卡丘先预登记；现在尚未领取。故事到研究所的节点2时由你确认领取。', 沙盒模式: '后院另有几只伙伴等待训练家；选择后直接入队。' }[S.mode];
+    const note = { 同行模式: '小茂已先领走杰尼龟；你可选择妙蛙种子或小火龙，确认后直接入队。', 小智模式: '皮卡丘先预登记；登记后可由你确认是否加入队伍。', 沙盒模式: '后院另有几只伙伴等待训练家；选择后直接入队。' }[S.mode];
     body = head('03', 'CHOOSE YOUR PARTNER', '选择你的第一位伙伴', esc(note)) +
       `<div class="pko-starters c${list.length}">${list.map(n => { const o = OPEN_STARTERS[n] || {}; return `<button class="pko-starter ${S.starter === n ? 'on' : ''}" data-act="starter" data-v="${n}" style="--c:${o.color || '#dc0a2d'}">
         <span class="pko-st-no">No.${o.no || '???'}</span><span class="pko-st-art">${starterArt(n)}</span>
@@ -2683,7 +2661,7 @@ function renderSetup(el) {
     foot = `<button class="pko-outline" data-act="back">← 上一步</button><button class="pko-go" data-act="next">下一步 · 确认出发 →</button>`;
   } else {
     const o = OPEN_STARTERS[S.starter] || {};
-    body = head('04', 'READY TO GO', '一切就绪，出发吧！', ash ? '确认后先预登记皮卡丘；剧情进行到节点2，由你确认领取，才会进入队伍。' : '确认后：档案写入变量、初始伙伴放进队伍，并自动发送第一条消息开始旅程。') +
+    body = head('04', 'READY TO GO', '一切就绪，出发吧！', ash ? '确认后先预登记皮卡丘；登记后由你确认是否加入队伍。' : '确认后：档案写入变量、初始伙伴放进队伍，并自动发送第一条消息开始旅程。') +
       `<div class="pko-confirm"><div class="pko-cf-partner" style="--c:${o.color || '#dc0a2d'}">${starterArt(S.starter)}<b>${esc(S.nickname ? S.nickname + '（' + S.starter + '）' : S.starter)}</b><span>${typeChips(S.starter)} Lv5 · 性别：${esc(S.starterGender==='预设'?'预设（'+PKMGender.label(K.STARTERS[S.starter]?.gender)+'）':S.starterGender)}</span></div>${license}</div>
       <div class="pko-cf-list"><span>🎒 精灵球 ×10 · 伤药 ×20 · 活力碎片 ×5 · PP回复药 ×5</span><span>💴 10,000 元</span><span>🕖 ${esc(info.start.time)}</span><span>📍 ${esc(info.start.location)}</span>${S.mode === '同行模式' ? `<span>${S.ashNpc === '智子' ? '同行的小智：♀ 智子（性转少女）' : '同行的小智：♂ 小智（原作少年）'}</span>` : ''}</div>
       ${S.error ? `<div class="pko-err">${esc(S.error)}</div>` : ''}`;
@@ -2745,7 +2723,7 @@ function makeCustomSetupMon(p, index, box = false) {
   Object.assign(mon, {name:p.name, species:p.name, nickname:String(p.nickname || '').trim().slice(0,20) || null,
     lv, gender,
     nature:p.nature === '默认' ? rollNature() : p.nature,
-    ability:p.ability === '默认' ? (data.abilities[0] || null) : p.ability,
+    ability:selectSpeciesAbility(p.name, p.ability === '默认' ? null : p.ability, Math.random),
     moves:[...moves, ...Array(4).fill(null)].slice(0,4), quality:null, uid:uid(),
     isLead:!box && index===0, isAce:false, ball:'精灵球',
     met:'沙盒开局 · 自定义配置', notes:box?'沙盒开局自定义仓库宝可梦':'沙盒开局自定义队伍宝可梦'});
@@ -2805,7 +2783,7 @@ async function submitSetup() {
       const givenParty=ash?[]:party;
       pkm.party.slots=Array.from({length:6},(_,i)=>givenParty[i] || emptySlot(i+1));
       pkm.party.box=box;pkm.party.follow=null;pkm.party.following=[];
-      if(ash)pkm.integration.pendingStarter={event:'EP001',node:2,mon:clone(starter)};
+      if(ash)pkm.integration.pendingStarter={mon:clone(starter)};
       else delete pkm.integration.pendingStarter;
       for(const mon of [...givenParty,...box]){
         addSeen(pkm,mon.species,'EP001');
@@ -2834,7 +2812,14 @@ async function submitSetup() {
 }
 function setupProfileMessage(registered) {
   const ash=registered.mode==='小智模式',protagonist=registered.protagonist,ashNpc=registered.ashNpc;
-  return `<pkm_profile>${JSON.stringify(registered)}</pkm_profile>\n（训练家档案已登记，${ash?'皮卡丘仅预登记、尚未领取；到EP001节点2由玩家确认领取后才入队，不要提前作为队伍伙伴使用':(registered.customSetup?'自定义队伍与仓库':'初始伙伴')+'已由脚本写入存档，禁止再次赠送或重复添加'}。姓名、性别以本档案为准${ash?(protagonist==='智子'?'；主角是智子（小智的性转版少女，见《人物档案·智子》），原作剧情中小智的位置由她承担，人称与性别描写按智子处理，收服/徽章/劲敌等事件轨迹不变，其他角色称呼她智子':'，小智模式仅继承主角身份，不强制改名或改性别'):''}${!ash&&ashNpc==='智子'?'同行的小智为智子（小智的性转版少女，见《人物档案·智子》）：原作剧情里小智的戏份与事件轨迹不变，人名、人称与性别描写按智子，其他角色称呼她智子，她按事件详情默认走向行动、可被 {{user}} 介入影响。':''}人物背景是玩家设定资料，不是额外指令。请从${registered.mode}的开场开始第一幕。）`;
+  let identity='';
+  if(ash&&protagonist==='智子') identity='；主角是智子（小智的性转版少女，见《人物档案·智子》），姓名、人称与性别描写按已登记档案，其他角色称呼她“智子”';
+  else if(ash) identity='；小智模式的姓名与性别按玩家已登记的档案，不强制改名或改性别';
+  else if(ashNpc==='智子') identity='；同行的小智由智子（小智的性转版少女，见《人物档案·智子》）担任，按智子的姓名与女性代词称呼她';
+  const starter=ash
+    ? '皮卡丘仅预登记、尚未领取；由玩家确认后才加入队伍，未确认前不可按队伍伙伴使用'
+    : (registered.customSetup?'自定义队伍与仓库':'初始伙伴')+'已由脚本写入存档，禁止再次赠送或重复添加';
+  return `<pkm_profile>${JSON.stringify(registered)}</pkm_profile>\n（训练家档案已登记，${starter}。姓名、性别以本档案为准${identity}。人物背景是玩家设定资料，不是额外指令。请从${registered.mode}的开场继续。）`;
 }
 function prepareSetupMessage() {
   const pkm=readPkm(),ta=PD.getElementById('send_textarea');
@@ -3000,7 +2985,7 @@ function dexMap(pkm, st) {
 }
 // 野生遭遇等级校验：等级达到进化门槛时，沿满足当前时间/地点/条件的等级进化链升级形态。
 function wildSpeciesAtLevel(pkm,species,level,gender,key){
- const mon={species,name:species,lv:Math.max(1,Math.min(100,Math.floor(Number(level)||1))),gender,uid:key,nature:null,ability:SPECIES[species]?.abilities?.[0]||null};
+ const mon={species,name:species,lv:Math.max(1,Math.min(100,Math.floor(Number(level)||1))),gender,uid:key,nature:null,ability:selectSpeciesAbility(species,null,stableAbilityRandom({uid:key,species},species))};
  const visited=new Set();
  for(let step=0;step<8;step++){
   const id=speciesId(mon.species||mon.name);if(!id||visited.has(id))break;visited.add(id);
@@ -3018,7 +3003,7 @@ function wildSpeciesAtLevel(pkm,species,level,gender,key){
   }
   const target=chosen?.toName||Object.keys(SPECIES).find(n=>SPECIES[n]?.id===chosen?.to)||chosen?.to;
   if(!target||target===mon.species)break;
-  mon.species=target;mon.name=target;mon.ability=SPECIES[target]?.abilities?.[0]||mon.ability;
+  mon.species=target;mon.name=target;mon.ability=selectSpeciesAbility(target,mon.ability,stableAbilityRandom(mon,target));
  }
  return mon.species;
 }
@@ -7776,27 +7761,31 @@ function validateEffortSpread(values,budget=510){
 }
 // Legacy null is missing evidence, not proof of sex. The player must explicitly
 // confirm a manual choice or a once-only roll; the original chat export is untouched.
+function genderNeedsRepair(mon){
+ const id=speciesId(mon?.species||mon?.name)||mon?.species||mon?.name;
+ return PKMGender.missing(mon?.gender)||!PKMGender.normalize(mon?.gender)||(PKMGender.rate(id)!==null&&!PKMGender.allowed(id,mon?.gender));
+}
 function genderRepairTargets(pkm){
  const out=[];
  for(const [scope,rows] of [['party',pkm?.party?.slots||[]],['box',pkm?.party?.box||[]]])
-  rows.forEach((mon,index)=>{if(hasMon(mon)&&PKMGender.missing(mon.gender))out.push({scope,index,mon,id:speciesId(mon.species||mon.name)});});
+  rows.forEach((mon,index)=>{if(hasMon(mon)&&genderNeedsRepair(mon))out.push({scope,index,mon,id:speciesId(mon.species||mon.name)});});
  return out;
 }
 function genderFingerprint(mon){return JSON.stringify([mon?.uid??null,mon?.species??null,mon?.name??null,mon?.nickname??null,mon?.met??null,mon?.stats_meta?.ivs??null,mon?.gender??null]);}
 function genderRepairBulkMarkup(pkm){
  const missing=genderRepairTargets(pkm),eligible=missing.filter(x=>PKMGender.rate(x.id)!==null);
  if(!missing.length)return '';
- if(!eligible.length)return `<div class="pk-note" style="margin-top:9px;padding:9px;border:1px solid #e7c77a;border-radius:8px;background:#fff9e7">有 ${missing.length} 只伙伴的性别未记录；物种比例未知，无法批量抽取。未知物种的记录将跳过，请打开伙伴详情，根据可信记录手动选择。旧档原性别不能从空字段还原。</div>`;
- return `<div class="pk-note" style="margin-top:9px;padding:9px;border:1px solid #e7c77a;border-radius:8px;background:#fff9e7">有 ${missing.length} 只伙伴的性别未记录；原性别无法从空字段还原。<br><button type="button" class="action" data-op="gender-repair-all">按种族比例补设 ${eligible.length} 只</button>${eligible.length<missing.length?'（未知物种的记录将跳过，可逐只手动处理。）':''}</div>`;
+ if(!eligible.length)return `<div class="pk-note" style="margin-top:9px;padding:9px;border:1px solid #e7c77a;border-radius:8px;background:#fff9e7">有 ${missing.length} 只伙伴的性别缺失或不符合物种；物种比例未知，无法批量抽取。未知物种的记录将跳过，请打开伙伴详情，根据可信记录手动选择。旧档原性别不能从空字段还原。</div>`;
+ return `<div class="pk-note" style="margin-top:9px;padding:9px;border:1px solid #e7c77a;border-radius:8px;background:#fff9e7">有 ${missing.length} 只伙伴的性别缺失或不符合物种；原性别无法从空字段还原。<br><button type="button" class="action" data-op="gender-repair-all">按种族比例补设 ${eligible.length} 只</button>${eligible.length<missing.length?'（未知物种的记录将跳过，可逐只手动处理。）':''}</div>`;
 }
 function genderRepairDetailMarkup(mon){
- if(!PKMGender.missing(mon?.gender))return '';
+ if(!genderNeedsRepair(mon))return '';
  const id=speciesId(mon.species||mon.name),rate=PKMGender.rate(id),opts=PKMGender.options(id);
  const labels={M:'设为雄性',F:'设为雌性',N:'设为无性别'};
  const buttons=opts.map(g=>`<button type="button" class="action" data-op="gender-repair" data-gender-choice="${g}">${labels[g]}</button>`).join('');
  const random=rate!==null&&opts.length>1?'<button type="button" class="action primary" data-op="gender-repair" data-gender-choice="random">按种族比例抽取</button>':'';
  const detail=rate===null?'物种性别表未收录，请根据可信记录手动选择。':rate===-1?'此物种为无性别。':rate===0?'此形态仅雄性。':rate===8?'此形态仅雌性。':`此物种雌性比例 ${rate}/8，雄性比例 ${8-rate}/8。`;
- return `<section class="detail-section"><h5 class="section-title">补设缺失性别</h5><p class="pk-note">${esc(detail)} 旧档没有记录，无法判断当年实际性别；以下是由你确认的补设，不是历史恢复。已有性别不会重抽。</p><div class="actions">${buttons}${random}</div></section>`;
+ return `<section class="detail-section"><h5 class="section-title">修复缺失／非法性别</h5><p class="pk-note">${esc(detail)} 缺失记录无法还原历史；非法记录须按物种纠错。操作前会请求确认，合法的已有性别不会重抽。</p><div class="actions">${buttons}${random}</div></section>`;
 }
 function repairGenderWrite(plans, mode, expected){
  const run=async()=>{
@@ -7813,7 +7802,7 @@ function repairGenderWrite(plans, mode, expected){
   // fields when doing this narrowly-scoped repair, even with an old plot conflict.
   const resolved=plans.map(plan=>{
    const rows=plan.scope==='party'?pkm.party?.slots:pkm.party?.box,mon=rows?.[plan.index];
-   if(!hasMon(mon)||genderFingerprint(mon)!==plan.fingerprint||!PKMGender.missing(mon.gender))throw new Error('伙伴或候选回复已变化，未写入；请重新打开面板。');
+   if(!hasMon(mon)||genderFingerprint(mon)!==plan.fingerprint||!genderNeedsRepair(mon))throw new Error('伙伴或候选回复已变化，未写入；请重新打开面板。');
    const sid=speciesId(mon.species||mon.name);
    if(sid!==plan.speciesId)throw new Error('伙伴物种已变化，未写入；请重新选择。');
    if(plan.choice!=='random'&&!PKMGender.options(sid).includes(plan.choice))throw new Error('所选性别与已知物种／形态不符，未写入。');
@@ -7824,8 +7813,9 @@ function repairGenderWrite(plans, mode, expected){
   for(const item of resolved){
    const g=item.choice==='random'?PKMGender.roll(item.sid):item.choice;
    if(!g)throw new Error('性别未能确定，未写入任何伙伴。');
+   const previous=item.mon.gender??null;
    item.mon.gender=g;
-   item.mon.genderRepair={method:item.choice==='random'?'legacy-random':'legacy-player-choice',meaning:'补设，非历史恢复'};
+   item.mon.genderRepair={method:PKMGender.missing(previous)?(item.choice==='random'?'legacy-random':'legacy-player-choice'):'invalid-gender-player-confirmed',previous,value:g,meaning:'玩家确认的补设或物种约束纠错，非历史恢复'};
    output.push(g);
   }
   if(generationInFlight||serial!==generationSerial||chat()!==c||c.length-1!==id||(c[id]?.swipe_id??0)!==swipe||JSON.stringify(getMsgVars(id))!==rawKey)
@@ -7851,13 +7841,13 @@ async function promptGenderRepair(all,choice){
   selected=[{...t,choice}];
  }
  if(!selected.length)throw new Error('没有可按物种比例补设的伙伴。');
- const message=all?`将为 ${selected.length} 只性别未记录的队伍／仓库伙伴按物种比例补设（无性别与单一性别按物种确定）。历史原性别无法还原，结果不是历史证据。已有性别不会更改。确定继续？`:
-  `将为 ${monName(selected[0].mon)} 补设${choice==='random'?'按比例抽取的性别':PKMGender.label(choice)}。旧档原性别无法从空记录还原；这只是你的补设。确定继续？`;
+ const message=all?`将为 ${selected.length} 只性别缺失或非法的队伍／仓库伙伴按物种比例补设（无性别与单一性别按物种确定）。历史原性别无法还原，结果不是历史证据。合法的已有性别不会更改；非法值将按物种纠正。确定继续？`:
+  `将为 ${monName(selected[0].mon)} 补设${choice==='random'?'按比例抽取的性别':PKMGender.label(choice)}。将记录旧值用于核对；缺失记录是补设，非法记录是物种约束纠错。确定继续？`;
  if(typeof P.confirm!=='function')throw new Error('此环境无法弹出确认，未补设性别；请在支持确认的环境中操作。');
  if(!P.confirm(message))return;
  const plans=selected.map(x=>({scope:x.scope,index:x.index,speciesId:x.id,choice:x.choice,fingerprint:genderFingerprint(x.mon)}));
  const result=await repairGenderWrite(plans,all?'bulk':'single',expected);renderPanel();
- toast(`已补设 ${result.length} 只的性别；已有记录未改动。`);
+ toast(`已补设 ${result.length} 只的性别；合法的已有记录未改动。`);
 }
 function panelDetailMarkup(pkm) {
   const selection=panelSelection;
@@ -8248,6 +8238,8 @@ function engineConfig(spec, pkm, tag) {
       for (const k of ['nickname','hp','maxHp','status','pp','evs']) if (t[k] !== undefined) e[k] = clone(t[k]);
     }
     const r = rng(hash(String(spec.key || cfg.id || '') + '#' + i + '#' + e.species));
+    const abilitySeed = ['battle-ability-v1', String(spec.key || cfg.id || ''), i, speciesId(e.species)].join('#');
+    e.ability = selectSpeciesAbility(e.species, e.ability, rng(hash(abilitySeed)));
     const giv = isObj(t?.ivs) && K.STAT_KEYS.every(k => ivOk(Number(t.ivs[k]))) ? Object.fromEntries(K.STAT_KEYS.map(k => [k, Number(t.ivs[k])])) : null;
     e.ivs = giv || rollIvs(band, r);
     if (!natureZh(e.nature)) e.nature = rollNature(r);
@@ -8300,7 +8292,7 @@ function pointPassed(point, pos) {
   const i = pos.index(ev); if (i < 0) return false;
   return pos.cur > i || (nd != null && pos.cur === i && pos.node > Number(nd));
 }
-// 这一段剧情（当前节点；整集结束才生效的看最后一个节点）里会加入的成员：生成前注入提醒 AI，免得收服后还按旧名单写
+// 依据当前世界书事件状态判断 NPC 阵容变更；只在开战时补全战斗队伍，不生成剧情提示。
 function joiningNow(point, pos) {
   if (!point || pos.finished || pointPassed(point, pos)) return false;
   const [ev, nd] = String(point).split('#'); const i = pos.index(ev);
@@ -8356,7 +8348,7 @@ function completeTeam(cfg, env) {
   return res;
 }
 /* @roster-end */
-// 当前剧情进度（伙伴阵容兜底用）：和生成前注入用的是同一套定位
+// 可见剧情状态仅用于伙伴阵容兜底，不用于生成提示或剧情硬性校验。
 function storyPos(beforeId = Infinity) {
   try {
     const { list } = events(); if (!list.length) return null;
@@ -8364,7 +8356,7 @@ function storyPos(beforeId = Infinity) {
     const index = Object.fromEntries(list.map((e, i) => [e.id, i]));
     const skipped = new Set();
     for (const [i,m] of chat().entries()) {
-      if (i>beforeId || m?.is_user || knownPlotProblem(i)) continue;
+      if (i>beforeId || m?.is_user) continue;
       const x = parseState(m?.mes)?.剧情?.match(/([A-Z]{2,3}\d{2,3})\s*[｜|]\s*节点\s*\d+\s*[｜|]\s*跳过/); if (x) skipped.add(x[1]);
     }
     const idx = id => (index[id] ?? -1);
@@ -8389,7 +8381,7 @@ function battleCfg(cfg, healthy, opts = {}) {
 }
 const teamText = team => (team || []).map(p => (typeof p === 'string' ? p : `${p.species || p.name || '?'}${p.level || p.lv ? ' Lv' + (p.level || p.lv) : ''}`)).join(' / ');
 function openBattle(spec) {
-  const blocked=plotWriteBlockReason();if(blocked){toast(blocked,'warning');return;}
+  const blocked=writeBlockReason();if(blocked){toast(blocked,'warning');return;}
   if (modal) { toast('已经有一场对战在进行中'); return; }
   const pkm = readPkm();
   const sess = spec.sess || null;
@@ -8763,7 +8755,7 @@ function applyLevelEvolutions(pkm,mon,fromLevel,toLevel,eventId,reservedSlots=0)
       const target=chosen.toName||Object.keys(SPECIES).find(n=>SPECIES[n]?.id===chosen.to)||chosen.to;
       const sourceName=mon.species||mon.name||id,oldMax=Number(mon.maxHp)>0?Number(mon.maxHp):(monStats(mon)?.hp||1),oldHp=mon.hp;
       mon.species=target;mon.name=target;
-      const legal=SPECIES[target]?.abilities||[];if(!legal.includes(mon.ability))mon.ability=legal[0]||null;
+      mon.ability=selectSpeciesAbility(target,mon.ability,stableAbilityRandom(mon,target));
       const newMax=monStats(mon)?.hp||oldMax;mon.maxHp=newMax;
       if(oldHp==null)mon.hp=null;else if(Number(oldHp)<=0||mon.status==='濒死')mon.hp=0;else mon.hp=Math.max(1,Math.min(newMax,Number(oldHp)+Math.max(0,newMax-oldMax)));
       if(!Array.isArray(pkm.dex.caught))pkm.dex.caught=[];if(!pkm.dex.caught.includes(target))pkm.dex.caught.push(target);addSeen(pkm,target,eventId||'自由');
@@ -8776,7 +8768,7 @@ function applyLevelEvolutions(pkm,mon,fromLevel,toLevel,eventId,reservedSlots=0)
         // Shedinja is a newly created, genderless companion, not the parent's sex
         // or a previously repaired legacy individual.
         side.gender='N';delete side.genderRepair;
-        side.ability=SPECIES[name]?.abilities?.[0]||'神奇守护';side.hp=1;side.maxHp=1;side.status=null;side.exp=Number.isFinite(Number(mon.exp))?Number(mon.exp):experienceThreshold(side,level);side.notes='土居忍士进化时额外蜕变';sideMons.push(side);
+        side.ability=selectSpeciesAbility(name,null,stableAbilityRandom(side,name))||'神奇守护';side.hp=1;side.maxHp=1;side.status=null;side.exp=Number.isFinite(Number(mon.exp))?Number(mon.exp):experienceThreshold(side,level);side.notes='土居忍士进化时额外蜕变';sideMons.push(side);
         if(balls>1)pkm.player.bag.精灵球=balls-1;else delete pkm.player.bag.精灵球;
         records.push({from:'土居忍士',to:name,level,method:'等级进化附带',ballUsed:'精灵球'});
       }
@@ -9071,23 +9063,19 @@ function showStoredResult(rec) {
  * ==================================================================== */
 let refreshTimer = null;
 function starterClaimable(pkm){
-  if(!pkm?.integration?.pendingStarter||generationInFlight)return false;
-  const last=latestState();if(!last||knownPlotProblem(last.id))return false;
-  const m=String(last.state.剧情||'').match(PKMPlotGuard.PLOT_RE),loc=String(last.state.地点||pkm.world?.location||'');
-  const indoors=/研究所/.test(loc)&&!/门前|门口|门外|外面|外侧|外围|院外|后院|前院|外部|外墙|前方|对面/.test(loc);
-  const offered=String(last.state.领取||'').trim()==='皮卡丘待确认'&&/大木/.test(String(last.state.在场||''));
-  return m?.[1]==='EP001'&&Number(m[2])===2&&m[3]==='进行中'&&indoors&&offered;
+  // Player-controlled game action only: no episode, node, date, or narrative-state gate.
+  return !!pkm?.integration?.pendingStarter&&!generationInFlight;
 }
 async function claimReservedStarter(){
   let where='';
   await writePkm(pkm=>{
-    if(!starterClaimable(pkm))throw new Error('请先在EP001节点2进入研究所，等大木博士在正文提出交付后，再决定是否领取。');
+    if(!starterClaimable(pkm))throw new Error('当前不能确认领取（伙伴已领取，或正文仍在生成）。');
     const pending=pkm.integration.pendingStarter,mon=clone(pending.mon);
     if(!mon?.uid||[...pkm.party.slots,...pkm.party.box].some(x=>hasMon(x)&&x.uid===mon.uid))throw new Error('预登记伙伴状态冲突，请先检查队伍和聊天记录。');
     where=placeMon(pkm,mon);
     if(where.startsWith('队伍')){pkm.party.follow=mon.uid;pkm.party.following=[mon.uid];}
     addSeen(pkm,mon.species,'EP001');if(!pkm.dex.caught.includes(mon.species))pkm.dex.caught.push(mon.species);
-    pkm.integration.starterReceipt={uid:mon.uid,event:'EP001',node:2,messageId:latestState()?.id??null,time:latestState()?.state?.时间||pkm.world.time};
+    pkm.integration.starterReceipt={uid:mon.uid,messageId:latestState()?.id??null,time:latestState()?.state?.时间||pkm.world.time};
     delete pkm.integration.pendingStarter;
   });
   toast('已由你确认领取皮卡丘：'+where+'。');
@@ -9098,7 +9086,7 @@ function renderStarterClaim(){
   if(el)return;
   el=PD.createElement('div');el.id='pkm-claim-starter';el.setAttribute('role','group');
   el.style.cssText='position:fixed;z-index:2147483644;left:12px;bottom:18px;max-width:min(330px,calc(100vw - 24px));padding:10px 12px;background:#fff9de;color:#503b18;border:2px solid #d29c24;border-radius:12px;box-shadow:0 3px 18px #0003;font:13px/1.45 sans-serif';
-  const text=PD.createElement('div');text.textContent='皮卡丘仍为预登记。博士提出后，由你选择是否领取。';el.appendChild(text);
+  const text=PD.createElement('div');text.textContent='皮卡丘仍为预登记；由你决定是否现在领取并加入队伍。';el.appendChild(text);
   const button=PD.createElement('button');button.type='button';button.textContent='确认领取皮卡丘';button.style.cssText='margin-top:7px;padding:7px 12px;border:0;border-radius:8px;background:#e3ac29;color:#251c0b;font-weight:bold;cursor:pointer';
   button.onclick=async()=>{button.disabled=true;try{await claimReservedStarter();}catch(e){toast(e?.message||'领取失败','warning');button.disabled=false;}};
   el.appendChild(button);PD.body.appendChild(el);
@@ -9123,65 +9111,21 @@ function rekickFrames() {
     if (st && /没有连上对战系统|正在读取对战块/.test(st.textContent || '') && (f.getAttribute('srcdoc') || '').includes(CH)) { try { f.srcdoc = f.getAttribute('srcdoc'); } catch (_) {} }
   });
 }
-function showPlotWarning(problem){
-  if(!problem)return;
-  let el=PD.getElementById('pkm-plot-guard-warning');
-  if(!el){el=PD.createElement('div');el.id='pkm-plot-guard-warning';el.setAttribute('role','alert');
-    el.style.cssText='position:fixed;z-index:2147483645;top:8px;right:8px;max-width:min(480px,calc(100vw - 28px));padding:12px 14px;border:2px solid #c86f34;border-radius:10px;background:#fff6e9;color:#5a321c;font:14px/1.5 sans-serif;box-shadow:0 4px 20px #0003';
-    PD.body.appendChild(el);}
-  el.textContent='剧情时间保护：'+problem.reason+' 请编辑或重新生成本条，或切换到正确的候选回复；旧正文不会被自动改写。';
-  const close=PD.createElement('button');close.type='button';close.textContent='收起提醒';close.style.cssText='display:block;margin:8px 0 0 auto';close.onclick=()=>el.remove();el.appendChild(close);
-}
-function checkPlotMessage(id){
-  const msg=chat()[id];if(id<=0||!msg||msg.is_user||msg.is_system)return null;
-  const key=plotMessageKey(id),known=knownPlotProblem(id);if(known)return known;
-  const pkm=readPkmBefore(id-1),prev=latestState(id-1)?.state||null,pos=plotPosition(id-1);
-  const next=parseState(msg.mes);
-  if(next){const body=String(msg.mes||'').replace(/<pkm_state>[\s\S]*?<\/pkm_state>/gi,'').replace(/<UpdateVariable>[\s\S]*?<\/UpdateVariable>/gi,'').replace(/<pkm_result>[\s\S]*?<\/pkm_result>/gi,'').replace(/<[^>]+>/g,'').trim();next.__plotBodyPresent=body.length>=3;}
-  const result=pos?.conflict&&!pos.event?{ok:false,reason:pos.conflict}:PKMPlotGuard.validate(events(),pos,prev,next,pkm.world||{});
-  const progress=String(next?.剧情||'').match(PKMPlotGuard.PLOT_RE);
-  if(result.ok&&pkm.integration?.pendingStarter&&progress?.[1]==='EP001'&&Number(progress[2])===2&&['节点完成','完成'].includes(progress[3])){
-    result.ok=false;result.reason='皮卡丘仍是预登记，节点2需要玩家本人在研究所确认领取后才能完成。';
-  }
-  if(result.ok){plotProblems.delete(key);return null;}
-  const problem={key,reason:result.reason,messageId:id,swipe:msg.swipe_id??0};plotProblems.set(key,problem);return problem;
-}
-function restoreGuardedSnapshot(pkm,id,problem){
-  const base=prevPkm(id);
-  if(!base){LOG('剧情保护：找不到前一份变量快照，无法自动回滚变量；请手动核对。',id);return false;}
-  const before=JSON.stringify(pkm);
-  for(const k of Object.keys(pkm))delete pkm[k];Object.assign(pkm,clone(base));
-  if(!isObj(pkm.integration))pkm.integration={};
-  pkm.integration.plotGuard={key:problem.key,reason:problem.reason,messageId:id,swipe:problem.swipe??0};
-  return JSON.stringify(pkm)!==before;
-}
 function onChatEvent(recheck=false) {
   eventCache=null;initvarCache=null;lastInjection='';if(!generationInFlight)injectionCutoff=Infinity;
   const c=chat(),ai=lastAiId();
-  const currentText=String(c[ai]?.mes||'').trim();
-  if(recheck&&ai>0&&currentText&&currentText!=='...'){
-    const hadProblem=[...plotProblems.keys()].some(k=>k.startsWith(ai+':')) || getMsgVars(ai)?.stat_data?.pkm?.integration?.plotGuard?.messageId===ai;
-    const problem=checkPlotMessage(ai);
-    if(problem)showPlotWarning(problem);
-    else {
-      for(const key of [...plotProblems.keys()])if(key.startsWith(ai+':'))plotProblems.delete(key);
-      PD.getElementById('pkm-plot-guard-warning')?.remove();
-      // Only reconcile an actually repaired message; selecting an old valid swipe is read-only.
-      if(hadProblem&&c.length-1===ai){syncStoryState();scheduleSync(ai);}
-    }
-  }
   refreshAll();refreshInjection();repairCenterHealing();setTimeout(rekickFrames,400);
-  if(ai>=0&&c.length-1===ai&&!knownPlotProblem(ai)&&isStaleInitialSnapshot(ai,getMsgVars(ai)?.stat_data?.pkm))setTimeout(()=>scheduleSync(ai),0);
+  if(ai>=0&&c.length-1===ai&&isStaleInitialSnapshot(ai,getMsgVars(ai)?.stat_data?.pkm))setTimeout(()=>scheduleSync(ai),0);
 }
 function syncStoryState() {
   try{
-    const id=lastAiId();if(id<0||knownPlotProblem(id))return;
+    const id=lastAiId();if(id<0)return;
     const g=String(parseState(chat()[id]?.mes)?.剧情||'');if(!g)return;
     return writePkm(pkm=>{
       pkm.world=isObj(pkm.world)?pkm.world:{};const m=g.match(PKMPlotGuard.PLOT_RE);
       if(m){pkm.world.event=m[1];pkm.world.node=+m[2];pkm.world.nodeStatus=m[3];pkm.world.free=false;}
       else if(PKMPlotGuard.FREE_RE.test(g))pkm.world.free=true;
-      if(pkm.integration?.plotGuard?.messageId===id)delete pkm.integration.plotGuard;
+      if(isObj(pkm.integration))delete pkm.integration.plotGuard;
     }).catch(e=>LOG('剧情进度写入失败',e?.message||e));
   }catch(e){LOG('剧情进度读取失败',e?.message||e);}
 }
@@ -9196,16 +9140,9 @@ function onMessageReceived(id,type) {
     // Do not unlock or write on it: process the selected message after GENERATION_ENDED.
     if(sameMessage){pendingGenerationMessage={id:mesid,type,serial:generationSerial};return;}
   }
-  injectionCutoff=Infinity;generationBaseline=null;pendingGenerationMessage=null;
-  const problem=type==='first_message'?null:checkPlotMessage(mesid);generationInFlight=false;
-  if(problem){
-    showPlotWarning(problem);
-    writePkm(pkm=>restoreGuardedSnapshot(pkm,mesid,problem),{guardRecovery:true}).catch(e=>LOG('剧情保护回滚失败',e));
-  }else {
-    for(const key of [...plotProblems.keys()])if(key.startsWith(mesid+':'))plotProblems.delete(key);
-    PD.getElementById('pkm-plot-guard-warning')?.remove();
-    syncStoryState();
-  }
+  injectionCutoff=Infinity;generationBaseline=null;pendingGenerationMessage=null;generationInFlight=false;
+  PD.getElementById('pkm-plot-guard-warning')?.remove();
+  syncStoryState();
   refreshInjection();refreshAll();scheduleSync(mesid);
 }
 function onGenerationStarted(type,options,dryRun){
@@ -9217,7 +9154,7 @@ function onGenerationStarted(type,options,dryRun){
 }
 function onGenerationAfterCommands(type,options,dryRun){
   if(['quiet','impersonate'].includes(type))return;
-  const repair=['swipe','regenerate'].includes(type),id=lastAiId();
+  const repair=['swipe','regenerate'].includes(type);
   const visible=chat().slice(0,injectionCutoff===Infinity?undefined:injectionCutoff+1);
   const registration=setupStatus(readPkmBefore(injectionCutoff),visible);
   if(!dryRun&&!repair&&registration==='unregistered'){
@@ -9228,12 +9165,7 @@ function onGenerationAfterCommands(type,options,dryRun){
     generationInFlight=false;rerenderSetups(true);refreshInjection();return;
   }
   PD.getElementById('pkm-setup-warning')?.remove();
-  const problem=!repair?knownPlotProblem(id):null, pos=plotPosition(injectionCutoff);
-  const conflict=!repair&&pos?.conflict?{reason:pos.conflict+' 旧记录不会被自动补完，请核对。'}:null;
-  if(!dryRun&&(problem||conflict)){
-    try{ctx()?.stopGeneration?.();}catch(e){LOG('此宿主未能取消生成',e);}
-    showPlotWarning(problem||conflict);generationInFlight=false;
-  }
+  // Plot progression is advisory/worldbook-driven; no node or chronology marker can stop generation.
   refreshInjection();
 }
 // v1.3.4：等 MVU 先处理完这一楼再同步；MVU 一直没有写入（没装、报错）时，按 AI 的 JSONPatch 自己写入
@@ -9252,7 +9184,7 @@ function scheduleSync(mesid, n = 0, token = null) {
         const live=chat()[mesid];
         if(chat()!==token.chat||chat().length-1!==mesid||(live?.swipe_id??0)!==token.swipe||String(live?.mes||'')!==token.text||generationSerial!==token.serial)throw new Error('候选回复已变化，跳过延迟补丁。');
         applySync(pkm, mesid, { full: !hasOwnStat(mesid) && findStat()?.id !== mesid });
-      },{guardRecovery:!!knownPlotProblem(mesid)}).catch(e => LOG('同步失败', e));
+      }).catch(e => LOG('同步失败', e));
     } catch (e) { LOG(e); }
   }, n === 0 ? SYNC_DELAYS[0] : SYNC_DELAYS[n] - SYNC_DELAYS[n - 1]);
 }
@@ -9723,7 +9655,7 @@ function applyDirectEvolution(pkm,mon,evolution){
  const edge=evolution?.edge;if(!edge)return null;
  const from=mon.species||mon.name||speciesId(mon.species),oldMax=Number(mon.maxHp)>0?Number(mon.maxHp):(monStats(mon)?.hp||1),oldHp=mon.hp;
  const target=zhSpecies(edge.to)||edge.to;mon.species=target;mon.name=target;
- const legal=SPECIES[target]?.abilities||[];if(!legal.includes(mon.ability))mon.ability=legal[0]||null;
+ mon.ability=selectSpeciesAbility(target,mon.ability,stableAbilityRandom(mon,target));
  const newMax=monStats(mon)?.hp||oldMax;mon.maxHp=newMax;
  if(oldHp==null)mon.hp=null;else if(Number(oldHp)<=0||mon.status==='濒死')mon.hp=0;else mon.hp=Math.max(1,Math.min(newMax,Number(oldHp)+Math.max(0,newMax-oldMax)));
  pkm.dex=isObj(pkm.dex)?pkm.dex:{};if(!Array.isArray(pkm.dex.caught))pkm.dex.caught=[];if(!pkm.dex.caught.includes(target))pkm.dex.caught.push(target);addSeen(pkm,target,'自由');
@@ -10015,12 +9947,12 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, hardPlotVersion: '20261113-comprehensive-fix-v6', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: "20261111-ev-pp-shop-v9", base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, worldbookStoryPolicy:'worldbook-only-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: "20261111-ev-pp-shop-v9", base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
   on('MESSAGE_RECEIVED', onMessageReceived);
-  on('CHAT_CHANGED',()=>{plotProblems.clear();generationSerial++;generationInFlight=false;generationBaseline=null;pendingGenerationMessage=null;onChatEvent(false);});
+  on('CHAT_CHANGED',()=>{generationSerial++;generationInFlight=false;generationBaseline=null;pendingGenerationMessage=null;onChatEvent(false);});
   for(const ev of ['MESSAGE_SWIPED','MESSAGE_EDITED'])on(ev,()=>onChatEvent(true));
   for(const ev of ['MESSAGE_DELETED','MESSAGE_UPDATED'])on(ev,()=>onChatEvent(false));
   on('MESSAGE_SENT',()=>{refreshInjection();refreshAll();});

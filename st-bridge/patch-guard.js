@@ -18,7 +18,7 @@
   }
   // Reject obvious negation, wishes, hypotheticals and uncompleted attempts.
   // This is intentionally conservative, not a claim of semantic understanding.
-  function affirmative(s){return !/(?:没有|没能|并没|未曾|尚未|未能|并未|不曾|不会|不能|不愿|不想|不肯|不要|并不|从未|没|不|拒绝(?:向|对|给|去)[^，。；;]{0,14}(?:道谢|感谢|帮助|交谈)|如果|假如|假设|要是|若是|倘若|是否|能否|本想|想(?!了想|起|起来)|打算|计划|试图|试着|准备|提议|提出|考虑|犹豫|差点|险些|假装|希望|也许|可能|梦见|梦中|梦里|想象|幻想|\b(?:not|never|without|might|would|if)\b)/i.test(String(s||''));}
+  function affirmative(s){s=String(s||'').replace(/不小心|不由自主|情不自禁|毫不犹豫|忍不住/g,'');return !/(?:没有|没能|并没|未曾|尚未|未能|并未|不曾|不会|不能|不愿|不想|不肯|不要|并不|从未|没|不|拒绝(?:向|对|给|去)[^，。；;]{0,14}(?:道谢|感谢|帮助|交谈)|如果|假如|假设|要是|若是|倘若|是否|能否|本想|想(?!了想|起|起来)|打算|计划|试图|试着|准备|提议|提出|考虑|犹豫|差点|险些|假装|希望|也许|可能|梦见|梦中|梦里|想象|幻想|\b(?:not|never|without|might|would|if)\b)/i.test(String(s||''));}
   const ACTIONS=[
     /道谢|感谢|谢过|致谢|谢谢|感激/,
     /帮助|帮忙|帮了|扶起|扶住|救下|救了|救助|解围|协助/,
@@ -38,11 +38,12 @@
     const playerToNpc=names.some(n=>{const i=r.indexOf(n);return i>=0&&/(?:向|对|给|帮助|协助|安慰|鼓励|保护|感谢|陪伴|邀请)$/.test(r.slice(0,i));});
     const escape=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
     for(const part of visibleBody(text).split(/[。！？!?；;\n]+/)){
-      if(part.length>800||!affirmative(part))continue;
+      if(part.length>800)continue;
       const s=part.replace(/玩家(?:只是|仅|正)?(?:站|坐|待|在)[^，,；;。]{0,10}(?:一旁|旁边|身旁)/g,'');
       // Normally the actor, counterpart and matching action must share one
       // clause; this avoids crediting the NPC for another person's action.
       for(const clause of s.split(/[，,]/)){
+        if(!affirmative(clause))continue;
         if(!names.some(n=>clause.includes(n))||!players.some(p=>clause.includes(p))||!categories.some(a=>a.test(clause)))continue;
         const directionOk=!playerToNpc||players.some(p=>names.some(n=>{
           const ps=escape(p),ns=escape(n);
@@ -53,7 +54,7 @@
       // Preserve the original opening's explicit handover when an NPC, the
       // named player and a transfer action occur in adjacent clauses of one
       // affirmative sentence. No analogous fallback is used for thanks/help.
-      if(!playerToNpc&&/领取|交付|交给|递给/.test(r)&&names.some(n=>s.includes(n))&&players.some(p=>s.includes(p))&&ACTIONS[6].test(s))return true;
+      if(affirmative(s)&&!playerToNpc&&/领取|交付|交给|递给/.test(r)&&names.some(n=>s.includes(n))&&players.some(p=>s.includes(p))&&ACTIONS[6].test(s))return true;
     }
     return false;
   }
@@ -135,7 +136,7 @@
       const amount=loves.reduce((n,o)=>n+(o.op==='delta'&&Number.isFinite(Number(o.value))?Number(o.value):0),0),reason=String(why.at(-1)?.value||'').trim();
       const valid=loves.length>0&&loves.every(o=>o.op==='delta'&&Number.isFinite(Number(o.value)))&&last.length===1&&['replace','add'].includes(last[0].op)&&Number(last[0].value)===amount&&why.length===1&&['replace','add'].includes(why[0].op)&&!!reason&&!/^(同行|在场|相处|一起相处|普通聊天|见面)$/.test(reason)
         &&directInteraction(text,helpers.aliases?.(npc)||[npc],helpers.playerName,reason);
-      if(!valid){for(const o of group)rejected.add(o);warnings.push('不可靠人物好感补丁：缺少可核对互动或完整的 love/last/why，未由桥接处理');}
+      if(!valid){for(const o of group)rejected.add(o);warnings.push(`人物 ${npc} 好感补丁未通过校验（需同一补丁的 delta love、等值 last、具体 why 及正文直接互动）；未由桥接处理`);}
       else acceptedNpcs.add(npc);
     }
     const clean=ops.filter(o=>!rejected.has(o));
