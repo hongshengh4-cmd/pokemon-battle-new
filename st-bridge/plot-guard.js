@@ -1,4 +1,4 @@
-/* Plot chronology primitives: no writes, no assumptions about unseen events. */
+/* Date-keyed worldbook scene scheduling plus non-blocking chronology helpers. */
 (function(root){'use strict';
   const PLOT_RE = /([A-Z]{2,3}\d{2,3})\s*[｜|]\s*节点\s*(\d+)\s*[｜|]\s*(进行中|节点完成|完成|跳过)/;
   const FREE_RE = /自由\s*[｜|]\s*节点\s*0\s*[｜|]\s*进行中/;
@@ -44,13 +44,13 @@
     for(const e of entries||[]){
       const keys=e.keys||e.key||[], secondary=e.secondary_keys||e.keysecondary||[];
       const legacyEvent=keys.find(k=>/^EVT_/.test(String(k)));
-      const commentId=(String(e.comment||'').match(/事件详情·([A-Z]{2,3}\d{2,3})/)||[])[1];
+      const commentId=(String(e.comment||'').match(/(?:事件详情|特别事件)·([A-Z]{2,3}\d{2,3})/)||[])[1];
       const keyedId=secondary.find(k=>/^(?:EP|SP|MOV)\d{2,3}$/.test(String(k)));
       const eventId=commentId||keyedId||(legacyEvent?String(legacyEvent).slice(4):'');
       const stg=keys.find(k=>/^STAGE_\d+/.test(String(k)));
       if(eventId){
         if(seen.has(eventId))continue;seen.add(eventId);
-        const content=String(e.content||''),line=(content.match(/(?:^|\n)-\s*时间[:：]\s*([^\n]+)/)||[])[1]||'';
+        const content=String(e.content||''),dateKeys=[...new Set(keys.map(k=>date(String(k))?.text).filter(Boolean))],line=(content.match(/(?:^|\n)-\s*时间[:：]\s*([^\n]+)/)||[])[1]||'';
         const dates=[...line.matchAll(/第\s*\d+\s*年\s*\d+\s*月\s*\d+\s*日(?:\s*\d{1,2}[:：]\d{2})?/g)].map(m=>date(m[0])).filter(Boolean);
         const start=dates[0]||null, end=dates.length>1?dates[1]:null;
         const block=(content.split(/\n- 节点[:：]\s*\n/)[1]||'').split(/\n\s*介入点[：:]|\n- 对战机会|\n- 收尾|\n- 涉及角色|\n<\/Plot_Event>/)[0];
@@ -59,7 +59,7 @@
         const flexibleStart=eventId==='SP03' && !!end;
         const lastStart=flexibleStart?(end.hasTime?end.minute:end.day*1440+1439):(start?(start.hasTime?start.minute:start.day*1440+1439):Infinity);
         const finish=end?(end.hasTime?end.minute:end.day*1440+1439):Infinity;
-        list.push({id:eventId,title:String(e.comment||'').split('｜').slice(1).join('｜')||eventId,content,
+        list.push({id:eventId,title:String(e.comment||'').split('｜').slice(1).join('｜')||eventId,content,sourceComment:String(e.comment||''),dateKeys,
           stage:(content.match(/阶段[:：]\s*(S\d+[^\n]*)/)||[])[1]||'', date:start, endDate:end,
           startMinute:start?.minute??-Infinity, lastStartMinute:lastStart, endMinute:finish, flexibleStart,
           dateLabel:line, nodes:nodes.length?nodes:['（全事件）'],
@@ -68,6 +68,48 @@
     }
     list.sort((a,b)=>((a.date?.day??Infinity)-(b.date?.day??Infinity))||(a.ord-b.ord));
     return {list,stages};
+  }
+  // Select one date-keyed worldbook event for the next generation. This is a
+  // non-blocking prompt scheduler: a later-dated event supersedes an older
+  // unfinished marker, and malformed/missing state simply falls back to date.
+  function dateActivation(book,states,timeText,world={}){
+    const now=date(timeText);if(!now)return null;
+    const list=Array.isArray(book)?book:(book?.list||[]);if(!list.length)return null;
+    const byId=new Map(list.map(e=>[e.id,e])),lastById=new Map(),markers=[];
+    const remember=st=>{
+      const m=String(st?.剧情||'').match(PLOT_RE);if(!m||!byId.has(m[1]))return;
+      const mark={id:m[1],node:Number(m[2]),status:m[3]};markers.push(mark);lastById.set(mark.id,mark);
+    };
+    for(const st of states||[])remember(st);
+    if(!markers.length&&world?.event&&byId.has(String(world.event)))
+      remember({剧情:`${world.event}｜节点${Number(world.node)||1}｜${world.nodeStatus||'进行中'}`});
+    const latest=markers.length?markers[markers.length-1]:null;
+    const eventDay=e=>{
+      if(Number.isSafeInteger(e?.date?.day))return e.date.day;
+      const ds=(e?.dateKeys||[]).map(k=>date(k)?.day).filter(Number.isSafeInteger);
+      return ds.length?Math.min(...ds):Infinity;
+    };
+    const totalOf=e=>Math.max(1,Array.isArray(e?.nodes)&&e.nodes.length?e.nodes.length:1);
+    const resolved=(e,m)=>!!m&&(['完成','跳过'].includes(m.status)||(m.status==='节点完成'&&Number(m.node)>=totalOf(e)));
+    const build=(e,m,reason)=>{
+      const total=totalOf(e);let node=Math.max(1,Math.min(total,Number(m?.node)||1));
+      if(m?.status==='节点完成')node++;
+      if(node>total)return null;
+      const scene=e.nodes?.[node-1];
+      return {event:e,node,total,scene:scene&&scene!=='（全事件）'?scene:e.content,clock:now.text,reason};
+    };
+    const current=latest&&byId.get(latest.id);
+    const matches=list.filter(e=>Array.isArray(e.dateKeys)&&e.dateKeys.includes(now.text));
+    if(current&&!resolved(current,latest)&&eventDay(current)<=now.day){
+      const hasNewerDue=matches.some(e=>eventDay(e)>eventDay(current)&&!resolved(e,lastById.get(e.id)));
+      if(!hasNewerDue)return build(current,latest,matches.some(e=>e.id===current.id)?'active-date-match':'continue-active');
+    }
+    if(!matches.length)return null;
+    const newestDay=Math.max(...matches.map(eventDay));
+    const due=matches.filter(e=>eventDay(e)===newestDay&&!resolved(e,lastById.get(e.id)));
+    if(!due.length)return null;
+    const sameDayActive=latest&&due.find(e=>e.id===latest.id);
+    return build(sameDayActive||due[0],sameDayActive?latest:lastById.get(due[0].id),'date-trigger');
   }
   function position(book,states,world={},timeText='',opts={}){
     const list=book?.list||[];if(!list.length)return null;
@@ -345,11 +387,11 @@
     if(a[2]&&b[2]&&clean(a[2])!==clean(b[2]))return `阶段名称与当前事件不一致，应为 ${expected}。`;
     return '';
   }
-  // Narrative progression is governed by the character book, not enforced by this runtime.
-  // Keep the API shape for compatibility, but never block, rewrite, or classify a reply as invalid.
+  // Runtime only schedules date-keyed worldbook scenes; this compatibility validator never gates a reply.
+  // Never block, rewrite, or classify a reply as invalid.
   function validate(book,pos,previousState,nextState,world={}){
-    return {ok:true,policy:'worldbook-only-v1'};
+    return {ok:true,policy:'date-key-autostart-v1'};
   }
-  const api={version:'20261113-comprehensive-fix-v6',worldbookStoryPolicy:'worldbook-only-v1',PLOT_RE,FREE_RE,CALENDAR,leap,date,legacyMinute,repelDeadline,makeEvents,position,validate,NODE_OPEN,NODE_FINISH};root.PKMPlotGuard=api;
+  const api={version:'20261113-comprehensive-fix-v6',worldbookStoryPolicy:'date-key-autostart-v1',PLOT_RE,FREE_RE,CALENDAR,leap,date,legacyMinute,repelDeadline,makeEvents,dateActivation,position,validate,NODE_OPEN,NODE_FINISH};root.PKMPlotGuard=api;
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

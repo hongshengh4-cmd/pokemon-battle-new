@@ -2,7 +2,7 @@ import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './spr
 import * as K from './kanto-data.js?v=20261113-comprehensive-fix-v6';
 import './gender.js?v=20261115-gender-bond-hotfix1';
 import './battle-mechanics.js?v=20261113-comprehensive-fix-v6';
-import './plot-guard.js?v=20261115-worldbook-date-event-ability-v1';
+import './plot-guard.js?v=20261115-worldbook-date-event-ability-v3';
 import './patch-guard.js?v=20261115-gender-bond-hotfix1';
 import '../src/engine/gear-resolve.js?v=20261113-comprehensive-fix-v6';
 import '../src/engine/held-sync.js?v=20261113-comprehensive-fix-v6';
@@ -39,7 +39,7 @@ import {habitatAt, habitatPool, HABITAT_LABELS, indoorAt, isCenterLocation, comp
 //       ④ 变量摘要里电脑仓库每只附带性格/资质，收服摘要附带完整个体信息，AI 叙述与变量不再出现两套数值。
 
 const EXPECTED_BUILD='20261113-comprehensive-fix-v6';
-if(K.VERSION!=='1.3.66-comprehensive-v6'||globalThis.PKMNormalAbility?.version!=='20261115-normal-ability-random-v2'||globalThis.PKMGender?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.worldbookStoryPolicy!=='worldbook-only-v1'||globalThis.PKMPatchGuard?.version!==EXPECTED_BUILD||globalThis.PKMGearResolve?.version!==EXPECTED_BUILD||globalThis.PKMBattleGear?.fixVersion!==EXPECTED_BUILD)
+if(K.VERSION!=='1.3.66-comprehensive-v6'||globalThis.PKMNormalAbility?.version!=='20261115-normal-ability-random-v2'||globalThis.PKMGender?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.worldbookStoryPolicy!=='date-key-autostart-v1'||globalThis.PKMPatchGuard?.version!==EXPECTED_BUILD||globalThis.PKMGearResolve?.version!==EXPECTED_BUILD||globalThis.PKMBattleGear?.fixVersion!==EXPECTED_BUILD)
   throw new Error('修复模块版本不完整：请先部署本包全部覆盖文件并刷新缓存。');
 const VERSION = K.VERSION;
 const W = window;
@@ -1143,7 +1143,7 @@ function makeStarter(species, nickname, mode, choice='预设') {
 }
 
 /* ======================================================================
- * 3. 世界书事件数据（仅供游戏侧被动读取；不提示或强制推进剧情）
+ * 3. 日期世界书事件：生成前按当前游戏日期选取场景；剧情状态不作阻断
  * ==================================================================== */
 let eventCache = null;
 let onlineEntries = null, onlineMeta = null;
@@ -1153,20 +1153,20 @@ const worldReady = W.PKM_BUNDLED_PLOT ? Promise.resolve() : fetch(BASE + 'st-bri
   .then(r => (r.ok ? r.json() : null)).then(j => {
     if(j?.version==='20261113-comprehensive-fix-v6'&&Array.isArray(j.entries)&&j.entries.length){
       onlineEntries=j.entries;onlineMeta={version:j.version,count:j.entries.length};eventCache=null;refreshInjection();
-      LOG('世界书事件数据已加载 '+j.entries.length+' 条（仅供伙伴阵容等玩法读取）');
-    } else LOG('线上世界书版本未匹配，回退卡内事件数据；不会向生成提示注入剧情节点。');
+      LOG('世界书事件数据已加载 '+j.entries.length+' 条（按游戏日期自动选取剧情场景；不做剧情阻断）');
+    } else LOG('线上世界书版本未匹配，回退卡内日期事件数据；剧情调度仅按日期注入场景，不阻断生成。');
   }).catch(e=>LOG('线上世界书加载失败，回退卡内修订版',e?.message||e));
 // Prefer the actual card's book; a partial book must not be silently mixed with
 // a different online chronology. Only a completely absent card book may fall back.
 function worldEventId(e){
- const comment=(String(e?.comment||'').match(/事件详情·([A-Z]{2,3}\d{2,3})/)||[])[1];if(comment)return comment;
+ const comment=(String(e?.comment||'').match(/(?:事件详情|特别事件)·([A-Z]{2,3}\d{2,3})/)||[])[1];if(comment)return comment;
  const keys=[...(Array.isArray(e?.keys)?e.keys:[]),...(Array.isArray(e?.secondary_keys)?e.secondary_keys:[])];
  const legacy=keys.find(k=>/^EVT_/.test(String(k)));if(legacy)return String(legacy).slice(4);
  return keys.find(k=>/^(?:EP|SP|MOV)\d{2,3}$/.test(String(k)))||'';
 }
 function worldEntries(){
- // These entries are read only for NPC roster fallback. World Info activation itself
- // is entirely SillyTavern's date + event-ID keyword matching, not bridge validation.
+ // The card's date-keyed event entries feed a non-blocking pre-generation scene scheduler
+ // and NPC roster fallback. Activation never depends on a stale event-ID or node validator.
  const card=cardEntries();
  if(card.some(e=>worldEventId(e)))return card;
  return Array.isArray(onlineEntries)?onlineEntries:[];
@@ -1189,7 +1189,7 @@ function plotPosition(beforeId=Infinity){
   return PKMPlotGuard.position(book,states,pkm.world||{},st?.时间||pkm.world?.time||'',{strictHistory:true,initialWorld});
 }
 /* ======================================================================
- * 4. 生成前注入：变量摘要与非剧情游戏规则
+ * 4. 生成前注入：日期匹配的世界书节点、变量摘要与游戏规则
  * ==================================================================== */
 function summaryText(pkm) {
   const pl = pkm.player, lines = [];
@@ -1258,13 +1258,24 @@ function bondRules(pkm, st) {
     '【宝可梦叫声】宝可梦（会说话的喵喵除外）只会喊自己的名字或名字的音节，队伍里的叫法见上面的“叫声”。不要把名字截成不存在的叫法（例如小火龙不叫“小火小火”，应是“小火龙～！”“小～火龙！”）。',
     '【能力与 PP】宝可梦的个体值、性格、能力值和招式剩余 PP 由脚本维护；只有实际完成宝可梦中心治疗后才将队伍每只 hp、status、pp replace 为 null（全部回满）；正文要明确说明治疗完成，路过、预约或治疗中不能回满。局部治疗只更新实际治疗对象。'].join('\n');
 }
+function dateDrivenPlotPrompt(messages,st,pkm) {
+  try {
+    const states=(messages||[]).filter(m=>m&&!m.is_user&&!m.is_system).map(m=>parseState(m.mes)).filter(Boolean);
+    const plan=PKMPlotGuard.dateActivation(events(),states,st?.时间||pkm?.world?.time||'',pkm?.world||{});
+    if(!plan)return '';
+    const event=plan.event,title=event.title||event.id,source=event.sourceComment||('📜事件详情·'+event.id);
+    return `【日期自动触发的世界书剧情】\n游戏时间：${plan.clock}\n当前日期对应条目：《${source}》｜${event.id}「${title}」\n本轮直接按该世界书条目的第${plan.node}/${plan.total}节点进入正文；以下是该节点原文，作为当前场景素材自然续写，不要把它写成系统提醒，也不要求玩家编辑或重新生成。\n${plan.scene}\n玩家行动、已经发生的正文与存档优先；旧事件未完成、节点编号不一致或剧情行没更新，都不能挡住本日期事件触发。不要补演旧节点，不代替玩家行动；真实演完后照常更新剧情行。`;
+  } catch(e) { LOG('日期剧情调度失败，继续正常生成',e?.message||e); return ''; }
+}
 function buildInjection() {
   const c = chat().slice(0, injectionCutoff === Infinity ? undefined : injectionCutoff + 1); if (!c.length) return '';
   const pkm = readPkmBefore(injectionCutoff);
-  if (c.length <= 1) return ''; // 还停在开局登记界面
-  const parts = ['【关都之旅·存档与玩法摘要】'];
   const st = latestState(injectionCutoff)?.state;
+  const plotPrompt=dateDrivenPlotPrompt(c,st,pkm);
+  if (c.length <= 1) return plotPrompt&&pkm.integration?.profile?subUser(plotPrompt):''; // 初始登记时只注入已确认日期对应的场景
+  const parts = ['【关都之旅·存档与玩法摘要】'];
   parts.push(`当前：模式 ${st?.模式 || pkm.world.mode || '—'}｜时间 ${st?.时间 || pkm.world.time || '—'}｜地点 ${st?.地点 || pkm.world.location || '—'}`);
+  if(plotPrompt)parts.push(plotPrompt);
   parts.push('【榴柑道馆特例】EP109 的琉丽道馆赛写 type: gym、event: EP109、opponent: 琉丽，双方各两只；引擎自动采用双打且任一只倒下整组落败。该规则不套用于同集的火箭队遭遇；双方同一步骤均倒下时不自动决出胜者，请裁定。');
   parts.push('【对战赛制自动选择】对战系统不让玩家手动切换模式；必须按正文/裁判明确的赛制自动选择。正文写“双打”、doubles，或明确双方各有两只同时出战时，生成 <pkm_battle> 配置时写顶层 "battleMode":"double"（或 rules.battleMode），并让每只出战宝可梦各选一个行动；正文明确单打时写 "battleMode":"single"。仅 teamSize、队伍人数、参赛人数或 N 对 N 名额，不代表双打；赛制未明确说明同时出战时默认单打。野生遭遇始终单打。不要询问玩家或依赖手动 UI 切换。');
   const profile=pkm.integration.profile;
@@ -8867,10 +8878,8 @@ function awardBattleExperience(pkm, payload, outcome, battleType, eventId='自�
     // 野外：经验不按参战人数瓜分。出场者各得完整等级公式经验，队伍其余成员各得一半。
     pkm.party.slots.forEach((mon,i)=>{if(!hasMon(mon))return;const entered=participated.has(i);award(mon,entered?baseGain:Math.max(1,Math.floor(baseGain/2)),entered);});
   }else{
-    // 训练家战：出场者获全额；背包有学习装置时，未出场队员获 50%（被动、不消耗）。
-    for(const p of payload.playerTeam||[]){if(p.participated===false||!Number.isInteger(Number(p.hostSlot)))continue;award(pkm.party.slots[Number(p.hostSlot)],baseGain,true);}
-    const shareItem=['学习装置','经验分享','经验分享器'].some(n=>Number(pkm.player?.bag?.[n])>0);
-    if(shareItem)pkm.party.slots.forEach((mon,i)=>{if(hasMon(mon)&&!participated.has(i))award(mon,Math.max(1,Math.floor(baseGain/2)),false);});
+    // 训练家／NPC 战：与野外一致，实际出场者各得全额，队伍内未出场者各得 50%；不需持有任何道具。
+    pkm.party.slots.forEach((mon,i)=>{if(!hasMon(mon))return;const entered=participated.has(i);award(mon,entered?baseGain:Math.max(1,Math.floor(baseGain/2)),entered);});
   }
   for(const mon of sideMons)if(pkm.party.slots.some(s=>!hasMon(s))){placeMon(pkm,mon);if(!pkm.dex.caught.includes(mon.species))pkm.dex.caught.push(mon.species);addSeen(pkm,mon.species,eventId||'自由');}
   return gained;
@@ -9947,7 +9956,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, worldbookStoryPolicy:'worldbook-only-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: "20261111-ev-pp-shop-v9", base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: "20261111-ev-pp-shop-v9", base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
