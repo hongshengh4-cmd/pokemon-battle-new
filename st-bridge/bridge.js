@@ -1336,8 +1336,12 @@ function patchPlan(text,base){
 }
 function parsePatchOps(text,base=null){return patchPlan(text,base).ops;}
 function showPatchWarnings(plan,mesid){
+ // 已关闭“变量补丁待核对”提示（用户要求）：变量按补丁照常写入，只在控制台留记录。
+ PD.getElementById('pkm-patch-warning')?.remove();
+ const quiet=plan?.warnings||[];if(quiet.length)try{console.debug('[pkm] 补丁备注（不提示）',mesid,quiet);}catch(_){}
+ return;
  if(chat().length-1!==mesid)return;
- const warnings=plan?.warnings||[];let el=PD.getElementById('pkm-patch-warning');
+ const warnings=quiet;let el=PD.getElementById('pkm-patch-warning');
  if(!warnings.length){el?.remove();return;}
  if(!el){el=PD.createElement('div');el.id='pkm-patch-warning';el.setAttribute('role','alert');el.style.cssText='position:fixed;z-index:2147483645;top:68px;right:8px;max-width:min(480px,calc(100vw - 28px));padding:10px 12px;border:2px solid #c98d37;border-radius:10px;background:#fff7df;color:#5c3e16;font:13px/1.5 sans-serif;box-shadow:0 4px 20px #0003';PD.body.appendChild(el);}
  const signature=JSON.stringify([mesid,warnings]);

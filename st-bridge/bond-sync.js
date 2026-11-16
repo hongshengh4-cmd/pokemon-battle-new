@@ -96,17 +96,33 @@
       const g = o.segs || [];
       if (g[0] === 'pkm' && g[1] === 'npcs' && g[2] === 'records' && g[3] && protectedPath(g)) keys.add(g[3]);
     }
+    // 整条人物记录 / 整张人物表的补丁：按补丁结果整体写入（好感守卫已关闭）。
+    const whole = new Set(); let table = false;
+    for (const o of plan.rawOps || []) {
+      const g = o.segs || [];
+      if (g[0] !== 'pkm' || g[1] !== 'npcs') continue;
+      if (g.length <= 3) table = true; else if (g[2] === 'records' && g.length === 4) whole.add(g[3]);
+    }
+    if (table) for (const k of new Set([...Object.keys(safe), ...Object.keys(before)])) keys.add(k);
     const conflicts = (plan.conflicts || []).map(k => { try { return JSON.parse(k); } catch (_) { return []; } });
     const conflictFor = key => conflicts.some(g => g.length && g.slice(0, Math.min(g.length, 4)).every((x, i) => x === ['pkm', 'npcs', 'records', key][i]));
     const accepted = new Set(plan.acceptedNpcs || []);
     for (const key of keys) {
       if (conflictFor(key)) { result.conflicts.push(key); result.warnings.push(`人物 ${key} 的补丁路径冲突，未自动覆盖，请核对。`); continue; }
       let now = recs[key]; const was = before[key], want = safe[key], externallyRequested = raw[key];
+      if (table || whole.has(key)) {
+        if (!obj(want)) { if (key in recs) { delete recs[key]; result.changed = true; } continue; }
+        const next = clone(want);
+        if (accepted.has(key) && Number.isInteger(meta.messageId)) { next.lastInteraction = meta.messageId; next.met = true; result.accepted.push(key); }
+        if (!equal(now, next)) { recs[key] = next; result.changed = true; }
+        continue;
+      }
       if (!obj(was)) {
         // A new named record may be created, but its first bond starts at zero.
         if (obj(want) && !obj(now)) { recs[key] = now = clone(want); result.changed = true; }
-        if (obj(now) && obj(want) && !accepted.has(key) && (equal(trio(now), trio(externallyRequested)) || equal(trio(now), trio(want)))) {
-          for (const field of [...FIELDS, 'lastInteraction']) if (!equal(now[field], want[field])) { now[field] = clone(want[field]); result.changed = true; }
+        if (obj(now) && obj(want)) {
+          for (const field of FIELDS) if (field in want && !equal(now[field], want[field])) { now[field] = clone(want[field]); result.changed = true; }
+          if (accepted.has(key) && Number.isInteger(meta.messageId)) { if (now.lastInteraction !== meta.messageId) { now.lastInteraction = meta.messageId; result.changed = true; } if (now.met !== true) { now.met = true; result.changed = true; } result.accepted.push(key); }
         }
         continue;
       }
@@ -143,7 +159,7 @@
       for (const type of ['display_data', 'delta_data']) {
         if (!obj(variables[type])) variables[type] = {};
         const data = variables[type]; if (!obj(data.pkm)) data.pkm = {}; if (!obj(data.pkm.npcs)) data.pkm.npcs = {}; if (!obj(data.pkm.npcs.records)) data.pkm.npcs.records = {}; if (!obj(data.pkm.npcs.records[key])) data.pkm.npcs.records[key] = {};
-        data.pkm.npcs.records[key][field] = equal(oldValue, value) ? `${JSON.stringify(value)}（好感校验：维持原值）` : `${JSON.stringify(oldValue)}->${JSON.stringify(value)}（好感校验后）`;
+        data.pkm.npcs.records[key][field] = equal(oldValue, value) ? `${JSON.stringify(value)}` : `${JSON.stringify(oldValue)}->${JSON.stringify(value)}`;
       }
     }
   }

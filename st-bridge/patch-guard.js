@@ -34,11 +34,11 @@
     /帮助|帮忙|帮了|扶起|扶住|救下|救了|救助|解围|协助|救命|救援|护航/,
     /安慰|抚慰|鼓励|宽慰|打气|激励|鼓舞|倾听|听完|听着|开导|点拨|指点/,
     /保护|守护|挡下|并肩作战|并肩战斗|联手(?:战斗|击败|对抗)|切磋|对战|交战|挑战赛/,
-    /拥抱|抱住|牵手|握手|击掌/,
-    /交谈|聊天|交流|谈话|对话|询问|咨询|请教|问候|问好|说话|回应|回答|叮嘱|提醒|讲解|称赞|赞许|夸奖|致意|道别|告别|祝贺|恭喜|道贺/,
-    /交给|递给|递到|交付|交还|递还|接过|给予|送给|赠送|请客|分享|领取|领到|推近|推过去|递过去|拿给|颁发|办理|入住|治疗|恢复|抛给|扔给|丢给|发给|颁给|塞给|递了过来|抛了过来|扔了过来|丢了过来/,
+    /拥抱|抱住|牵手|握手|击掌|握住|拍了拍|拍拍|摸了摸|摸摸/,
+    /交谈|聊天|交流|谈话|对话|询问|咨询|请教|问候|问好|说话|回应|回答|叮嘱|提醒|讲解|称赞|赞许|夸奖|致意|道别|告别|祝贺|恭喜|道贺|答应|应下|应允|应道|答道|回道|许诺|承诺|鞠躬|行礼|打招呼|寒暄/,
+    /交给|递给|递到|交付|交还|递还|接过|给予|送给|赠送|请客|分享|领取|领到|推近|推过去|递过去|拿给|颁发|办理|入住|治疗|恢复|抛给|扔给|丢给|发给|颁给|塞给|塞进|塞到|递来|递上|送上|递了过来|抛了过来|扔了过来|丢了过来/,
     /责备|批评|争吵|吵架|冒犯|伤害|背叛|讽刺|欺骗|辱骂|拒绝(?!向|对|给|帮|与|和|去|跟|为|替)|失信/,
-    /邀请|陪伴|陪着|照料|照顾|包扎/,
+    /邀请|陪伴|陪着|照料|照顾|包扎|送行|送别|(?:一同|一起|一道|结伴)(?:出发|上路|踏上|启程|前往|赶路|同行)|并肩(?:走|前行|出发|赶路|同行)/,
   ];
   const QUOTED_BOND=/谢了|谢啦|谢谢|多谢|感谢|谢过|恭喜|祝贺|对不起|抱歉|好久不见|认可|佩服/;
   const BENIGN=/不小心|不由自主|情不自禁|毫不犹豫|忍不住|不禁/g;
@@ -134,6 +134,21 @@
       }
       if(subjectNpc!==null)prevSubjectNpc=subjectNpc;
     }
+    // 当面对话往来：一句是你说的话，相邻一句是TA说的话或TA对此的直接反应
+    // （“……”你认真地说。花子眼眶一红，点了点头。）。对别人说、旁观、假设都不算。
+    const sents=segments(body),SAY=/说|道|答|应|回|问|喊|叫/;
+    const lead=s=>outsideQuotes(s).trim().replace(/^(?:而|但|随后|接着|于是|这时|同时|然后|不过)\s*/,'');
+    const clean=s=>{const nar=outsideQuotes(s);return !HYPOTHETICAL.test(nar)&&!observer.test(nar)&&!glance.test(nar)&&!/看着|看见|看到|望着|目睹|旁观|听说|得知/.test(nar)&&!others.some(o=>nar.includes(o));};
+    const speaker=s=>{const qi=s.search(/[“「『"]/);if(qi<0||!clean(s))return null;const t=lead(s),nar=outsideQuotes(s);
+      if(!(SAY.test(t)||/[：:]/.test(nar)))return null;if(addressedOther(s,qi))return null;
+      if(players.some(pl=>t.startsWith(pl)))return 'p';if(names.some(nm=>t.startsWith(nm)))return 'n';return null;};
+    const reacts=s=>{const t=lead(s);return !!t&&names.some(nm=>t.startsWith(nm))&&clean(s);};
+    for(let k=0;k<sents.length;k++){
+      const sp=speaker(sents[k]);if(!sp)continue;
+      const nx=sents[k+1]?speaker(sents[k+1]):null,pv=k?speaker(sents[k-1]):null;
+      if((sp==='p'&&(nx==='n'||pv==='n'||(sents[k+1]&&nx===null&&reacts(sents[k+1]))))||(sp==='n'&&nx==='p'))
+        return {kind:5,action:'当面对话',excerpt:(sents[k]+'。'+(sents[k+1]||'')).trim().slice(0,180),reason:r};
+    }
     return null;
   }
   function directInteraction(text,aliases,player,reason='',otherNames=[]){return !!interactionEvidence(text,aliases,player,reason,otherNames);}
@@ -181,7 +196,7 @@
       if(key(a)===key(b))continue;
       conflicts.add(pathKey(a));conflicts.add(pathKey(b));
     }
-    if(conflicts.size)warnings.push('不同补丁有冲突路径，冲突项未由桥接处理，请人工核对');
+    conflicts.clear(); // 好感守卫已关闭：冲突路径按出现顺序照常执行，不提示
     const seen=new Set(),ops=[];
     for(const block of blocks){
       const before=new Set(seen),thisBlock=new Set();
@@ -189,59 +204,33 @@
         const k=key(o);thisBlock.add(k);
         if(conflicts.has(pathKey(o)))continue;
         if(before.has(k)){dup.push(o);continue;}
-        const g=o.segs;
-        if(g[0]==='pkm'&&g[1]==='npcs'){
-          if(g.length<=3){warnings.push('人物整表补丁无法可靠核对，已忽略');continue;}
-          if(g[2]==='records'){
-            if(g[4]==='lastInteraction'){warnings.push('最近互动由桥接维护，已忽略直接改写');continue;}
-            if(g.length===4&&obj(o.value)){
-              if(helpers.existingNpc?.(g[3])){warnings.push('人物整对象补丁无法可靠核对好感，已忽略');continue;}
-              // Presence may create a record, but never invent a recent interaction or bond.
-              o={...o,value:{...o.value,love:0,last:0,why:null,lastInteraction:-1}};
-            }
-          }
-        }
         ops.push(o);
       }
       for(const k of thisBlock)seen.add(k);
     }
-    if(dup.length)warnings.push('检测到重复补丁；不同补丁中的相同操作只处理一次');
+    // 不同补丁块里完全相同的操作只执行一次（防止重复加分），不提示。
     // All sensitive bond fields must form one complete reliable trio in the same block.
     const groups=new Map();
     for(const o of ops){const g=o.segs;if(g[0]!=='pkm'||g[1]!=='npcs'||g[2]!=='records'||g.length!==5||!['love','last','why'].includes(g[4]))continue;const k=o.block+'|'+g[3];if(!groups.has(k))groups.set(k,[]);groups.get(k).push(o);}
     const rejected=new Set(),acceptedNpcs=new Set(),bondUpdates=[],replaced=new Map(),capped=[];
-    for(const [k,group] of groups){
-      const npc=group[0].segs[3],loves=group.filter(o=>o.segs[4]==='love'),last=group.filter(o=>o.segs[4]==='last'),why=group.filter(o=>o.segs[4]==='why');
-      const amount=loves.reduce((n,o)=>n+(o.op==='delta'&&Number.isFinite(Number(o.value))?Number(o.value):0),0),reason=String(why.at(-1)?.value||'').trim();
-      const integer=x=>typeof x==='number'&&Number.isInteger(x);
-      const label=(()=>{const a=(helpers.aliases?.(npc)||[]).find(x=>x&&x!==npc);return a?`${npc}（${a}）`:npc;})();
+    // 好感守卫已关闭（用户要求）：love/last/why 按补丁原样写入，不核对正文、不出提示；
+    // 仅把 love 的总值保持在 ±100 以内。
+    for (const [k,group] of groups){
+      const npc=group[0].segs[3],loves=group.filter(o=>o.segs[4]==='love'),why=group.filter(o=>o.segs[4]==='why');
+      if(!loves.length)continue;
+      const deltas=loves.filter(o=>o.op==='delta'&&Number.isFinite(Number(o.value)));
+      const amount=deltas.reduce((n,o)=>n+Number(o.value),0);
       const baseLove=helpers.love?.(npc),knownBase=typeof baseLove==='number'&&Number.isFinite(baseLove);
-      const shapeOk=loves.length>0&&loves.every(o=>o.op==='delta'&&integer(o.value))&&integer(amount)&&amount!==0&&Math.abs(amount)<=10
-        &&last.length===1&&['replace','add'].includes(last[0].op)&&integer(last[0].value)&&last[0].value===amount;
-      // Already at the ±100 bound and pushed further: nothing can change, so this is a no-op, not an error.
-      if(shapeOk&&knownBase&&((amount>0&&baseLove>=100)||(amount<0&&baseLove<=-100))){for(const o of group)rejected.add(o);capped.push(npc);continue;}
-      const problems=[];
-      if(!loves.length)problems.push('缺少 love 增量');
-      else if(!loves.every(o=>o.op==='delta'&&integer(o.value))||!integer(amount))problems.push('love 必须是整数 delta');
-      else if(amount===0||Math.abs(amount)>10)problems.push('单次增量须在 ±1~10');
-      if(last.length!==1||!['replace','add'].includes(last[0]?.op)||!integer(last[0]?.value)||last[0]?.value!==amount)problems.push('last 须与 love 增量相等');
-      if(why.length!==1||!['replace','add'].includes(why[0]?.op)||typeof why[0]?.value!=='string'||!reason)problems.push('缺少具体 why');
-      else if(Array.from(reason).length>15)problems.push('why 超过 15 字');
-      const evidence=problems.length?null:interactionEvidence(helpers.evidenceText??text,helpers.aliases?.(npc)||[npc],helpers.playerName,reason,helpers.otherNames||[]);
-      if(!problems.length&&!evidence)problems.push('正文中没有找到你与TA已完成的直接互动（旁观、转述、对别人说话都不算）');
-      if(problems.length){for(const o of group)rejected.add(o);warnings.push(`人物 ${label} 好感补丁未采用：${problems.join('、')}`);continue;}
-      // Partially beyond the bound: apply only the part that fits, and keep last equal to what was applied.
-      let applied=amount;
-      if(knownBase&&baseLove+amount>100)applied=100-baseLove;
-      if(knownBase&&baseLove+amount<-100)applied=-100-baseLove;
-      if(applied!==amount){
-        loves.forEach((o,idx)=>{if(idx)rejected.add(o);else replaced.set(o,{...o,value:applied});});
-        replaced.set(last[0],{...last[0],value:applied});
+      if(knownBase&&deltas.length===loves.length&&amount){
+        let applied=amount;
+        if(baseLove+amount>100)applied=Math.max(0,100-baseLove);
+        if(baseLove+amount<-100)applied=Math.min(0,-100-baseLove);
+        if(applied!==amount){deltas.forEach((o,idx)=>{if(idx)rejected.add(o);else replaced.set(o,{...o,value:applied});});if(!applied)capped.push(npc);}
       }
-      acceptedNpcs.add(npc);bondUpdates.push({key:npc,delta:applied,last:applied,why:reason,evidence,requested:amount});
+      acceptedNpcs.add(npc);bondUpdates.push({key:npc,delta:amount,last:amount,why:String(why.at(-1)?.value??''),evidence:null,requested:amount});
     }
     const clean=ops.filter(o=>!rejected.has(o)).map(o=>replaced.get(o)||o);
-    return {ops:clean,capped,rawOps,warnings:[...new Set(warnings)],malformed:false,conflicts:[...conflicts],duplicates:dup,acceptedNpcs:[...acceptedNpcs],bondUpdates};
+    return {ops:clean,capped,rawOps,warnings:[],malformed:false,conflicts:[...conflicts],duplicates:dup,acceptedNpcs:[...acceptedNpcs],bondUpdates};
   }
   const api={version:'20261116-bond-guard-hotfix2',parse,directInteraction,interactionEvidence,visibleBody,affirmative};root.PKMPatchGuard=api;
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
