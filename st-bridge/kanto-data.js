@@ -116,7 +116,7 @@ export const CRIES = {
 };
 
 /* ---------- 精灵球与道具 ---------- */
-export const BALL_ZH = { pokeball:'精灵球',greatball:'超级球',ultraball:'高级球',masterball:'大师球',safariball:'狩猎球',quickball:'先机球',duskball:'黑暗球',timerball:'计时球',repeatball:'重复球',netball:'捕网球',nestball:'巢穴球',diveball:'潜水球',luxuryball:'豪华球',healball:'治愈球' };
+export const BALL_ZH = { pokeball:'精灵球',greatball:'超级球',ultraball:'高级球',masterball:'大师球',safariball:'狩猎球',quickball:'先机球',duskball:'黑暗球',timerball:'计时球',repeatball:'重复球',netball:'捕网球',nestball:'巢穴球',diveball:'潜水球',luxuryball:'豪华球',healball:'治愈球',premierball:'纪念球' };
 export const ZH_BALL = Object.fromEntries(Object.entries(BALL_ZH).map(([id,zh])=>[zh,id]));
 // 道具中文名 → PokeAPI 道具图文件名
 export const ITEM_ICONS = {

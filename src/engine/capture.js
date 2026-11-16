@@ -17,6 +17,7 @@
     diveball: { id:'diveball',name:'潜水球',multiplier:1,description:'水中遭遇捕获率 ×3.5',color:'#58a6dd' },
     luxuryball: { id:'luxuryball',name:'豪华球',multiplier:1,description:'捕获率 ×1；友好度提升时额外 +1',color:'#a9954d' },
     healball: { id:'healball',name:'治愈球',multiplier:1,description:'捕获后恢复全部 HP、PP 并治愈异常状态',color:'#e68cae' },
+    premierball: { id:'premierball',name:'纪念球',multiplier:1,description:'捕获率 ×1（与精灵球相同）',color:'#f4f4f4' },
   });
   function multiplierFor(p,ball,context={}) {
     const level=Math.max(1,Number(p?.level)||1),types=Array.isArray(p?.types)?p.types:[];

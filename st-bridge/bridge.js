@@ -1,5 +1,5 @@
 import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './sprite-recovery.js?v=1.3.31';
-import * as K from './kanto-data.js?v=20261113-comprehensive-fix-v6';
+import * as K from './kanto-data.js?v=20261117-premier-ball';
 import './gender.js?v=20261115-gender-bond-hotfix1';
 import './battle-mechanics.js?v=20261113-comprehensive-fix-v6';
 import './plot-guard.js?v=20261115-worldbook-date-event-ability-v3';
@@ -1035,6 +1035,9 @@ function recordMapPoint(payload){
   if(isObj(saved)&&saved.city===next.city&&saved.poi===next.poi&&saved.room===next.room&&saved.place===next.place)return false;
   pkm.world.mapPoint={...next};return true;}).catch(e=>{LOG('记录地图位置失败',e);return false;});
 }
+// 商店说明“买10个送1个纪念球”：同一次结账一次性买满 10 个精灵球，赠送 1 个纪念球；买再多也只送 1 个，分开结账不累计（赠品不计价）。
+const PREMIER_BALL='纪念球';
+function premierBallBonus(counts){return (Number(counts?.['精灵球'])||0)>=10?1:0;}
 function purchaseItems(store, rows, context) {
   const key=String(store||''),catalog=key==='reputation'?SHOP_PRICE.reputation:Object.assign({},...Object.entries(SHOP_PRICE).filter(([k])=>k!=='reputation').map(([,v])=>v)),city=String(context?.city||'').trim(),sourceStore=String(context?.store||''),shop=String(context?.shop||'').trim();
   if(!catalog||!Array.isArray(rows)||!rows.length)return Promise.resolve({ok:false,reason:'invalid'});
@@ -1053,7 +1056,7 @@ function purchaseItems(store, rows, context) {
    // 剧情文本的地点经常滞后一两条消息，不能让“只能进店、无法购买”再次出现。
    const mapOk=!!mp&&placeMatches(mp.city,city);
    const locationOk=narrativeOk||mapOk;
-   if(!locationOk){const where=mapPointText(pkm)||placeText(pkm);return {ok:false,reason:'location',city,location:where,message:`当前位置 ${where} 与地图所选商店城市 ${city} 不一致；请在地图上进入该城市的商店后再结账。`};}const balance=Math.max(0,Number(usesReputation?pkm.player.reputation:pkm.player.money)||0);if(balance<total)return {ok:false,reason:usesReputation?'reputation':'funds',balance,total};pkm.player.bag=isObj(pkm.player.bag)?pkm.player.bag:{};for(const [name,count] of Object.entries(counts))pkm.player.bag[name]=Math.max(0,Number(pkm.player.bag[name])||0)+count;if(usesReputation)pkm.player.reputation=balance-total;else pkm.player.money=balance-total;return {ok:true,total,currency:usesReputation?'reputation':'money',money:pkm.player.money,reputation:pkm.player.reputation,items:Object.entries(counts).map(([name,count])=>({name,count}))};});
+   if(!locationOk){const where=mapPointText(pkm)||placeText(pkm);return {ok:false,reason:'location',city,location:where,message:`当前位置 ${where} 与地图所选商店城市 ${city} 不一致；请在地图上进入该城市的商店后再结账。`};}const balance=Math.max(0,Number(usesReputation?pkm.player.reputation:pkm.player.money)||0);if(balance<total)return {ok:false,reason:usesReputation?'reputation':'funds',balance,total};pkm.player.bag=isObj(pkm.player.bag)?pkm.player.bag:{};for(const [name,count] of Object.entries(counts))pkm.player.bag[name]=Math.max(0,Number(pkm.player.bag[name])||0)+count;const bonus=premierBallBonus(counts);if(bonus)pkm.player.bag[PREMIER_BALL]=Math.max(0,Number(pkm.player.bag[PREMIER_BALL])||0)+bonus;if(usesReputation)pkm.player.reputation=balance-total;else pkm.player.money=balance-total;return {ok:true,total,currency:usesReputation?'reputation':'money',money:pkm.player.money,reputation:pkm.player.reputation,items:Object.entries(counts).map(([name,count])=>({name,count})),bonus:bonus?[{name:PREMIER_BALL,count:bonus}]:[],bonusText:bonus?`另赠 ${PREMIER_BALL}×1（一次性购买 10 个以上精灵球赠送）。`:''};});
 }
 function readPkm() { const f = findStat(); return normalize(f ? clone(f.vars.stat_data.pkm) : defaultPkm()); }
 function readPkmBefore(beforeId = Infinity) {

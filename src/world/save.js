@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
   const KEY = 'pkm-world-save-v1';
-  const INITIAL_BALLS = { pokeball:20,greatball:10,ultraball:5,masterball:0,safariball:0,quickball:0,duskball:0,timerball:0,repeatball:0,netball:0,nestball:0,diveball:0,luxuryball:0,healball:0 };
+  const INITIAL_BALLS = { pokeball:20,greatball:10,ultraball:5,masterball:0,safariball:0,quickball:0,duskball:0,timerball:0,repeatball:0,netball:0,nestball:0,diveball:0,luxuryball:0,healball:0,premierball:0 };
   const clone = value => JSON.parse(JSON.stringify(value));
   const newSave = () => ({ version: 1, balls: { ...INITIAL_BALLS }, box: [] });
   function validate(raw) {

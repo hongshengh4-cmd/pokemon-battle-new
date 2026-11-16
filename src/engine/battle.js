@@ -578,7 +578,7 @@
       this.log = [];
       this.winner = null; // 0: player | 1: enemy | 2: unresolved simultaneous defeat | null
       this.encounterType = opts.encounterType === 'wild' && teamB.length === 1 ? 'wild' : 'trainer';
-      const ballIds=Object.keys(root.PKMCapture?.BALLS||{pokeball:1,greatball:1,ultraball:1,masterball:1,safariball:1,quickball:1,duskball:1,timerball:1,repeatball:1,netball:1,nestball:1,diveball:1,luxuryball:1,healball:1});
+      const ballIds=Object.keys(root.PKMCapture?.BALLS||{pokeball:1,greatball:1,ultraball:1,masterball:1,safariball:1,quickball:1,duskball:1,timerball:1,repeatball:1,netball:1,nestball:1,diveball:1,luxuryball:1,healball:1,premierball:1});
       this.ballStock = Object.fromEntries(ballIds.map(id => [id,
         Number.isInteger(opts.balls?.[id]) && opts.balls[id] >= 0 ? opts.balls[id] : 0]));
       this.itemStock = Object.fromEntries(Object.entries(opts.itemStock||{}).map(([id,n])=>[id,Math.max(0,Math.floor(Number(n)||0))]));
