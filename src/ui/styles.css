@@ -1224,3 +1224,14 @@ html.embed .action-card>.command-home,html.embed .action-card>.command-panel,htm
 .action-card.double-actions #command-switch-panel #switches { height:auto; grid-auto-rows:minmax(40px,auto); }
 .action-card.double-actions #command-switch-panel .double-actors,
 .action-card.double-actions #command-items-panel .double-actors { margin-bottom:6px; }
+
+/* Ordered team selection — 20261116 */
+.roster-overlay{position:fixed;inset:0;z-index:100000;display:grid;place-items:center;padding:16px;background:#202431ba;backdrop-filter:blur(8px)}
+.roster-card{box-sizing:border-box;width:min(760px,100%);max-height:calc(100dvh - 32px);overflow:auto;padding:22px;border:2px solid #b6b28a;border-radius:20px;background:#fbfaf1;color:#30343c;box-shadow:0 20px 70px #0006}
+.roster-card h2{margin:0 0 8px;font-size:24px}.roster-card>p{line-height:1.6;color:#62636b;margin:0 0 16px}
+.roster-list{display:grid;grid-template-columns:1fr 1fr;gap:10px}.roster-pick{display:flex;align-items:center;gap:12px;padding:14px;text-align:left;border:2px solid #d9d8ca;border-radius:12px;background:#fff;color:inherit;cursor:pointer;min-width:0}
+.roster-pick.selected{border-color:#568e7a;background:#e7f4e9}.roster-pick:disabled:not(.selected){opacity:.42;cursor:not-allowed}.roster-pick strong{display:block;font-size:18px}.roster-pick small{display:block;margin-top:5px;line-height:1.5;color:#666;overflow-wrap:anywhere}
+.roster-order{display:grid;place-items:center;flex:0 0 34px;width:34px;height:34px;border-radius:50%;background:#ececdf;color:#787962;font-weight:800}.selected .roster-order{background:#397b64;color:white}
+.roster-footer{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:10px;margin-top:18px}.roster-footer p{flex:1 1 100%;margin:0 0 3px;color:#565b59;font-size:14px}
+.roster-footer button{padding:10px 18px;border:2px solid #b8b9a5;border-radius:9px;background:#fff;font-weight:700;color:#454b46;cursor:pointer}.roster-footer .roster-confirm{background:#55856d;color:#fff;border-color:#47755f}.roster-footer button:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:520px){.roster-list{grid-template-columns:1fr}.roster-card{padding:16px}.roster-card h2{font-size:20px}.roster-pick{padding:10px}.roster-overlay{padding:8px}.roster-card{max-height:calc(100dvh - 16px)}}

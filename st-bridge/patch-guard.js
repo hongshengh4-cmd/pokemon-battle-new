@@ -1,7 +1,8 @@
 /* Conservative reconciliation of visible UpdateVariable blocks.
  * No guesses from malformed JSON; dedupe only across distinct blocks; do not
  * collapse repeated operations in one block. External/hidden MVU writes cannot
- * be validated by this module and must be reviewed by the player. */
+ * be attributed by this parser alone. bond-sync.js binds the supported MVU
+ * COMMAND_PARSED/ENDED pair to an exact message/swipe before settling NPC bonds. */
 (function(root){'use strict';
   const obj=x=>x&&typeof x==='object'&&!Array.isArray(x);
   function stable(x){
@@ -16,48 +17,85 @@
     const t=String(text||'');const content=t.match(/<content>([\s\S]*?)<\/content>/i);
     return String(content?content[1]:t).replace(/<(?:wave_plan|think|think_nya|thinking|analysis|options|summary|comment|pkm_state|UpdateVariable)\b[^>]*>[\s\S]*?<\/(?:wave_plan|think|think_nya|thinking|analysis|options|summary|comment|pkm_state|UpdateVariable)>/gi,'').replace(/<[^>]*>/g,'');
   }
-  // Reject obvious negation, wishes, hypotheticals and uncompleted attempts.
-  // This is intentionally conservative, not a claim of semantic understanding.
-  function affirmative(s){s=String(s||'').replace(/不小心|不由自主|情不自禁|毫不犹豫|忍不住/g,'');return !/(?:没有|没能|并没|未曾|尚未|未能|并未|不曾|不会|不能|不愿|不想|不肯|不要|并不|从未|没|不|拒绝(?:向|对|给|去)[^，。；;]{0,14}(?:道谢|感谢|帮助|交谈)|如果|假如|假设|要是|若是|倘若|是否|能否|本想|想(?!了想|起|起来)|打算|计划|试图|试着|准备|提议|提出|考虑|犹豫|差点|险些|假装|希望|也许|可能|梦见|梦中|梦里|想象|幻想|\b(?:not|never|without|might|would|if)\b)/i.test(String(s||''));}
+  const escape=s=>String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  // Detect completed *actions*, not unrelated occurrences of 不/没/想 elsewhere.
   const ACTIONS=[
-    /道谢|感谢|谢过|致谢|谢谢|感激/,
-    /帮助|帮忙|帮了|扶起|扶住|救下|救了|救助|解围|协助/,
-    /安慰|抚慰|鼓励|宽慰|打气/,
-    /保护|守护|挡下|并肩作战|并肩战斗/,
+    /道谢|道了(?:声)?谢|道了(?:一声)?谢|道声谢|感谢|谢过|致谢|谢谢|感激|多谢/,
+    /帮助|帮忙|帮了|扶起|扶住|救下|救了|救助|解围|协助|救命|救援|护航/,
+    /安慰|抚慰|鼓励|宽慰|打气|激励|鼓舞|倾听|听完|听着|开导|点拨|指点/,
+    /保护|守护|挡下|并肩作战|并肩战斗|联手(?:战斗|击败|对抗)|切磋|对战|交战|挑战赛/,
     /拥抱|抱住|牵手|握手|击掌/,
-    /交谈|聊天|交流|谈话|对话|询问|问候|问好|说话|回应|回答|叮嘱|提醒/,
-    /交给|递给|交付|给予|送给|赠送|请客|分享|领取|领到|推近|递过去|拿给/,
-    /责备|批评|争吵|吵架|冒犯|伤害|背叛|讽刺|欺骗|辱骂|拒绝/,
-    /邀请|陪伴|陪着/,
+    /交谈|聊天|交流|谈话|对话|询问|咨询|请教|问候|问好|说话|回应|回答|叮嘱|提醒|讲解|称赞|赞许|夸奖|致意|道别|告别/,
+    /交给|递给|递到|交付|交还|递还|接过|给予|送给|赠送|请客|分享|领取|领到|推近|推过去|递过去|拿给|颁发|办理|入住|治疗|恢复/,
+    /责备|批评|争吵|吵架|冒犯|伤害|背叛|讽刺|欺骗|辱骂|拒绝(?!向|对|给|帮|与|和|去|跟|为|替)|失信/,
+    /邀请|陪伴|陪着|照料|照顾|包扎/,
   ];
-  function directInteraction(text,aliases,player,reason=''){
-    const names=[...new Set((aliases||[]).map(x=>String(x||'').trim()).filter(x=>x.length>=2&&!/^[a-z]+$/i.test(x)))];
-    const players=[...new Set(['你','玩家',String(player||'').trim()].filter(x=>x&&x!=='{{user}}'))];
-    const r=String(reason||'').trim(),categories=r?ACTIONS.filter(a=>a.test(r)):ACTIONS;
-    if((r&&!affirmative(r))||!categories.length)return false;
-    const playerToNpc=names.some(n=>{const i=r.indexOf(n);return i>=0&&/(?:向|对|给|帮助|协助|安慰|鼓励|保护|感谢|陪伴|邀请)$/.test(r.slice(0,i));});
-    const escape=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-    for(const part of visibleBody(text).split(/[。！？!?；;\n]+/)){
-      if(part.length>800)continue;
-      const s=part.replace(/玩家(?:只是|仅|正)?(?:站|坐|待|在)[^，,；;。]{0,10}(?:一旁|旁边|身旁)/g,'');
-      // Normally the actor, counterpart and matching action must share one
-      // clause; this avoids crediting the NPC for another person's action.
-      for(const clause of s.split(/[，,]/)){
-        if(!affirmative(clause))continue;
-        if(!names.some(n=>clause.includes(n))||!players.some(p=>clause.includes(p))||!categories.some(a=>a.test(clause)))continue;
-        const directionOk=!playerToNpc||players.some(p=>names.some(n=>{
-          const ps=escape(p),ns=escape(n);
-          return new RegExp(ps+'[^，,。；;]{0,18}(?:向|对|给|朝|为|替|帮|帮助|协助|安慰|鼓励|保护|感谢|救下|救助|拥抱|邀请|陪伴)[^，,。；;]{0,8}'+ns).test(clause);
-        }));
-        if(directionOk)return true;
-      }
-      // Preserve the original opening's explicit handover when an NPC, the
-      // named player and a transfer action occur in adjacent clauses of one
-      // affirmative sentence. No analogous fallback is used for thanks/help.
-      if(affirmative(s)&&!playerToNpc&&/领取|交付|交给|递给/.test(r)&&names.some(n=>s.includes(n))&&players.some(p=>s.includes(p))&&ACTIONS[6].test(s))return true;
-    }
-    return false;
+  const BENIGN=/不小心|不由自主|情不自禁|毫不犹豫|忍不住|不禁/g;
+  const UNFINISHED=/(?:拒绝|拒不|懒得|没有|没能|并没|未曾|尚未|未能|并未|不曾|不会|不能|不愿|不想|不肯|不要|并不|从未|没|不)[^，,。！？!?；;]{0,9}$|(?:准备|打算|计划|试图|试着|尝试|提议|提出|考虑|差点|险些|假装|希望|想要|想向|想对|想给|想去|想来|想)[^，,。！？!?；;]{0,10}$|\b(?:not|never|without|might|would)\b[^,.;!?]{0,18}$/i;
+  const HYPOTHETICAL=/(?:如果|假如|假设|要是|若是|倘若|是否|能否|也许|可能|梦见|(?<!宝可)梦中|(?<!宝可)梦里|想象|幻想)|\bif\b/i;
+  function actionMatches(text){
+    const out=[];for(let kind=0;kind<ACTIONS.length;kind++)for(const match of String(text||'').matchAll(new RegExp(ACTIONS[kind].source,'g')))out.push({kind,index:match.index,word:match[0]});
+    return out.sort((a,b)=>a.index-b.index);
   }
+  function affirmative(s){
+    const text=String(s||'').replace(BENIGN,''),matches=actionMatches(text);
+    if(!matches.length)return !HYPOTHETICAL.test(text)&&!/(?:没有|未能|未曾|不曾|并未|没能|假装)/.test(text);
+    return matches.some(m=>!UNFINISHED.test(text.slice(Math.max(0,m.index-30),m.index))&&!HYPOTHETICAL.test(text.slice(0,m.index)));
+  }
+  // A comma is not a mandatory subject boundary. Quotes, however, are: an NPC's
+  // quoted 我/你 is not proof that the narrator/player performed that action.
+  function segments(text,commas=false){
+    const out=[];let start=0,quote=null;
+    const pairs={'“':'”','「':'」','『':'』','‘':'’','"':'"'};
+    for(let i=0;i<text.length;i++){
+      const c=text[i];if(quote){if(c===quote)quote=null;continue;}
+      if(pairs[c]){quote=pairs[c];continue;}
+      if((commas?/[，,]/:/[。！？!?；;\n]/).test(c)){out.push(text.slice(start,i));start=i+1;}
+    }
+    out.push(text.slice(start));return out.filter(x=>x.trim());
+  }
+  function outsideQuotes(s){return s.replace(/“[^”]*”|「[^」]*」|『[^』]*』|‘[^’]*’|"[^"]*"/g,m=>' '.repeat(m.length));}
+  function interactionEvidence(text,aliases,player,reason='',otherNames=[]){
+    const names=[...new Set((aliases||[]).map(x=>String(x||'').trim()).filter(x=>x.length>=2))];
+    const players=[...new Set(['你','玩家','我',String(player||'').trim()].filter(x=>x&&x!=='{{user}}'))];
+    const r=String(reason||'').trim();
+    if(!names.length||!r||/^(?:同行|在场|相处|一起相处|普通聊天|见面|关系变化|好感变化|日常互动|互动|无|null)$/i.test(r))return null;
+    const has=(s,items)=>items.some(n=>/^[a-z][a-z0-9 ]*$/i.test(n)?new RegExp('\\b'+escape(n)+'\\b','i').test(s):s.includes(n));
+    const others=[...new Set([...otherNames,'小智','小霞','小刚','路人','警员','护士','陌生人','另一名训练家'].filter(n=>n&&!names.includes(n)&&!players.includes(n)))];
+    const observer=/(?:看着|看见|看到|望着|目睹|旁观|听说|听到|听见|得知|想象|梦见)[^，,。！？!?；;]{0,40}$/;
+    const body=visibleBody(text).replace(/```[\s\S]*?```/g,'');
+    for(const sentence of segments(body)){
+      let playerCarry=false,npcCarry=false,prior='';
+      for(const raw of segments(sentence,true)){
+        const clause=raw.replace(BENIGN,''),narrative=outsideQuotes(clause),trim=narrative.trim().replace(/^(?:而|但|随后|接着|于是|这时|同时|然后|不过)\s*/,'');
+        const third=others.some(n=>trim.startsWith(n))||/^(?:他|她|他们|她们|对方|那名少年|那名少女)(?!的)/.test(trim);
+        if(third){playerCarry=false;npcCarry=false;}
+        const pNow=has(narrative,players),nNow=has(clause,names);
+        // A completely quoted clause only inherits a player explicitly named in
+        // the preceding narration; never infer the player from quoted pronouns.
+        const p=pNow||playerCarry&&!third,n=nNow||npcCarry&&!third;
+        const matches=actionMatches(narrative); // quoted speech is not narrated action
+        if(p&&n&&!third)for(const m of matches){
+          const pre=clause.slice(Math.max(0,m.index-35),m.index);
+          if(UNFINISHED.test(pre)||HYPOTHETICAL.test(prior+clause.slice(0,m.index)))continue;
+          if(observer.test(pre))continue;
+          const playerPos=players.map(x=>narrative.indexOf(x)).filter(i=>i>=0),firstPlayer=playerPos.length?Math.min(...playerPos):-1;
+          if(firstPlayer>=0&&observer.test(clause.slice(firstPlayer,m.index)))continue;
+          const subjectPrefix=narrative.slice(0,m.index);
+          if(others.some(o=>subjectPrefix.includes(o)&&!has(subjectPrefix,players)))continue;
+          // Prevent "你站在旁边，小智向乔伊道谢" and object-only player mentions.
+          if(firstPlayer>=0&&others.some(o=>{const oi=narrative.indexOf(o);return oi>firstPlayer&&oi<m.index&&!has(narrative.slice(oi),names);}))continue;
+          return {kind:m.kind,action:m.word,excerpt:(raw.trim().slice(0,180)),reason:r};
+        }
+        if(pNow&&!third&&!observer.test(narrative))playerCarry=true;
+        if(nNow&&p&&!third)npcCarry=true;
+        prior=(prior+clause+'，').slice(-110);
+        if(HYPOTHETICAL.test(clause)||third){playerCarry=false;npcCarry=false;}
+      }
+    }
+    return null;
+  }
+  function directInteraction(text,aliases,player,reason='',otherNames=[]){return !!interactionEvidence(text,aliases,player,reason,otherNames);}
   function parse(text,helpers={}){
     const pathSegs=helpers.pathSegs||(()=>[]),blocks=[],warnings=[];
     const src=String(text||'');
@@ -130,18 +168,22 @@
     // All sensitive bond fields must form one complete reliable trio in the same block.
     const groups=new Map();
     for(const o of ops){const g=o.segs;if(g[0]!=='pkm'||g[1]!=='npcs'||g[2]!=='records'||g.length!==5||!['love','last','why'].includes(g[4]))continue;const k=o.block+'|'+g[3];if(!groups.has(k))groups.set(k,[]);groups.get(k).push(o);}
-    const rejected=new Set(),acceptedNpcs=new Set();
+    const rejected=new Set(),acceptedNpcs=new Set(),bondUpdates=[];
     for(const [k,group] of groups){
       const npc=group[0].segs[3],loves=group.filter(o=>o.segs[4]==='love'),last=group.filter(o=>o.segs[4]==='last'),why=group.filter(o=>o.segs[4]==='why');
       const amount=loves.reduce((n,o)=>n+(o.op==='delta'&&Number.isFinite(Number(o.value))?Number(o.value):0),0),reason=String(why.at(-1)?.value||'').trim();
-      const valid=loves.length>0&&loves.every(o=>o.op==='delta'&&Number.isFinite(Number(o.value)))&&last.length===1&&['replace','add'].includes(last[0].op)&&Number(last[0].value)===amount&&why.length===1&&['replace','add'].includes(why[0].op)&&!!reason&&!/^(同行|在场|相处|一起相处|普通聊天|见面)$/.test(reason)
-        &&directInteraction(text,helpers.aliases?.(npc)||[npc],helpers.playerName,reason);
-      if(!valid){for(const o of group)rejected.add(o);warnings.push(`人物 ${npc} 好感补丁未通过校验（需同一补丁的 delta love、等值 last、具体 why 及正文直接互动）；未由桥接处理`);}
-      else acceptedNpcs.add(npc);
+      const integer=x=>typeof x==='number'&&Number.isInteger(x);
+      const evidence=interactionEvidence(helpers.evidenceText??text,helpers.aliases?.(npc)||[npc],helpers.playerName,reason,helpers.otherNames||[]);
+      const baseLove=helpers.love?.(npc),withinBounds=typeof baseLove!=='number'||(Number.isFinite(baseLove)&&baseLove+amount>=-100&&baseLove+amount<=100);
+      const valid=loves.length>0&&loves.every(o=>o.op==='delta'&&integer(o.value))&&integer(amount)&&amount!==0&&Math.abs(amount)<=10&&withinBounds
+        &&last.length===1&&['replace','add'].includes(last[0].op)&&integer(last[0].value)&&last[0].value===amount
+        &&why.length===1&&['replace','add'].includes(why[0].op)&&typeof why[0].value==='string'&&!!reason&&Array.from(reason).length<=15&&!!evidence;
+      if(!valid){for(const o of group)rejected.add(o);warnings.push(`人物 ${npc} 好感补丁未通过校验（需整数增量±1~10、等值last、≤15字具体why、范围合法及正文已完成的直接互动）；未由桥接处理`);}
+      else {acceptedNpcs.add(npc);bondUpdates.push({key:npc,delta:amount,last:amount,why:reason,evidence});}
     }
     const clean=ops.filter(o=>!rejected.has(o));
-    return {ops:clean,rawOps,warnings:[...new Set(warnings)],malformed:false,conflicts:[...conflicts],duplicates:dup,acceptedNpcs:[...acceptedNpcs]};
+    return {ops:clean,rawOps,warnings:[...new Set(warnings)],malformed:false,conflicts:[...conflicts],duplicates:dup,acceptedNpcs:[...acceptedNpcs],bondUpdates};
   }
-  const api={version:'20261113-comprehensive-fix-v6',parse,directInteraction,visibleBody,affirmative};root.PKMPatchGuard=api;
+  const api={version:'20261116-bond-npc-moves-team-v1',parse,directInteraction,interactionEvidence,visibleBody,affirmative};root.PKMPatchGuard=api;
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

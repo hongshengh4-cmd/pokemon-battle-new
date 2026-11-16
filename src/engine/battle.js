@@ -14,6 +14,8 @@
   'use strict';
   const { effectiveness } = root.PKMTypeChart || (typeof require !== 'undefined' ? require('./typechart.js') : {});
 
+  const L = root.PKMMoveLifecycle || (typeof require !== 'undefined' ? require('./move-lifecycle.js') : null);
+  const NORMAL_ABILITY = root.PKMNormalAbility || (typeof require !== 'undefined' ? require('../../st-bridge/ability-random.js') : null);
   const STAT_KEYS = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
   const BATTLE_STATS = ['atk', 'def', 'spa', 'spd', 'spe', 'accuracy', 'evasion'];
   const NATURES = {
@@ -108,6 +110,7 @@
   function statusImmunityReason(p, status, battle = p?._battle) {
     const st = String(status || '').toLowerCase(), ab = abilityId(p), types = p?.types || [];
     if (!MAJOR_STATUSES.has(st)) return 'invalid';
+    if (st === 'slp' && L?.preventsSleep(battle)) return 'uproar';
     const abilityBlocked = (st === 'brn' && ab === 'waterveil') || (st === 'par' && ab === 'limber')
       || (st === 'slp' && ['insomnia', 'vitalspirit'].includes(ab)) || (['psn', 'tox'].includes(st) && ab === 'immunity')
       || (st === 'frz' && ab === 'magmaarmor') || ab === 'purifyingsalt' || ab === 'comatose'
@@ -183,7 +186,8 @@
   }
 
   function modifiedPower(attacker, defender, move) {
-    let power = move.basePower || 0;
+    const effectiveBase = L ? L.power(attacker, defender, move) : (move.basePower || 0);
+    let power = effectiveBase;
     const battle = attacker._battle;
     if (battle?.weather === 'sun') { if (move.type === 'Fire') power *= 1.5; if (move.type === 'Water') power *= 0.5; }
     if (battle?.weather === 'rain') { if (move.type === 'Water') power *= 1.5; if (move.type === 'Fire') power *= 0.5; }
@@ -197,7 +201,7 @@
     if (terrain === 'misty' && move.type === 'Dragon' && isGrounded(defender)) power *= 0.5;
     const pinch = PINCH_ABILITIES[move.type];
     if (pinch && hasAbility(attacker, pinch) && attacker.hp <= attacker.maxHp / 3) power *= 1.5;
-    if ((move.basePower || 0) <= 60 && hasAbility(attacker, 'technician')) power *= 1.5;
+    if (effectiveBase > 0 && effectiveBase <= 60 && hasAbility(attacker, 'technician')) power *= 1.5;
     if (move.flags?.punch && hasAbility(attacker, 'ironfist')) power *= 1.2;
     if (move.flags?.contact && hasAbility(attacker, 'toughclaws')) power *= 1.3;
     if (attacker.volatile?.helpinghand && move.basePower) power *= 1.5;
@@ -258,15 +262,24 @@
     if (!mechanic && opts.teraType) mechanic = 'tera';
     if (!mechanic && zType && item) mechanic = 'z';
     if (!['mega', 'z', 'dynamax', 'tera'].includes(mechanic)) mechanic = null;
+    let identityRandom = typeof opts.identityRandom === 'function' ? opts.identityRandom : Math.random;
+    if (opts.identitySeed != null) {
+      let h = 2166136261; for (const ch of String(opts.identitySeed)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+      identityRandom = mulberry32(h);
+    }
+    const selectedAbility = NORMAL_ABILITY?.select(id, opts.ability, species.abilities || [], opts.abilityNames || {}, identityRandom)
+      || opts.ability || species.abilities?.[0] || null;
+    let gender = root.PKMGender?.normalize(opts.gender) || battleGender(opts.gender);
+    if (opts.generateIdentity === true && root.PKMGender && !root.PKMGender.allowed(id, gender)) gender = root.PKMGender.roll(id, identityRandom);
     return {
       speciesId: id, originalSpeciesId: id, name: opts.nickname || species.name, speciesName: species.name, hasNickname: !!opts.nickname,
       types: species.types.slice(), originalTypes: species.types.slice(), level, stats, maxHp: stats.hp, hp: stats.hp,
       ivs: Object.assign({ hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 }, opts.ivs || {}), evs: Object.assign({ hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 }, opts.evs || {}), nature: opts.nature || '',
       moves, status: null, statusTurns: 0, toxicCounter: 1, sleepTurns: 0,
       stages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, accuracy: 0, evasion: 0 },
-      volatile: {}, ability: opts.ability ? normId(opts.ability) : (normId(species.abilities?.[0] ?? '') || null), item,
+      volatile: {}, ability: normId(selectedAbility) || null, item,
       _initialHeldItem: item, _consumedItems: [], _itemTransferOccurred: false,
-      gender: opts.gender || null, shiny: !!opts.shiny, fainted: false,
+      gender: gender || null, shiny: !!opts.shiny, fainted: false,
       mechanic, megaForm: opts.megaForm || opts.mega ? normId(opts.megaForm || opts.mega) : null,
       teraType: MECH?.canonType(opts.teraType) || null, terastallized: false,
       zType, dynamaxForm: opts.dynamaxForm === 'gmax' || opts.gmax ? 'gmax' : null,
@@ -301,23 +314,23 @@
       if (MOVES[mid] && mid !== 'instruct') {
         delete p.volatile.instructMove;
         battle.say(`${p.name} 被号令，重复使用了 ${MOVES[mid].name}！`);
-        return { ...MOVES[mid], id: mid, ppLeft: 99 };
+        return { ...MOVES[mid], id: mid, ppLeft: 99, _ppSource: base, _calledBy: id };
       }
     }
     const okMove = m => m && !m.isZ && !m.isMax && !BANNED_SCRIPTED.has(m.id);
     const pickFrom = arr => arr.length ? arr[Math.floor(battle.rng() * arr.length)] : null;
-    const copy = m => ({ ...m, ppLeft: 99 });
+    const copy = m => ({ ...m, ppLeft: 99, _ppSource: base, _calledBy: id });
     if (id === 'metronome') {
       const pool = Object.keys(MOVES).map(k => ({ ...MOVES[k], id: k })).filter(okMove);
       const m = pickFrom(pool);
-      if (m) { battle.say(`${p.name} 挥动手指，选中了 ${m.name}！`); return { ...m, ppLeft: 99 }; }
-      battle.say('但是失败了！'); return base;
+      if (m) { battle.say(`${p.name} 挥动手指，选中了 ${m.name}！`); return { ...m, ppLeft: 99, _ppSource: base, _calledBy: id }; }
+      battle.say('但是失败了！'); return { ...base, _ppSource: base, _callFailed: true };
     }
     if (id === 'sleeptalk') {
-      const mine = (p.moves || []).filter(m => okMove(m) && m.id !== 'sleeptalk' && m.id !== 'rest' && m.ppLeft > 0);
+      const mine = (p.moves || []).filter(m => okMove(m) && !m.flags?.nosleeptalk && !m.flags?.charge);
       const m = pickFrom(mine);
-      if (m) { battle.say(`${p.name} 在梦中使用了 ${m.name}！`); return { ...m, ppLeft: 99 }; }
-      battle.say('但是失败了！'); return base;
+      if (m) { battle.say(`${p.name} 在梦中使用了 ${m.name}！`); return { ...m, ppLeft: 99, _ppSource: base, _calledBy: id }; }
+      battle.say('但是失败了！'); return { ...base, _ppSource: base, _callFailed: true };
     }
     if (id === 'assist') {
       const side = battle.sideOf(p);
@@ -325,31 +338,31 @@
       for (const q of battle.teams[side] || []) if (q !== p) for (const m of q.moves || []) if (okMove(m) && m.basePower) pool.push(m);
       const m = pickFrom(pool);
       if (m) { battle.say(`${p.name} 借助队友的招式，使用了 ${m.name}！`); return copy(m); }
-      battle.say('但是失败了！'); return base;
+      battle.say('但是失败了！'); return { ...base, _ppSource: base, _callFailed: true };
     }
     if (id === 'copycat') {
       const last = battle._lastExecutedMove;
-      if (last && MOVES[last] && okMove({ ...MOVES[last], id: last })) { battle.say(`${p.name} 仿效了 ${MOVES[last].name}！`); return { ...MOVES[last], id: last, ppLeft: 99 }; }
-      battle.say('但是失败了！'); return base;
+      if (last && MOVES[last] && okMove({ ...MOVES[last], id: last })) { battle.say(`${p.name} 仿效了 ${MOVES[last].name}！`); return { ...MOVES[last], id: last, ppLeft: 99, _ppSource: base, _calledBy: id }; }
+      battle.say('但是失败了！'); return { ...base, _ppSource: base, _callFailed: true };
     }
     if (id === 'mirrormove') {
       const last = p._moveAgainst;
-      if (last && MOVES[last] && okMove({ ...MOVES[last], id: last })) { battle.say(`${p.name} 用 ${MOVES[last].name} 反击了！`); return { ...MOVES[last], id: last, ppLeft: 99 }; }
-      battle.say('但是失败了！'); return base;
+      if (last && MOVES[last] && okMove({ ...MOVES[last], id: last })) { battle.say(`${p.name} 用 ${MOVES[last].name} 反击了！`); return { ...MOVES[last], id: last, ppLeft: 99, _ppSource: base, _calledBy: id }; }
+      battle.say('但是失败了！'); return { ...base, _ppSource: base, _callFailed: true };
     }
     if (id === 'mefirst') {
       const foe = battle.cur(battle.other(battle.sideOf(p)));
       const last = foe?._lastMoveId;
       if (last && MOVES[last] && MOVES[last].basePower && okMove(MOVES[last])) {
         battle.say(`${p.name} 抢先使用了 ${MOVES[last].name}！`);
-        return { ...MOVES[last], id: last, basePower: Math.floor(MOVES[last].basePower * 1.5), ppLeft: 99 };
+        return { ...MOVES[last], id: last, basePower: Math.floor(MOVES[last].basePower * 1.5), ppLeft: 99, _ppSource: base, _calledBy: id };
       }
-      battle.say('但是失败了！'); return base;
+      battle.say('但是失败了！'); return { ...base, _ppSource: base, _callFailed: true };
     }
     if (id === 'naturepower') {
       const mid = { electric: 'thunderbolt', grassy: 'energyball', misty: 'moonblast', psychic: 'psychic' }[battle.field?.terrain] || 'triattack';
       const m = MOVES[mid];
-      if (m) { battle.say(`自然之力变成了 ${m.name}！`); return { ...m, id: mid, ppLeft: 99 }; }
+      if (m) { battle.say(`自然之力变成了 ${m.name}！`); return { ...m, id: mid, ppLeft: 99, _ppSource: base, _calledBy: id }; }
       return base;
     }
     return base;
@@ -466,6 +479,7 @@
 
   function estimateDamage(attacker, defender, move, rngVal = 0.925, opts = {}) {
     if (!move.basePower) return { damage: 0, eff: 1, crit: false };
+    if (L && !L.canHit(attacker, defender, move).allowed) return { damage: 0, eff: 0, crit: false };
     const abilityBlock = abilityMoveInteraction(attacker, defender, move);
     // 千箭齐发 / 千波激荡 可以打中“飘浮”“食土”的免疫
     const groundPierce = (move.type === 'Ground' && ignoresImmunity(move, 'Ground'));
@@ -841,7 +855,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       // v1.3.54：记录最后一次受到的伤害（双倍奉还/镜面反射/金属爆炸/复仇用）
       target._lastTaken = { amount: damage, cat: move.category, by: attacker, turn: this.turnCount };
       // v1.3.55：忍耐 —— 积蓄受到的伤害
-      if (target.volatile?.bideTurns > 0) target.volatile.bideDamage = (target.volatile.bideDamage || 0) + damage;
+      L?.onDamage(target, attacker, damage);
       // v1.3.55：怨念 —— 直接受到攻击致死时，对手该招式的 PP 归零
       if (target.hp <= 0 && target.volatile?.grudge && !attacker.fainted) {
         const _gm = (attacker.moves || []).find(m => m.id === move.id);
@@ -903,6 +917,8 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     aiAction(side, slot = 0, reserved = new Set()) {
       const me = this.cur(side, slot), foe = this.activeMons(this.other(side))[0];
       if (!me || me.fainted || !foe) return { kind: 'pass' };
+      const forced = L?.forcedMove(me, MOVES);
+      if (forced) return { kind: 'move', index: Math.max(0, me.moves.findIndex(m => m.id === forced.id)) };
       if (me.choiceLockedMove) {
         const locked = me.moves.findIndex(m => m.id === me.choiceLockedMove && m.ppLeft > 0);
         if (locked >= 0) return { kind: 'move', index: locked };
@@ -983,6 +999,8 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       const p = this.teams[side][index];
       if (!p || p.fainted || p.hp <= 0 || this.activeSlots[side].includes(index)) return false;
       const old = this.cur(side, slot);
+      const lockReason = !opts.forced && L?.actionReason(old, { kind: 'switch' });
+      if (lockReason) { this.say(lockReason); return false; }
       const foes = this.activeMons(this.other(side));
       if (!opts.forced && foes.some(foe => hasAbility(foe, 'shadowtag')) && !old.types.includes('Ghost')) { this.say(`${old.name} 被踩影困住，无法交换！`); return false; }
       // v1.3.54：妖精之锁 / 被盯住（黑色目光、挡路、蛛网） / 蛸固 —— 无法交换
@@ -1025,6 +1043,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     useTrainerItem(id, slot = 0){
       const item=String(id||'');if((this.itemStock[item]||0)<=0)return false;
       const p=this.cur(0, slot);if(!p||p.fainted)return false;
+      const locked=L?.actionReason(p,{kind:'item'});if(locked){this.say(locked);return false;}
       const effects={xattack:[{atk:2}],xdefense:[{def:2}],xspatk:[{spa:2}],xspdef:[{spd:2}],xspeed:[{spe:2}],xaccuracy:[{accuracy:1}]};
       if(item==='guardspec'){
         this.field.sides[0].safeguard=5;this.itemStock[item]--;this.say('使用了能力防守！我方队伍的能力不会被对手降低（5回合）。');return true;
@@ -1038,7 +1057,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     }
     escapeWithDoll(){
       if(this.winner!==null||this.encounterType!=='wild'||(this.itemStock.pokemondoll||0)<=0)return[];
-      const start=this.log.length;this.itemStock.pokemondoll--;this.winner=0;this.outcome='escaped';this.pendingSwitch=null;this.pendingSwitches=[];this.say('使用了宝可梦玩偶，成功从野生战斗中逃走！');return this.log.slice(start);
+      const start=this.log.length;const locked=L?.actionReason(this.cur(0),{kind:'run'});if(locked){this.say(locked);return this.log.slice(start);}this.itemStock.pokemondoll--;this.winner=0;this.outcome='escaped';this.pendingSwitch=null;this.pendingSwitches=[];this.say('使用了宝可梦玩偶，成功从野生战斗中逃走！');return this.log.slice(start);
     }
 
     /** A selected switch occupies that actor's action, while faint replacements never start a new turn. */
@@ -1091,6 +1110,10 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     _startTurn(playerActions) {
       if (this.winner !== null || this.pendingSwitch !== null || this._turnState) return [];
       const start = this.log.length, count = this.double ? 2 : 1;
+      for (let slot = 0; slot < count; slot++) {
+        const reason = L?.actionReason(this.cur(0, slot), playerActions[slot]);
+        if (reason) { this.say(reason); return this.log.slice(start); }
+      }
       for (const side of [0, 1]) for (let slot = 0; slot < count; slot++) {
         const p = this.cur(side, slot); if (p) { p._enteredThisTurn = false; delete p.volatile.protect; }
       }
@@ -1103,6 +1126,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       const actions = [0, 1].flatMap(side => Array.from({ length: count }, (_, slot) => ({
         side, slot, actor: this.cur(side, slot), action: side === 0 ? (playerActions[slot] || { kind: 'pass' }) : enemy[slot]
       }))).filter(a => a.actor && !a.actor.fainted && a.actor.hp > 0);
+      for (const a of actions) if (L?.lockInfo(a.actor)) a.action = { kind: 'move', index: a.action.index ?? 0 };
       // Items affect the selected doubles slot, not always slot 0. An invalid single item costs no turn.
       for (const a of actions) if (a.side === 0 && a.action.kind === 'item') {
         if (a.action.id === 'pokemondoll') return this.escapeWithDoll();
@@ -1128,7 +1152,11 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         const locked = p.choiceLockedMove ? p.moves.findIndex(m => m.id === p.choiceLockedMove && m.ppLeft > 0) : -1;
         const encIdx = p.volatile?.encore ? p.moves.findIndex(m => m.id === p.volatile.encore.moveId && m.ppLeft > 0) : -1;
         const picked = p.moves[locked >= 0 ? locked : (encIdx >= 0 ? encIdx : a.action.index)];
-        const base = (a.action.struggle || !usable.length) ? struggleMove() : resolveScriptedMove(this, p, picked || p.moves[0]);
+        const forced = L?.forcedMove(p, MOVES);
+        const logIndex = this.log.length;
+        const base = forced || ((a.action.struggle || !usable.length) ? struggleMove() : resolveScriptedMove(this, p, picked || p.moves[0]));
+        const callLogs = this.log.splice(logIndex);
+        if (callLogs.length) base._callLogs = callLogs;
         const move = { ...transformMove(p, base, a.action.mechanic) };
         const targets = this.doubleTargets(a.side, a.slot, move, a.action.target);
         return { ...a, move, base, prio: p.volatile?.quash ? -9 : (p.volatile?.afteryou ? 3 : this.movePriority(p, move, targets[0] || p)),
@@ -1147,14 +1175,17 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         const m = state.movers[state.index++];
         const user = this.cur(m.side, m.slot);
         if (!user || user !== m.actor || user.fainted || user.hp <= 0) continue;
-        const targets = this.doubleTargets(m.side, m.slot, m.move, m.action.target);
-        if (!targets.length) { this.say(`${user.name} 的招式没有可选目标！`); continue; }
+        const charged = user.volatile?.chargingMove;
+        const originalTarget = charged && Number.isInteger(charged.targetSide) && Number.isInteger(charged.targetSlot) ? { side: charged.targetSide, slot: charged.targetSlot } : m.action.target;
+        const targets = this.doubleTargets(m.side, m.slot, m.move, originalTarget);
+        if (!targets.length) { this.say(`${user.name} 的招式没有可选目标！`); L?.abort(user); continue; }
         const shared = {};
         for (let i = 0; i < targets.length; i++) {
           if (!targets[i] || targets[i].fainted || targets[i].hp <= 0 || user.fainted || user.hp <= 0) continue;
           this.useMove(m.side, user, targets[i], m.base, { mechanic: m.mechanic, _shared: shared,
             _doubleIndex: i, _doubleCount: targets.length, _spreadTargets: targets.length > 1 ? targets.length : 0 });
         }
+        L?.finish(this, user, m.base, shared);
         if (m.base.id === 'struggle' && !user.fainted && user.hp > 0 && this._struggled) this.applyDamage(user, Math.max(1, Math.floor(user.maxHp / 4)), `${user.name} 受到了反作用力伤害！`);
         if (m.base.basePower) delete user.volatile.helpinghand;
         this._struggled = false;
@@ -1194,8 +1225,9 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       if (move && p.volatile.disableMove === move.id) { this.say(`${p.name} 的 ${move.name} 被定身法封住了！`); return false; }
       if (p.status === 'slp') {
         p.sleepTurns--;
-        if (p.sleepTurns > 0) { this.say(`${p.name} 正在睡觉。`); return false; }
-        p.status = null; this.say(`${p.name} 醒了过来！`);
+        if (p.sleepTurns > 0) {
+          if (!['sleeptalk', 'snore'].includes(move?.id)) { this.say(`${p.name} 正在睡觉。`); return false; }
+        } else { p.status = null; this.say(`${p.name} 醒了过来！`); }
       }
       if (p.status === 'frz') {
         if (this.rng() < 0.2) { p.status = null; this.say(`${p.name} 的冰冻解除了！`); }
@@ -1222,35 +1254,55 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       return true;
     }
 
+    lockInfo(p) { return L?.lockInfo(p) || null; }
+    actionReason(p, action) { return L?.actionReason(p, action) || null; }
+    tryConfusion(p, source = p) {
+      if (!p || p.fainted || p.hp <= 0 || p.volatile.confusion) return false;
+      if (hasAbility(p, 'owntempo')) { this.say(`${p.name} 的我行我素使其不会混乱！`); return false; }
+      p.volatile.confusion = 2 + Math.floor(this.rng() * 4); this.say(`${p.name} 混乱了！`); this.checkItemTrigger(p, 'confusion'); return true;
+    }
     useMove(side, user, target, baseMove, opts = {}) {
+      const own = !opts._shared, shared = opts._shared || {};
+      try { return this._useMove(side, user, target, baseMove, { ...opts, _shared: shared }); }
+      finally { if (own) L?.finish(this, user, baseMove, shared); }
+    }
+    _useMove(side, user, target, baseMove, opts = {}) {
       const shared = opts._shared || null;
       const firstAction = !shared || !shared.started;
       if (shared?.cancelled) return;
       let move = shared?.move || baseMove;
+      const ppSource = baseMove._ppSource || baseMove;
       // The first target receives an empty shared object as well. Compute the
       // Z decision there, then reuse it for the remaining spread targets.
       let wantsZ = firstAction ? (opts.mechanic === 'z' && !this.mechanicUsed[side].z && user.mechanic === 'z' && user.zType === baseMove.type) : !!shared.wantsZ;
       if (firstAction) {
         if (wantsZ) move = makeZMove(user, baseMove);
         if (user.dynamaxed) move = makeMaxMove(user, baseMove);
-        move = { ...move, _spreadTargets: opts._spreadTargets || 0 };
+        move = { ...move, _spreadTargets: opts._spreadTargets || 0, _executing: true };
         if (shared) { shared.started = true; shared.move = move; shared.wantsZ = wantsZ; }
       }
+      if (firstAction && baseMove._isRecharge) { L?.before(this, user, target, move, shared); return; }
       const protectMove = ['protect', 'maxguard'].includes(move.volatileStatus);
       if (firstAction && !protectMove) user._protectStreak = 0;
       if (firstAction) {
-        const blocked = this.moveBlocked(user, baseMove);
+        const blocked = this.moveBlocked(user, ppSource);
         if (blocked) { this.say(blocked); if (shared) shared.cancelled = true; return; }
       }
-      if (firstAction && !this.canMove(user, baseMove)) { if (protectMove) user._protectStreak = 0; if (shared) shared.cancelled = true; return; }
+      if (firstAction && !this.canMove(user, ppSource)) { if (protectMove) user._protectStreak = 0; if (shared) shared.cancelled = true; return; }
       if (firstAction) {
         user._participated = true;
         this.moveCount++;
         if (baseMove.id === 'struggle') { this._struggled = true; this.say(`${user.name} 已经没有可以使用的招式了！`); }
-        if (baseMove.ppLeft > 0 && baseMove.id !== 'struggle') baseMove.ppLeft--;
+        if (!baseMove._continuation && ppSource.ppLeft > 0 && baseMove.id !== 'struggle') ppSource.ppLeft--;
         if (wantsZ) { this.mechanicUsed[side].z = true; this.say(`💥 ${user.name} 发动了Ｚ招式！`); }
         if (['choiceband', 'choicespecs', 'choicescarf'].includes(itemId(user)) && !user.choiceLockedMove) user.choiceLockedMove = baseMove.id;
+        if (baseMove._callLogs) for (const line of baseMove._callLogs) this.say(line);
+        if ((['sleeptalk', 'snore'].includes(ppSource.id) && user.status !== 'slp' && !hasAbility(user, 'comatose')) || baseMove._callFailed) {
+          this.say('但是失败了！（当前无法发动这项招式）'); return;
+        }
         this.say(`${user.name} 使用了 ${move.name}！`);
+        user._lastMoveId = baseMove.id; user._lastMoveType = baseMove.type; this._lastExecutedMove = baseMove.id;
+        if (L?.before(this, user, target, move, shared)) return;
       }
       if (firstAction && protectMove) {
         const streak = Math.max(0, Number(user._protectStreak) || 0);
@@ -1273,7 +1325,9 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         else if (target.volatile?.snatch && (move.heal || (move.boosts && move.target === 'self'))) { this.say(`${target.name} 抢夺了对手的招式效果！`); realTarget = target; opts._snatched = true; }
       }
       if (realTarget !== user) realTarget._moveAgainst = move.id;
-      if (realTarget !== user && hasAbility(realTarget, 'pressure') && baseMove.ppLeft > 0) baseMove.ppLeft--;
+      if (firstAction && !baseMove._continuation && !baseMove._calledBy && realTarget !== user && hasAbility(realTarget, 'pressure') && ppSource.ppLeft > 0) ppSource.ppLeft--;
+      if (realTarget !== user && !L?.canHit(user, realTarget, move).allowed) { this.say(`${realTarget.name} 处于特殊位置，避开了攻击！`); return; }
+      if (realTarget !== user && ['phantomforce', 'shadowforce', 'feint', 'hyperspacefury', 'hyperspacehole'].includes(move.id)) delete realTarget.volatile.protect;
       const priority = this.movePriority(user, move, realTarget);
       if (realTarget !== user && priority > 0 && hasAbility(realTarget, 'dazzling', 'queenlymajesty', 'armortail')) { this.say(`${realTarget.name} 的特性阻止了先制招式！`); return; }
       if (realTarget !== user && priority > 0 && this.field.terrain === 'psychic' && isGrounded(realTarget)) { this.say('精神场地保护着宝可梦，先制招式失败了！'); return; }
@@ -1343,19 +1397,22 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         if (sc.reflect || sc.lightscreen || sc.auroraveil) { sc.reflect = 0; sc.lightscreen = 0; sc.auroraveil = 0; this.say(`${realTarget.name} 一方的壁被打破了！`); }
       }
 
-      const hits = Array.isArray(move.multihit) ? move.multihit[0] + Math.floor(this.rng() * (move.multihit[1] - move.multihit[0] + 1)) : (move.multihit || 1);
+      const hits = L ? L.hitCount(move, user, this.rng) : (Array.isArray(move.multihit) ? move.multihit[1] : (move.multihit || 1));
+      const multiAccuracy = L?.MULTI_ACCURACY.has(move.id) && !hasAbility(user, 'skilllink') && itemId(user) !== 'loadeddice';
+      let landedHits = 0;
       let anyHit = false;
       for (let h = 0; h < hits; h++) {
-        if (realTarget.fainted) break;
+        if (realTarget.fainted || realTarget.hp <= 0) break;
+        if (h > 0 && multiAccuracy && this.rng() * 100 > acc) { this.say(`后续攻击没有命中 ${realTarget.name}！`); break; }
+        const hitMove = ['triplekick', 'tripleaxel'].includes(move.id) ? { ...move, basePower: move.basePower * (h + 1) } : move;
         let connected = true;
         if (move.basePower) {
           let critStage = move.critRatio || 0;
           critStage += user.volatile.critBoost || 0;
-          if(user.volatile.critBoost){delete user.volatile.critBoost;}
           if (hasAbility(user, 'superluck')) critStage += 1;
           if (['scopelens', 'razorclaw'].includes(itemId(user))) critStage += 1;
-          const crit = !(this.field.sides[this.sideOf(realTarget)]?.luckychant > 0) && !hasAbility(realTarget, 'battlearmor', 'shellarmor') && this.rng() < [1 / 24, 1 / 8, 1 / 2, 1][Math.min(3, critStage)];
-          const est = estimateDamage(user, realTarget, move, 0.85 + this.rng() * 0.15, { crit });
+          const crit = !(this.field.sides[this.sideOf(realTarget)]?.luckychant > 0) && !hasAbility(realTarget, 'battlearmor', 'shellarmor') && (user.volatile.laserFocusUntil != null || move.willCrit === true || this.rng() < [1 / 24, 1 / 8, 1 / 2, 1][Math.min(3, critStage)]);
+          const est = estimateDamage(user, realTarget, hitMove, 0.85 + this.rng() * 0.15, { crit });
           if (est.eff === 0 && !ignoresImmunity(move, move.type)) { this.say(`对 ${realTarget.name} 没有效果……`); connected = false; }
           else {
             anyHit = true;
@@ -1389,7 +1446,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
             if (dealt > 0) this.onDamagingHit(user, realTarget, move, dealt, false, eff, beforeHp);
           }
         } else anyHit = true;
-        if (hits > 1 && h === hits - 1 && anyHit) this.say(`击中了 ${hits} 次！`);
+        if (connected) landedHits++;
         // Guaranteed move effects (on target / self)
         if (connected && !realTarget.fainted) this.applyEffects(user, realTarget, move, move, opts);
         const sec = move.secondary || (move.secondaries ? move.secondaries[0] : null);
@@ -1402,6 +1459,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         if (move.self && firstAction && !user.fainted) this.applyEffects(user, user, move, move.self, opts);
         if (user.fainted) break;
       }
+      if (hits > 1 && landedHits) this.say(`击中了 ${landedHits} 次！`);
       if (shared && anyHit) shared.anyHit = true;
       const lastTarget = !shared || opts._doubleIndex >= (opts._doubleCount || 1) - 1;
       const moveHit = shared ? !!shared.anyHit : anyHit;
@@ -1510,10 +1568,6 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         if (move.id === 'magiccoat') { user.volatile.magiccoat = true; this.say(`${user.name} 覆盖了魔法反射膜！`); }
         if (move.id === 'imprison') { user.volatile.imprison = true; this.say(`${user.name} 封印了对手与自己相同的招式！`); }
         if (move.id === 'grudge') { user.volatile.grudge = true; this.say(`${user.name} 暗下了怨念的决心！`); }
-        if (move.id === 'bide') {
-          if (!user.volatile?.bideTurns) { user.volatile.bideTurns = 2; user.volatile.bideDamage = 0; user.volatile.bideBy = this.cur(this.other(this.sideOf(user))); this.say(`${user.name} 正在忍耐……`); }
-          else this.say(`${user.name} 正在忍耐……`);
-        }
         // 复制/交换类
         if (move.id === 'psychup') { user.stages = { ...target.stages }; this.say(`${user.name} 用自我暗示复制了 ${target.name} 的能力变化！`); }
         if (move.id === 'topsyturvy') { for (const k of Object.keys(target.stages)) target.stages[k] = -target.stages[k]; this.say(`${target.name} 的能力变化被颠倒了！`); }
@@ -1864,7 +1918,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
           case 'torment':
             who.volatile.torment = true; this.say(`${who.name} 受到了折磨，不能连续使用同一招式！`); break;
           case 'laserfocus':
-            who.volatile.critBoost = Math.max(2, Number(who.volatile.critBoost) || 0);
+            who.volatile.laserFocusUntil = this.turnCount + 1;
             this.say(`${who.name} 集中精神，下一击必定命中要害！`);
             break;
           case 'charge':
@@ -2059,16 +2113,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         if (p.volatile?.lockon && --p.volatile.lockon.turns <= 0) delete p.volatile.lockon;
         delete p.volatile.quash; delete p.volatile.electrify; delete p.volatile.spotlight;
         delete p.volatile.magiccoat; delete p.volatile.snatch;
-        // v1.3.55：忍耐爆发
-        if (!p.fainted && p.volatile?.bideTurns > 0) {
-          p.volatile.bideTurns--;
-          if (p.volatile.bideTurns === 0) {
-            const amt = (p.volatile.bideDamage || 0) * 2;
-            const tgt = p.volatile.bideBy || this.cur(this.other(this.sideOf(p)));
-            delete p.volatile.bide; delete p.volatile.bideTurns; delete p.volatile.bideDamage; delete p.volatile.bideBy;
-            if (amt > 0 && tgt && !tgt.fainted) this.applyDamage(tgt, amt, `${p.name} 忍耐爆发，${tgt.name} 受到了 ${amt} 点反击伤害！`);
-          } else this.say(`${p.name} 正在忍耐……（还需 ${p.volatile.bideTurns} 回合）`);
-        }
+        L?.endTurn(this, p);
       }
       for (const side of [0, 1]) for (let slot = 0; slot < (this.double ? 2 : 1); slot++) { const p = this.cur(side, slot); if (p?.volatile.disableTurns > 0 && --p.volatile.disableTurns === 0) delete p.volatile.disableMove; if (p) { delete p.volatile.followme; delete p.volatile.ragepowder; delete p.volatile.helpinghand; } }
       // Field duration ticks.
@@ -2136,14 +2181,14 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         weather: this.weather,
         field: JSON.parse(JSON.stringify(this.field)),
         mechanicUsed: JSON.parse(JSON.stringify(this.mechanicUsed)),
-        playerTeam: this.teams[0].map(p => ({ species: p.speciesId, baseSpecies: p.originalSpeciesId, hp: p.hp, maxHp: p.maxHp, fainted: p.fainted, status: p.status, ability: p.ability, item: p.item, initialItem: p._initialHeldItem, consumedItems: [...p._consumedItems], itemTransferOccurred: !!p._itemTransferOccurred, mechanic: p.mechanic, isMega: p.isMega, terastallized: p.terastallized, teraType: p.teraType, dynamaxed: p.dynamaxed })),
-        enemyTeam: this.teams[1].map(p => ({ species: p.speciesId, baseSpecies: p.originalSpeciesId, hp: p.hp, maxHp: p.maxHp, fainted: p.fainted, status: p.status, ability: p.ability, item: p.item, initialItem: p._initialHeldItem, consumedItems: [...p._consumedItems], itemTransferOccurred: !!p._itemTransferOccurred, mechanic: p.mechanic, isMega: p.isMega, terastallized: p.terastallized, teraType: p.teraType, dynamaxed: p.dynamaxed })),
+        playerTeam: this.teams[0].map(p => ({ species: p.speciesId, baseSpecies: p.originalSpeciesId, hp: p.hp, maxHp: p.maxHp, fainted: p.fainted, status: p.status, gender: p.gender, ability: p.ability, item: p.item, initialItem: p._initialHeldItem, consumedItems: [...p._consumedItems], itemTransferOccurred: !!p._itemTransferOccurred, mechanic: p.mechanic, isMega: p.isMega, terastallized: p.terastallized, teraType: p.teraType, dynamaxed: p.dynamaxed })),
+        enemyTeam: this.teams[1].map(p => ({ species: p.speciesId, baseSpecies: p.originalSpeciesId, hp: p.hp, maxHp: p.maxHp, fainted: p.fainted, status: p.status, gender: p.gender, ability: p.ability, item: p.item, initialItem: p._initialHeldItem, consumedItems: [...p._consumedItems], itemTransferOccurred: !!p._itemTransferOccurred, mechanic: p.mechanic, isMega: p.isMega, terastallized: p.terastallized, teraType: p.teraType, dynamaxed: p.dynamaxed })),
         log: this.log.slice(),
       };
     }
   }
 
-  const api = { version:'20261113-comprehensive-fix-v6', setData, specialDamageInfo, FIXED_DAMAGE_IDS, VARIABLE_POWER_IDS, createPokemon, calcStats, effStat, estimateDamage, Battle, normId, STATUS_NAMES, abilityId, itemId, isGrounded, transformMove, makeZMove, makeMaxMove, stabMultiplier };
+  const api = { effectiveBasePower: (user, target, move) => L ? L.power(user, target, move) : (move.basePower || 0), moveLifecycle: L, version:'20261116-bond-npc-moves-team-v1', setData, specialDamageInfo, FIXED_DAMAGE_IDS, VARIABLE_POWER_IDS, createPokemon, calcStats, effStat, estimateDamage, Battle, normId, STATUS_NAMES, abilityId, itemId, isGrounded, transformMove, makeZMove, makeMaxMove, stabMultiplier };
   root.PKMBattle = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

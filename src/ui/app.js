@@ -107,8 +107,8 @@ installSpriteRecovery(document);
   const EMBED = new URLSearchParams(location.search).has('embed');
   if (EMBED) document.documentElement.classList.add('embed');
   let dataReady = false, pendingHostConfig = null, hostTag = null, hostMode = false;
-  const APP_VERSION = '20261113-comprehensive-fix-v6';
-  const hostVersions = () => ({version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||'',genderVersion:window.PKMGender?.version||''});
+  const APP_VERSION = '20261116-bond-npc-moves-team-v1';
+  const hostVersions = () => ({version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',lifecycleVersion:window.PKMMoveLifecycle?.version||'',selectionVersion:window.PKMTeamSelection?.version||'',normalAbilityVersion:window.PKMNormalAbility?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||'',genderVersion:window.PKMGender?.version||''});
   let formatTag = '', formatRule = ''; // v1.3.8：角色卡发来的赛制（例：3v3、3只 vs 1只），显示在行动菜单的标签上
   let typeLabel = ''; // v1.3.9：角色卡发来的对战类型（道馆战 / 训练家对战 / 劲敌对战 / 火箭队……），标签第一段
   // 宿主模式：球袋来自角色卡变量（MVU），只存在本页内存里，不读写本机存档。
@@ -1048,9 +1048,15 @@ installSpriteRecovery(document);
     $('command-balls').disabled = $('command-balls').disabled || !!battle.double;
     $('command-items').disabled = $('command-items').disabled || !Object.values(battle.itemStock||{}).some(n=>n>0);
     const current = battle.cur(0, battle.double ? doubleActionSlot : 0) || battle.cur(0);
+    const actionLock = battle.pendingSwitch === null ? battle.lockInfo(current) : null;
+    if (actionLock) {
+      selectedMechanic = null;
+      for (const id of ['command-switch', 'command-balls', 'command-items']) $(id).disabled = true;
+      document.querySelectorAll('.mechanic-slot button').forEach(b => { b.disabled = true; });
+    }
     const mst = animating || ended ? null : mechanicState(current);
     const fightHint = pendingDoubleTarget ? '请选择本次招式的目标；可以点上方出战位切换行动者。' : battle.double ? `双打：请为${displayPokemonName(current)}选择行动${doubleActions.some(Boolean) ? '；再为另一只选择行动' : ''}。${mst?.state === 'armed' ? `已装备${mst.name}。` : ''}` : mst?.state === 'armed' ? `已装备${mst.name}：选择招式后发动${mst.short}；再点道具可取消。` : mst?.state === 'ready' ? `点击血条框左侧的${mst.name}可${mst.short}；选中招式后才开始行动。` : '返回不消耗回合；选中招式后才开始行动。';
-    $('command-status').textContent = commandMessage || (animating ? '请等待当前演出结束。' : view === 'home' ? '先选择行动，再决定招式、队友或精灵球。' : view === 'fight' ? fightHint : '');
+    $('command-status').textContent = commandMessage || (actionLock && !animating ? actionLock.reason : '') || (animating ? '请等待当前演出结束。' : view === 'home' ? '先选择行动，再决定招式、队友或精灵球。' : view === 'fight' ? fightHint : '');
     if (ended && hostMode) $('command-end-text').textContent = battle.outcome === 'captured'
       ? `收服了${displayPokemonName(battle.cur(1))}！结果已回传角色卡，手机返回／电脑按 Esc 退出后继续。`
       : battle.outcome === 'escaped' ? '已成功逃离野生战斗；玩偶消耗已回传角色卡。手机返回／电脑按 Esc 退出后继续。'
@@ -1069,7 +1075,7 @@ installSpriteRecovery(document);
   function renderBattleItems(){
     const root=$('battle-item-list');if(!root||!battle)return;root.replaceChildren();
     const ids=Object.keys(BATTLE_ITEM_NAMES).filter(id=>(battle.itemStock?.[id]||0)>0);
-    for(const id of ids){const b=document.createElement('button');b.type='button';b.className='ball-choice';b.disabled=animating||battle.winner!==null||battle.pendingSwitch!==null||(id==='pokemondoll'&&battle.encounterType!=='wild');b.innerHTML=`<strong>${BATTLE_ITEM_NAMES[id]} ×${battle.itemStock[id]}</strong><small>${BATTLE_ITEM_DESC[id]}${id==='pokemondoll'&&battle.encounterType!=='wild'?' · 仅限野生战斗':''}</small>`;b.onclick=()=>chooseBattleAction({kind:'item',id});root.appendChild(b);}
+    for(const id of ids){const b=document.createElement('button');b.type='button';b.className='ball-choice';b.disabled=animating||battle.winner!==null||battle.pendingSwitch!==null||!!battle.actionReason(battle.cur(0,battle.double?doubleActionSlot:0),{kind:'item'})||(id==='pokemondoll'&&battle.encounterType!=='wild');b.innerHTML=`<strong>${BATTLE_ITEM_NAMES[id]} ×${battle.itemStock[id]}</strong><small>${BATTLE_ITEM_DESC[id]}${id==='pokemondoll'&&battle.encounterType!=='wild'?' · 仅限野生战斗':''}</small>`;b.onclick=()=>chooseBattleAction({kind:'item',id});root.appendChild(b);}
     if(!ids.length){const p=document.createElement('p');p.className='capture-hint';p.textContent='背包里没有可在战斗中使用的道具。';root.appendChild(p);}
   }
   function renderBalls() {
@@ -1378,13 +1384,15 @@ installSpriteRecovery(document);
     const moves = $('moves');
     moves.innerHTML = '';
     const foeNow = battle.cur(1, 0);
+    const actionLock = battle.pendingSwitch === null ? battle.lockInfo(me) : null;
     me.moves.forEach((m, i) => {
       const shown = PKMBattle.transformMove(me, m, selectedMechanic);
       const b = document.createElement('button');
       b.type = 'button';
       b.className = `move-btn type-${String(shown.type || '').toLowerCase()}`;
-      b.disabled = over || animating || battle.pendingSwitch !== null || m.ppLeft <= 0 || (me.choiceLockedMove && me.choiceLockedMove !== m.id) || me.volatile.disableMove === m.id || (selectedMechanic === 'z' && m.type !== me.zType);
-      b.innerHTML = `${displayMoveName(shown, m)}<small>${zhType(shown.type)} · ${zhCat(shown.category)}${shown.basePower ? ' · 威力 ' + shown.basePower : ''} · 招式点数 ${m.ppLeft}/${m.pp}</small>`;
+      const forcedMatch = actionLock?.id === m.id;
+      b.disabled = over || animating || battle.pendingSwitch !== null || (!!actionLock && !forcedMatch) || (!actionLock && (m.ppLeft <= 0 || (me.choiceLockedMove && me.choiceLockedMove !== m.id) || me.volatile.disableMove === m.id)) || (selectedMechanic === 'z' && m.type !== me.zType);
+      b.innerHTML = `${displayMoveName(shown, m)}<small>${zhType(shown.type)} · ${zhCat(shown.category)}${shown.basePower ? ' · 威力 ' + PKMBattle.effectiveBasePower(me, foeNow, shown) : ''}${forcedMatch ? ' · 连续行动' : ''} · 招式点数 ${m.ppLeft}/${m.pp}</small>`;
       const mech = selectedMechanic;
       const useIt = () => chooseBattleAction({ kind: 'move', index: i, mechanic: mech });
       b.onclick = () => { if (Date.now() < suppressMoveClickUntil) return; useIt(); };
@@ -1393,7 +1401,12 @@ installSpriteRecovery(document);
       moves.appendChild(moveCell(b, ctxFn));
     });
     // v1.3.4：招式点数会跨战斗继承；全部用完时只能“挣扎”
-    if (!over && battle.pendingSwitch === null && !me.moves.some(m => m.ppLeft > 0 && me.volatile.disableMove !== m.id)) {
+    if (!over && battle.pendingSwitch === null && actionLock?.kind === 'recharge') {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'move-btn type-normal';
+      b.disabled = animating; b.textContent = '恢复行动（本回合休息）';
+      b.onclick = () => chooseBattleAction({ kind: 'move', index: 0 }); moves.appendChild(b);
+    }
+    if (!over && battle.pendingSwitch === null && !actionLock && !me.moves.some(m => m.ppLeft > 0 && me.volatile.disableMove !== m.id)) {
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'move-btn type-normal';
       b.disabled = animating;
@@ -1416,7 +1429,7 @@ installSpriteRecovery(document);
       b.title = `换上${displayPokemonName(p)}，体力 ${p.hp}/${p.maxHp}`;
       const reserved = battle.double && battle.pendingSwitch === null && doubleActions.some((a, slot) => slot !== doubleActionSlot && a?.kind === 'switch' && a.index === i);
       if (reserved) { detail.textContent = '另一只已选为替补'; b.title = '另一出战位已选这只宝可梦'; }
-      b.disabled = over || animating || battle.activeSlots[0].includes(i) || p.fainted || p.hp <= 0 || reserved;
+      b.disabled = over || animating || (battle.pendingSwitch === null && !!actionLock) || battle.activeSlots[0].includes(i) || p.fainted || p.hp <= 0 || reserved;
       b.onclick = () => {
         if (animating) return;
         if (battle.pendingSwitch !== null) {
@@ -1582,6 +1595,10 @@ installSpriteRecovery(document);
   function after() { render(); announceResult(); }
   function actDouble(actions) {
     if (!battle || !battle.double || animating || battle.winner !== null || battle.pendingSwitch !== null) return;
+    for (let slot = 0; slot < actions.length; slot++) {
+      const reason = battle.actionReason(battle.cur(0, slot), actions[slot]);
+      if (reason) { commandMessage = reason; renderCommands(); return; }
+    }
     animating = true; commandMessage = ''; renderCommands();
     const ref = battle, before = snapshotBattle(), logStart = battle.log.length;
     battle.turn({ kind: 'double', actions });
@@ -1592,6 +1609,8 @@ installSpriteRecovery(document);
   function act(a) {
     if (a?.kind === 'double') { actDouble(a.actions || []); return; }
     if (!battle || animating || battle.winner !== null || battle.pendingSwitch !== null) return;
+    const reason = battle.actionReason(battle.cur(0), a);
+    if (reason) { commandMessage = reason; renderCommands(); return; }
     animating = true; commandMessage = ''; renderCommands();
     const battleRef = battle;
     const before = snapshotBattle();
@@ -1645,7 +1664,7 @@ installSpriteRecovery(document);
   }
 
   function buildFromPreset(trainer) {
-    return trainer.party.map(p => PKMBattle.createPokemon(p.species, p.level, p.moves, p));
+    return trainer.party.map(p => PKMBattle.createPokemon(p.species, p.level, p.moves, { ...p, generateIdentity: true }));
   }
   // v1.3.2: 角色卡写的是官方中文名（“大岩蛇”“岩石封锁”），这里统一换算成引擎 id。
   const MOVE_ALIASES = { '紧束': 'bind', '綁緊': 'bind', '十万伏特': 'thunderbolt', '十萬伏特': 'thunderbolt', '电光一闪': 'quickattack', '泡沫': 'bubble', '超音波': 'supersonic', '吸血': 'leechlife', '飞叶快刀': 'razorleaf', '火焰放射': 'flamethrower', '喷射火焰': 'flamethrower', '水炮': 'hydropump', '冲浪': 'surf', '催眠术': 'hypnosis', '念力': 'confusion', '高速移动': 'agility', '影子球': 'shadowball', '舌舔': 'lick', '黑夜魔影': 'nightshade', '奇异之光': 'confuseray', '电磁波': 'thunderwave', '打雷': 'thunder', '藤鞭': 'vinewhip', '寄生种子': 'leechseed', '日光束': 'solarbeam', '阳光烈焰': 'solarbeam' };
@@ -1668,9 +1687,10 @@ installSpriteRecovery(document);
   }
   const STATUS_ALIASES = { par: 'par', brn: 'brn', psn: 'psn', tox: 'tox', slp: 'slp', frz: 'frz', '麻痹': 'par', '灼伤': 'brn', '烧伤': 'brn', '中毒': 'psn', '剧毒': 'tox', '睡眠': 'slp', '睡着': 'slp', '冰冻': 'frz' };
   // Preserve M/F/N (including legacy Chinese/English aliases); N is genderless, not an omitted field.
-  function buildFromConfigParty(party) {
+  function buildFromConfigParty(party, identity = {}) {
     // Party entries: "Species" | {name|species:Species, lv|level, moves:[...], hp, maxHp, status}
     const out = [];
+    let individualIndex = 0;
     for (const entry of party) {
       const spec = typeof entry === 'string' ? { name: entry } : (entry || {});
       const rawSpecies = spec.species || spec.name;
@@ -1701,7 +1721,10 @@ installSpriteRecovery(document);
       else delete opts.ivs;
       // 宿主模式下没给个体值的（旧版桥接 / AI 自写的阵容）随机生成，避免同种同级数值完全相同
       if (hostMode && !opts.ivs) opts.ivs = Object.fromEntries(['hp', 'atk', 'def', 'spa', 'spd', 'spe'].map(k => [k, Math.floor(Math.random() * 32)]));
-      opts.ability = PKMAbilityChoice.select(opts.ability, PKMBattle._dex[species].abilities || [], ZH.abilities || {}) || undefined;
+      opts.ability = PKMNormalAbility.findLegal(opts.ability, PKMBattle._dex[species].abilities || [], ZH.abilities || {}) || undefined;
+      opts.generateIdentity = identity.opponent === true;
+      if (opts.generateIdentity) opts.identitySeed = `${identity.seed || encounterId}#${individualIndex}#${species}`;
+      individualIndex++;
       if (opts.nature) { const want = String(opts.nature); const hit = Object.entries(ZH.natures || {}).find(([id, zh]) => zh === want || id === normId(want)); opts.nature = hit ? hit[0] : ''; }
       opts.gender = window.PKMGender?.normalize(opts.gender) || null;
       if (opts.nickname === rawSpecies) delete opts.nickname;
@@ -1744,6 +1767,57 @@ installSpriteRecovery(document);
     return PKMTeam.chooseAutoMoves(speciesId, level || 50);
   }
 
+  let rosterChoice = null;
+  function chooseBattleRoster(team, limit) {
+    if (rosterChoice) return Promise.resolve(null);
+    return new Promise(resolve => {
+      const chosen = [], count = PKMTeamSelection.required(team, limit), previousFocus = document.activeElement;
+      const overlay = document.createElement('div'); overlay.className = 'roster-overlay'; overlay.id = 'battle-roster-picker';
+      const card = document.createElement('section'); card.className = 'roster-card'; card.setAttribute('role', 'dialog'); card.setAttribute('aria-modal', 'true');
+      card.setAttribute('aria-labelledby', 'roster-title');
+      const title = document.createElement('h2'); title.id = 'roster-title'; title.textContent = `选择本场参赛的 ${count} 只宝可梦`;
+      const hint = document.createElement('p'); hint.textContent = '从完整队伍中选择；点选顺序就是出场顺序，第 1 只是首发。未参赛成员不会被删除。';
+      const list = document.createElement('div'); list.className = 'roster-list';
+      const footer = document.createElement('div'); footer.className = 'roster-footer';
+      const status = document.createElement('p'); status.setAttribute('aria-live', 'polite');
+      const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = '取消对战';
+      const confirm = document.createElement('button'); confirm.type = 'button'; confirm.className = 'roster-confirm';
+      const buttons = team.map((p, index) => {
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'roster-pick'; button.dataset.index = String(index);
+        const order = document.createElement('span'); order.className = 'roster-order';
+        const text = document.createElement('span'); const name = document.createElement('strong'); name.textContent = displayPokemonName(p);
+        const detail = document.createElement('small'); detail.textContent = `队伍第 ${(p.hostSlot ?? index) + 1} 格 · Lv${p.level} · HP ${p.hp}/${p.maxHp} · ${PKMGender.label(p.gender)}`;
+        text.append(name, detail); button.append(order, text);
+        button.onclick = () => { const at = chosen.indexOf(index); if (at >= 0) chosen.splice(at, 1); else if (chosen.length < count) chosen.push(index); update(); };
+        list.appendChild(button); return button;
+      });
+      const update = () => {
+        buttons.forEach((button, index) => {
+          const rank = chosen.indexOf(index), p = team[index]; button.classList.toggle('selected', rank >= 0); button.setAttribute('aria-pressed', String(rank >= 0));
+          button.disabled = p.fainted || p.hp <= 0 || (rank < 0 && chosen.length >= count);
+          button.querySelector('.roster-order').textContent = rank >= 0 ? String(rank + 1) : '＋';
+        });
+        status.textContent = `已选择 ${chosen.length}/${count}；第 1 只是首发。`;
+        confirm.textContent = `开始对战（${chosen.length}/${count}）`; confirm.disabled = chosen.length !== count;
+      };
+      const finish = value => {
+        overlay.remove(); document.removeEventListener('keydown', key, true); rosterChoice = null;
+        if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true }); resolve(value);
+      };
+      const key = e => {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); finish(null); }
+        if (e.key === 'Tab') {
+          const focusable = [...card.querySelectorAll('button:not(:disabled)')];
+          if (e.shiftKey && document.activeElement === focusable[0]) { e.preventDefault(); focusable.at(-1)?.focus(); }
+          else if (!e.shiftKey && document.activeElement === focusable.at(-1)) { e.preventDefault(); focusable[0]?.focus(); }
+        }
+      };
+      cancel.onclick = () => finish(null); confirm.onclick = () => { if (!confirm.disabled) finish(PKMTeamSelection.validate(team, chosen, limit)); };
+      footer.append(status, cancel, confirm); card.append(title, hint, list, footer); overlay.appendChild(card); document.body.appendChild(overlay);
+      rosterChoice = overlay; document.addEventListener('keydown', key, true); update(); buttons.find(b => !b.disabled)?.focus();
+    });
+  }
+
   function battleModeFromConfig(cfg) {
     if (!cfg || cfg.encounter?.type === 'wild') return false;
     const truthyDouble = cfg.double === true || cfg.doubles === true || cfg.rules?.double === true || cfg.rules?.doubles === true;
@@ -1765,8 +1839,8 @@ installSpriteRecovery(document);
     if (saysSingle && !deniedSingle) return false;
     return false; // no stated doubles rule => preserve the existing singles default
   }
-  function startBattle(cfg) {
-    if (animating) return;
+  async function startBattle(cfg) {
+    if (animating || rosterChoice) return false;
     if (cfg && cfg.host) { hostTag = cfg.host.tag || null; useHostStore(cfg.host.balls); }
     menuView = 'home'; commandMessage = ''; announcedBattle = null;
     encounterId = globalThis.crypto?.randomUUID?.() || `encounter-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -1779,30 +1853,40 @@ installSpriteRecovery(document);
     if (cfg) {
       difficulty = cfg.difficulty || difficulty;
       if (cfg.encounter?.type === 'wild') $('sel-enemy').value = 'wild';
-      const resolveSide = (side, fallbackKey) => {
+      const resolveSide = (side, fallbackKey, opponent = false) => {
         const entrants = side?.entrants?.length ? side.entrants : [{ name: fallbackKey }];
         const team = [];
         for (const e of entrants) {
           const key = String(e.name || '').toLowerCase();
           const preset = PKMPresets.TRAINERS[key] || Object.values(PKMPresets.TRAINERS).find(t => t.name === e.name);
-          if (Array.isArray(e.party) && e.party.length && typeof e.party[0] === 'object') team.push(...buildFromConfigParty(e.party));
+          if (Array.isArray(e.party) && e.party.length && typeof e.party[0] === 'object') team.push(...buildFromConfigParty(e.party, { opponent, seed: cfg.host?.identityKey || cfg.id || cfg.seed || encounterId }));
           else if (preset) {
             const party = Array.isArray(e.party) && e.party.length
               ? preset.party.filter(p => e.party.map(normId).includes(normId(p.species)))
               : preset.party;
-            team.push(...party.map(p => PKMBattle.createPokemon(p.species, p.level, p.moves, p)));
-          } else if (e.party?.length) team.push(...buildFromConfigParty(e.party));
-          else if (PKMBattle._dex[normId(e.name)]) team.push(PKMBattle.createPokemon(e.name, e.lv || e.level || 50, autoMoves(e.name, e.lv || e.level || 50), e));
+            team.push(...party.map((p, i) => PKMBattle.createPokemon(p.species, p.level, p.moves, { ...p, generateIdentity: true, identitySeed: `${cfg.host?.identityKey || encounterId}#${fallbackKey}#${i}` })));
+          } else if (e.party?.length) team.push(...buildFromConfigParty(e.party, { opponent, seed: cfg.host?.identityKey || cfg.id || cfg.seed || encounterId }));
+          else if (PKMBattle._dex[normId(e.name)]) team.push(PKMBattle.createPokemon(e.name, e.lv || e.level || 50, autoMoves(e.name, e.lv || e.level || 50), { ...e, generateIdentity: opponent }));
         }
         return team;
       };
       playerTeam = resolveSide(cfg.p1, 'player');
-      enemyTeam = resolveSide(cfg.p2, $('sel-enemy').value);
+      enemyTeam = resolveSide(cfg.p2, $('sel-enemy').value, true);
       const limit = (v, fallback) => Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 6 ? Number(v) : fallback;
       const wild = cfg.encounter?.type === 'wild';
       if (wild) doubleMode = false;
       const size = limit(cfg.rules?.teamSize, 6);
-      playerTeam = playerTeam.slice(0, wild ? 6 : limit(cfg.rules?.playerLimit, size));
+      const playerLimit = wild ? 6 : limit(cfg.rules?.playerLimit, size);
+      const requested = cfg.rules?.selectedPlayerSlots;
+      if (Array.isArray(requested)) {
+        const indices = playerTeam.every(p => Number.isInteger(p.hostSlot)) ? requested.map(slot => playerTeam.findIndex(p => p.hostSlot === slot)) : requested;
+        playerTeam = PKMTeamSelection.select(playerTeam, indices, playerLimit);
+      } else if (PKMTeamSelection.healthy(playerTeam).length > playerLimit) {
+        postHost('PKM_BATTLE_SELECTING', { limit: playerLimit, available: PKMTeamSelection.healthy(playerTeam).length });
+        const indices = await chooseBattleRoster(playerTeam, playerLimit);
+        if (!indices) { postHost('PKM_BATTLE_EXIT', {}); return false; }
+        playerTeam = PKMTeamSelection.select(playerTeam, indices, playerLimit);
+      } else playerTeam = PKMTeamSelection.healthy(playerTeam).map(x => x.p);
       enemyTeam = enemyTeam.slice(0, wild ? 1 : limit(cfg.rules?.enemyLimit, size));
       if (!playerTeam.length || playerTeam.every(p => p.fainted)) throw new Error('我方没有能战斗的宝可梦。');
       if (!enemyTeam.length) throw new Error('对手没有宝可梦。');
@@ -1831,7 +1915,7 @@ installSpriteRecovery(document);
       if (isWild) {
         const pool = ['pikachu','eevee','growlithe','psyduck','vulpix','oddish','zubat','geodude','riolu'];
         const id = pool[Math.floor(Math.random()*pool.length)], level = 30 + Math.floor(Math.random()*16);
-        enemyTeam = [PKMBattle.createPokemon(id, level, autoMoves(id, level), {gender:window.PKMGender?.roll(id) || null})];
+        enemyTeam = [PKMBattle.createPokemon(id, level, autoMoves(id, level), {generateIdentity: true, gender:window.PKMGender?.roll(id) || null})];
       }
       if (isWild) doubleMode = false;
       if (doubleMode && (playerTeam.filter(p => !p.fainted).length < 2 || enemyTeam.filter(p => !p.fainted).length < 2)) { alert('双打模式需要双方各至少两只宝可梦。'); return; }
@@ -1846,6 +1930,7 @@ installSpriteRecovery(document);
       if (battle.double) { [0, 1].forEach(slot => { setTimeout(() => playSendOut(1, slot), slot * 180); setTimeout(() => playSendOut(0, slot), 300 + slot * 180); }); }
       else { playSendOut(1); setTimeout(() => playSendOut(0), 150); }
     });
+    return true;
   }
 
 
@@ -1994,7 +2079,7 @@ installSpriteRecovery(document);
     const v = PKMTeam.validateTeam(spec);
     showValidate((v.errors.length ? `${label}错误：\n` + v.errors.join('\n') : '') + (v.warnings.length ? `\n${label}提示：\n` + v.warnings.join('\n') : ''));
     if (!v.ok) { alert(label + '队伍有问题：\n' + v.errors.map(translateText).join('\n')); return null; }
-    return spec.map(p => PKMBattle.createPokemon(p.species, p.level, p.moves, p));
+    return spec.map(p => PKMBattle.createPokemon(p.species, p.level, p.moves, { ...p, generateIdentity: true }));
   }
   function showValidate(extra) {
     const pv = PKMTeam.validateTeam(readEditor('player')), ev = PKMTeam.validateTeam(readEditor('enemy'));
@@ -2074,11 +2159,11 @@ installSpriteRecovery(document);
     $('btn-random-player').onclick = () => { renderEditor('player', randomSpec()); saveEditorSpecs(false); showValidate('已随机生成我方队伍。'); };
     $('btn-reset-teams').onclick = () => { renderEditor('player', specFromPreset('player')); renderEditor('enemy', specFromPreset('gym')); saveEditorSpecs(false); showValidate('已恢复内置队伍。'); };
     initWorldControls();
-    $('btn-start').onclick = () => startBattle(null);
+    $('btn-start').onclick = () => startBattle(null).catch(e => alert(e.message));
     $('btn-config').onclick = () => {
       try {
         const raw = $('txt-config').value.replace(/<\/?PKM_BATTLE>/gi, '').trim();
-        startBattle(JSON.parse(raw));
+        startBattle(JSON.parse(raw)).catch(e => alert('配置解析失败：' + e.message));
       } catch (e) { alert('配置解析失败：' + e.message); }
     };
     // URL config: ?config=<encodeURIComponent(JSON)>
@@ -2087,13 +2172,13 @@ installSpriteRecovery(document);
     if (window.PKMPreview) worldStore = new PKMWorldSave.Store(memoryStorage());
     dataReady = true;
     if (pendingHostConfig) { const cfg = pendingHostConfig; pendingHostConfig = null; startHostBattle(cfg); return; }
-    if (q) { try { startBattle(JSON.parse(q)); return; } catch (_) {} }
+    if (q) { try { await startBattle(JSON.parse(q)); return; } catch (e) { $('log').textContent = e.message; } }
     if (EMBED) { $('log').textContent = '对战系统已就绪，正在等待角色卡发送对战配置……'; postHost('PKM_BATTLE_READY', hostVersions()); return; }
-    startBattle(null);
+    await startBattle(null);
   }
 
-  function startHostBattle(cfg) {
-    try { startBattle(cfg); postHost('PKM_BATTLE_STARTED', { ok: true }); }
+  async function startHostBattle(cfg) {
+    try { if (await startBattle(cfg)) postHost('PKM_BATTLE_STARTED', { ok: true, selectedPlayerSlots:battle.teams[0].map(p=>p.hostSlot), playerCount:battle.teams[0].length }); }
     catch (e) {
       console.warn('[PKM] bad config', e);
       if (cfg?.host?.tag) hostTag = cfg.host.tag;

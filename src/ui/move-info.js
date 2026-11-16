@@ -144,10 +144,14 @@
     if (SPECIAL_ZH[id]) { lines.push(SPECIAL_ZH[id]); implemented = true; }
     if (move._isZ) lines.push('Ｚ招式：每场战斗只能使用一次');
     if (move._isMax) lines.push('极巨招式：附带额外的场地或能力变化效果');
-    // 简化 / 未实现
-    if (move.flags?.charge) notes.push('原作中需要先蓄力 1 回合；本系统在当回合直接攻击');
+    // Lifecycle-backed behavior is shared with the actual damage and action engine.
+    const lifecycle = global.PKMMoveLifecycle;
+    const lifecycleText = lifecycle?.description(move);
+    if (lifecycleText) { lines.push(lifecycleText); implemented = true; }
+    if (id === 'defensecurl') { lines.push('变圆效果使随后使用的滚动、冰球威力翻倍；换下场后清除。'); implemented = true; }
+    if (move.flags?.charge && !lifecycle?.CHARGE.has(id)) warns.push('这个两回合招式尚未完整实现特殊抓取机制，请勿当作普通即时攻击使用。');
     for (const v of [vol, move.self?.volatileStatus].filter(Boolean)) {
-      if (VOLATILE_DONE.includes(v)) continue;
+      if (VOLATILE_DONE.includes(v) || (lifecycleText && ['lockedmove', 'mustrecharge', 'uproar', 'bide', 'charge', 'laserfocus'].includes(v))) continue;
       if (v in VOLATILE_SIMPLIFIED) { if (VOLATILE_SIMPLIFIED[v]) notes.push(VOLATILE_SIMPLIFIED[v]); continue; }
       warns.push(`「${VOLATILE_ZH[v] || v}」效果本系统暂未实现${isStatus && !implemented ? '，使用后不会起作用' : ''}`);
       if (isStatus && !implemented) implemented = 'warned';
@@ -210,7 +214,7 @@
     const rows = [
       ['属性', zhType(move.type)],
       ['分类', zhCat(move.category)],
-      ['威力', move.basePower ? String(move.basePower) : (move.category === 'Status' ? '—' : '特殊')],
+      ['威力', move.basePower ? String(global.PKMBattle?.effectiveBasePower?.(user, foe, move) ?? move.basePower) : (move.category === 'Status' ? '—' : '特殊')],
       ['命中', move.accuracy === true || move.accuracy == null ? '必定命中' : move.accuracy + '%'],
       ['招式点数', ppm.id === 'struggle' ? '—' : `${ppm.ppLeft ?? ppm.pp}/${ppm.pp}`],
       ['先制度', move.priority ? (move.priority > 0 ? '+' : '') + move.priority : '0'],

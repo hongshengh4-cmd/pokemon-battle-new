@@ -50,6 +50,7 @@
       if (this.winner !== null) return '本场战斗已经结束。';
       if (this.encounterType !== 'wild' || this.teams[1].length !== 1) return '训练家的宝可梦不能捕获，请进入野生遭遇。';
       if (this.pendingSwitch !== null || this.cur(0).fainted) return '请先派出能够战斗的宝可梦。';
+      const locked = this.actionReason?.(this.cur(0), { kind: 'capture' }); if (locked) return locked;
       const target = this.cur(1);
       if (!target || target.fainted || target.hp <= 0) return '已经失去战斗能力的宝可梦不能捕获。';
       if (!Number.isInteger(Number(target.level)) || Number(target.level) < 1 || Number(target.level) > 100) return '暂不支持捕获该等级的宝可梦。';

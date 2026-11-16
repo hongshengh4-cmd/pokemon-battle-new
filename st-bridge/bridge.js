@@ -3,7 +3,8 @@ import * as K from './kanto-data.js?v=20261113-comprehensive-fix-v6';
 import './gender.js?v=20261115-gender-bond-hotfix1';
 import './battle-mechanics.js?v=20261113-comprehensive-fix-v6';
 import './plot-guard.js?v=20261115-worldbook-date-event-ability-v3';
-import './patch-guard.js?v=20261115-gender-bond-hotfix1';
+import './patch-guard.js?v=20261116-bond-npc-moves-team-v1';
+import './bond-sync.js?v=20261116-bond-npc-moves-team-v1';
 import '../src/engine/gear-resolve.js?v=20261113-comprehensive-fix-v6';
 import '../src/engine/held-sync.js?v=20261113-comprehensive-fix-v6';
 import '../src/engine/ability-choice.js?v=1.3.31';
@@ -27,7 +28,7 @@ import {isPPItem, ppItemInfo, ppItemBagKey, previewPPItem, applyPPItem} from './
 // v1.3.8 新增：① 配音二选一：精灵球面板里每只宝可梦都能选 🎬 动漫配音 / 🎮 游戏配音（全局默认 + 单只覆盖）；
 //       动漫配音有录音播录音，没有录音时用语音合成喊名字（按体型调音高），也可改成播游戏叫声或不出声。
 //       ② 赛制：野外 / 捕捉 = 对方 1 只 vs 我方能战斗的全部（最多 6 只，不足不补）；道馆按该馆规矩 NvN（缺 teamSize 时按道馆规矩表兜底），
-//       道馆 / NvN 自动按首发优先和队伍顺序取到名额上限；不足名额也照常开战，参赛的全倒立即判负；结果文本写明赛制、判定和未实际行动名单。
+//       道馆 / NvN 开战前从完整队伍选择并排序，按本场名额参赛；不足名额也照常开战，参赛的全倒立即判负；结果文本写明赛制、判定和未实际行动名单。
 // v1.3.9：① 和 NPC 对战（训练家 / 劲敌 / 火箭队 / 强敌）没约定几对几时两边全队：对方派出带着的全部，我方能战斗的都能轮换，只数可以不一样；
 //       剧情里约定的 NvN 规则自动执行；NPC 未约定时仍按两边全队处理。道馆照旧按规矩（华蓝道馆改为 3v3：小霞的初始三只）。
 //       ② 和小智 / 小霞 / 小刚对战时，对战块漏写的伙伴宝可梦按原作进度补上（例：小智收服绿毛虫后 = 皮卡丘 + 绿毛虫）。
@@ -40,7 +41,8 @@ import {isPPItem, ppItemInfo, ppItemBagKey, previewPPItem, applyPPItem} from './
 //       ④ 变量摘要里电脑仓库每只附带性格/资质，收服摘要附带完整个体信息，AI 叙述与变量不再出现两套数值。
 
 const EXPECTED_BUILD='20261113-comprehensive-fix-v6';
-if(K.VERSION!=='1.3.66-comprehensive-v6'||globalThis.PKMNormalAbility?.version!=='20261115-normal-ability-random-v2'||globalThis.PKMGender?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.worldbookStoryPolicy!=='date-key-autostart-v1'||globalThis.PKMPatchGuard?.version!==EXPECTED_BUILD||globalThis.PKMGearResolve?.version!==EXPECTED_BUILD||globalThis.PKMBattleGear?.fixVersion!==EXPECTED_BUILD)
+const REPAIR_BUILD='20261116-bond-npc-moves-team-v1';
+if(K.VERSION!=='1.3.66-comprehensive-v6'||globalThis.PKMNormalAbility?.version!=='20261115-normal-ability-random-v2'||globalThis.PKMGender?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.worldbookStoryPolicy!=='date-key-autostart-v1'||globalThis.PKMPatchGuard?.version!==REPAIR_BUILD||globalThis.PKMBondSync?.version!==REPAIR_BUILD||globalThis.PKMGearResolve?.version!==EXPECTED_BUILD||globalThis.PKMBattleGear?.fixVersion!==EXPECTED_BUILD)
   throw new Error('修复模块版本不完整：请先部署本包全部覆盖文件并刷新缓存。');
 const VERSION = K.VERSION;
 const W = window;
@@ -1325,7 +1327,7 @@ function pathSegs(path) {
 function patchPlan(text,base){
  const records=base?.npcs?.records||{};
  return PKMPatchGuard.parse(text,{
-  pathSegs,playerName:base?.player?.name||userName(),
+  pathSegs,playerName:base?.player?.name||userName(),love:key=>records[key]?.love,otherNames:Object.values(records).flatMap(r=>[r?.name,String(r?.name||'').replace(/小姐$|博士$|先生$/,'')]).filter(Boolean),
   npcKey:raw=>npcKeyFor(records,raw),existingNpc:key=>isObj(records[key]),
   aliases:key=>{const r=records[key]||{};return [r.name,String(r.name||'').replace(/小姐$|博士$|先生$/,''),...(K.NPC_ALIASES[key]||[]),key==='ash'&&base?.world?.ashNpc==='智子'?'智子':''];}
  });
@@ -1388,20 +1390,16 @@ function reconcileBonds(pkm, mesid, presentKeys, suppliedPlan=null, suppliedBase
   const recs=pkm.npcs.records,baseRecs=base.npcs.records;
   const expected=clone(base);applyOpsGeneric(expected,ops);
   const rawExpected=clone(base);applyOpsGeneric(rawExpected,plan.rawOps||[]);
-  // A concrete, complete player/NPC interaction must actually have settled.
-  for(const key of plan.acceptedNpcs||[]){
-    const rec=recs[key],was=baseRecs[key],want=expected.npcs?.records?.[key];
-    if(!isObj(rec)||!isObj(was)||!isObj(want))continue;
-    if(same(rec.love,want.love)&&same(rec.last,want.last)&&same(rec.why,want.why)&&rec.lastInteraction!==mesid){rec.lastInteraction=mesid;changed=true;}
-  }
+  const bondOutcome=PKMBondSync.settle(pkm,base,plan,{messageId:mesid,swipe:msg.swipe_id??0,signature:PKMBondSync.signature(PKMBondSync.textKey(msg.mes))});
+  changed=bondOutcome.changed||changed;plan.warnings.push(...bondOutcome.warnings);plan.bondOutcome=bondOutcome;
 
-// 兼容旧存档中的 AVS 路径，但只迁移为单一亲密值；有明确互动时每楼正向最多 +3（160 为日常上限）。
+// 兼容旧存档中的 AVS 路径，但只迁移为单一亲密值；有明确互动时每楼正向最多 +1（与角色卡规则一致；160 为日常上限）。
   const expFriend={};
   const friendBase=m=>friendshipValue(m);
   for(const o of ops){
     const g=o.segs;if(g[0]!=='pkm'||g[1]!=='party'||!['slots','box'].includes(g[2])||g[4]!=='friendship')continue;
     const i=Number(g[3]),bm=base.party[g[2]]?.[i];if(!Number.isInteger(i)||!hasMon(bm))continue;
-    const id=g[2]+':'+i,e=expFriend[id]||(expFriend[id]={}),baseFriend=friendBase(bm),cur=()=>e.value??baseFriend,hasInteraction=hasExplicitPokemonInteraction(bodyText,bm,base.player?.name||userName()),limitPositive=(current,target)=>target>current?(baseFriend>=FRIENDSHIP_EVOLUTION_THRESHOLD||!hasInteraction?current:Math.min(target,baseFriend+3,FRIENDSHIP_EVOLUTION_THRESHOLD)):target;
+    const id=g[2]+':'+i,e=expFriend[id]||(expFriend[id]={}),baseFriend=friendBase(bm),cur=()=>e.value??baseFriend,hasInteraction=hasExplicitPokemonInteraction(bodyText,bm,base.player?.name||userName()),limitPositive=(current,target)=>target>current?(baseFriend>=FRIENDSHIP_EVOLUTION_THRESHOLD||!hasInteraction?current:Math.min(target,baseFriend+1,FRIENDSHIP_EVOLUTION_THRESHOLD)):target;
     if(g.length===6&&g[5]==='official'){
       const n=Number(o.value);if(!Number.isFinite(n))continue;
       if(o.op==='delta'){const d=n>0?Math.min(3,n):n;e.value=friendshipClamp(limitPositive(cur(),cur()+d));}
@@ -1597,24 +1595,7 @@ function reconcileVisibleExternal(pkm,base,plan){
   if(!a.ok||!b.ok||!c.ok||!now.ok||![a.value,b.value,c.value,now.value].every(x=>typeof x==='number'&&Number.isFinite(x)))continue;
   if(!same(b.value,c.value)&&same(now.value,b.value)&&scalarPut(pkm,segs,c.value))changed=true;
  }
- // The three NPC fields form one semantic update. Reconcile them together
- // only if the entire externally visible result still matches; partial matches
- // could belong to a concurrent independent write.
- for(const key of npcKeys){
-  const fields=['love','last','why'].map(field=>['pkm','npcs','records',key,field]);
-  if(fields.some(conflictFor))continue;
-  const rows=fields.map(segs=>({segs,a:scalarAt(base,segs),b:scalarAt(raw,segs),c:scalarAt(safe,segs),now:scalarAt(pkm,segs)}));
-  if(rows.some(r=>!r.a.ok||!r.b.ok||!r.c.ok||!r.now.ok))continue;
-  if(!rows.some(r=>!same(r.b.value,r.c.value)))continue;
-  if(rows.every(r=>same(r.now.value,r.b.value))){
-   for(const r of rows)if(!same(r.b.value,r.c.value)&&scalarPut(pkm,r.segs,r.c.value))changed=true;
-  }else if(!rows.every(r=>same(r.now.value,r.a.value))&&!rows.every(r=>same(r.now.value,r.c.value))) plan.warnings.push(`人物 ${key} 的好感值与旧快照、安全结果、可见补丁均不一致，未覆盖，请人工核对`);
- }
- // A visible direct lastInteraction write is not evidence of interaction.
- for(const o of plan.rawOps){const g=o.segs;if(g[1]!=='npcs'||g[2]!=='records'||g[4]!=='lastInteraction'||conflictFor(g))continue;
-  const b=scalarAt(raw,g),c=scalarAt(base,g),now=scalarAt(pkm,g);
-  if(b.ok&&c.ok&&now.ok&&!same(b.value,c.value)&&same(now.value,b.value)&&scalarPut(pkm,g,c.value))changed=true;
- }
+
  return changed;
 }
 // Only a visibly created, distinguishable individual can be corrected here.
@@ -1666,8 +1647,9 @@ function applySync(pkm, mesid, opts = {}) {
   let changed=false;
   const base=prevPkm(mesid),plan=patchPlan(chat()[mesid]?.mes,base);
   if(base)changed=reconcileVisibleExternal(pkm,base,plan)||changed;
-  if(opts.full){if(plan.ops.length){applyOpsGeneric(pkm,plan.ops);changed=true;}}
-  else changed=reconcileMissingPatch(pkm,mesid,plan,base)||changed;
+  const ordinaryPlan={...plan,ops:plan.ops.filter(o=>!PKMBondSync.protectedPath(o.segs))};
+  if(opts.full){if(ordinaryPlan.ops.length){applyOpsGeneric(pkm,ordinaryPlan.ops);changed=true;}}
+  else changed=reconcileMissingPatch(pkm,mesid,ordinaryPlan,base)||changed;
   if(base)changed=quarantineNewGender(pkm,base,plan)||changed;
   showPatchWarnings(plan,mesid);
   changed=restoreExplicitCompanion(pkm)||changed;
@@ -8199,8 +8181,9 @@ function battleFormat(cfg, healthy, opts = {}) {
   return { type, wild: false, npc, full: false, name, playerMax: f.p, enemyMax: f.e, player, enemy, source, rule,
     tag: name + (short ? `（${short}）` : ''), label: name + (short ? ` · ${short}，照常开战` : '') };
 }
-// 战前不再停留于选人界面：按首发优先与队伍顺序自动取到赛制上限。
-function pickPlayers(entries, max) { return entries.slice(0, max); }
+// Send all healthy candidates, preserving the original hostSlot. The battle app
+// chooses/validates the ordered roster *before* emitting BATTLE_STARTED.
+function pickPlayers(entries, max) { return entries.slice(0, 6); }
 // 对手的简称（对战画面的标签 / 信息框用）：“华蓝道馆馆主 小霞” → “小霞”；太长就不写名字
 function shortOpponent(cfg) {
   const raw = String(cfg?.opponent || '').replace(/[（(][^）)]*[）)]/g, ' ').trim();
@@ -8256,20 +8239,20 @@ function engineConfig(spec, pkm, tag) {
     e.ivs = giv || rollIvs(band, r);
     if (!natureZh(e.nature)) e.nature = rollNature(r);
     // New encounter inputs are checked against the species table. Existing
-    // owned party members are deliberately not rewritten. A bad wild input is
-    // re-rolled deterministically (or remains unknown for an unknown species).
+    // owned party members are deliberately not rewritten. Missing trainer
+    // inputs are also generated, once per encounter key and original team index.
     const rawGender=e.gender,givenGender=PKMGender.normalize(rawGender),sid=speciesId(e.species),known=PKMGender.rate(sid)!==null;
     const invalidKnown=!!givenGender&&known&&!PKMGender.allowed(sid,givenGender);
     if(givenGender&&!invalidKnown)e.gender=givenGender;
-    else if(fmt.wild||invalidKnown){
-      const seed=['wild-gender',pkm.player?.id||pkm.player?.name||'',spec.key||cfg.id||'',i,e.species].join('#');
+    else {
+      const seed=['encounter-gender-v2',pkm.player?.id||pkm.player?.name||'',spec.key||cfg.id||'',i,e.species].join('#');
       e.gender=PKMGender.roll(sid,rng(hash(seed)));
       if(invalidKnown||(!PKMGender.missing(rawGender)&&!givenGender))genderCorrections.push(`${e.species}：${String(rawGender)} → ${PKMGender.label(e.gender)}`);
-    }else e.gender=null;
+    }
     return e;
   });
   const party = pickPlayers(entries, fmt.playerMax);
-  const tx = battleTexts(cfg, fmt, party.length, enemy.length);
+  const tx = battleTexts(cfg, fmt, Math.min(party.length,fmt.playerMax), enemy.length);
   const balls = Object.fromEntries(Object.entries(K.BALL_ZH).map(([id, zh]) => [id, Math.max(0, Math.floor(Number(pkm.player.bag[zh]) || 0))]));
   const captureLocation=String(pkm.world?.location||cfg.location||''),captureTime=String(pkm.world?.time||'');
   const hourMatch=captureTime.match(/(?:^|\s)(\d{1,2})[:：]\d{2}/),hour=hourMatch?Number(hourMatch[1]):null;
@@ -8282,7 +8265,7 @@ function engineConfig(spec, pkm, tag) {
   const out = { rules,
     encounter: { type: fmt.wild ? 'wild' : 'trainer' }, difficulty: cfg.difficulty || K.DIFFICULTY_BY_TYPE[type] || 'normal',
     p1: { entrants: [{ name: 'host-player', party }] }, p2: { entrants: [{ name: 'host-enemy', party: enemy }] },
-    host: { tag, balls, battleItems:battleItemStock(pkm), intro: `${tx.intro}${doubleMode ? ' 双打规则：双方各2只同时出场。' : ''}`, captureContext }, ui: spec.ui || null };
+    host: { tag, identityKey:String(spec.key||cfg.id||tag), balls, battleItems:battleItemStock(pkm), intro: `${tx.intro}${doubleMode ? ' 双打规则：双方各2只同时出场。' : ''}`, captureContext }, ui: spec.ui || null };
   // Normalize legacy Chinese/string environments and structured weather+terrain.
   const rawEnv = typeof cfg.environment === 'object' && cfg.environment ? cfg.environment : {weather: cfg.environment};
   const w = K.WEATHER[String(rawEnv.weather || '').trim()] || rawEnv.weather;
@@ -8546,7 +8529,7 @@ function requestBattleFullscreen(m) {
     }).catch(fallback);
   } catch (e) { return Promise.resolve(fallback(e)); }
 }
-// 真正开战：按赛制与队伍顺序自动组队后创建对战 iframe
+// 创建对战 iframe，传入全部候选；选人和排序完成后才真正开战。
 async function launchBattle(m) {
   if (modal !== m) return;
   // Old saves may lack stable individual IDs. Persist IDs before taking battle snapshots.
@@ -8564,7 +8547,7 @@ async function launchBattle(m) {
   const frame = PD.createElement('iframe');
   frame.setAttribute('allow', 'autoplay; fullscreen'); frame.setAttribute('allowfullscreen', ''); frame.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
   frame.style.background = '#070a14';
-  frame.src = W.PKM_BATTLE_EMBED_URL || `${BASE}index.html?embed=1&v=20261113-comprehensive-fix-v6`;
+  frame.src = W.PKM_BATTLE_EMBED_URL || `${BASE}index.html?embed=1&v=${REPAIR_BUILD}`;
   stage.replaceWith(frame);
   m.frame = frame;
   setBar(m.cfg.lines?.start ? '「' + m.cfg.lines.start + '」' : '正在连接对战系统……');
@@ -8599,14 +8582,21 @@ function onEngineMessage(d) {
   if (d.type === 'PKM_BATTLE_EXIT') { closeBattle();return; }
   if (d.type === 'PKM_BATTLE_READY') {
     const v=d.payload||{},expected='20261113-comprehensive-fix-v6';
-    if([v.version,v.engineVersion,v.gearVersion,v.gearDataVersion,v.genderVersion].some(x=>x!==expected)){
+    if([v.version,v.engineVersion,v.lifecycleVersion,v.selectionVersion].some(x=>x!==REPAIR_BUILD)||v.normalAbilityVersion!=='20261115-normal-ability-random-v2'||[v.gearVersion,v.gearDataVersion,v.genderVersion].some(x=>x!==expected)){
       m.verified=false;m.sent=false;clearTimeout(m.timer);
       setBar('对战版本不匹配或网站未完整部署，已拒绝启动旧引擎。请一起上传全部覆盖文件、刷新缓存后重试；手机返回或电脑 Esc 可退出。');return;
     }
     m.verified=true;if(!m.sent){m.sent=true;m.frame.contentWindow.postMessage({type:'PKM_BATTLE_CONFIG',payload:m.engine},'*');}return;
   }
   if(!m.verified||d.hostTag!==m.tag)return;
-  if (d.type === 'PKM_BATTLE_STARTED') { m.started = true; setBar(m.cfg.lines?.start ? '「' + m.cfg.lines.start + '」' : '对战开始！'); }
+  if (d.type === 'PKM_BATTLE_SELECTING') { m.selecting=true;clearTimeout(m.timer);setBar('请从完整队伍选择本场参赛名单；点选顺序就是出场顺序。'); }
+  else if (d.type === 'PKM_BATTLE_STARTED') {
+    const slots=d.payload?.selectedPlayerSlots,candidates=m.engine.p1.entrants[0].party;
+    const expectedCount=Math.min(m.fmt.playerMax,candidates.length),allowed=new Set(candidates.map(p=>p.hostSlot));
+    if(!Array.isArray(slots)||slots.length!==expectedCount||new Set(slots).size!==slots.length||slots.some(i=>!Number.isInteger(i)||!allowed.has(i))){setBar('参赛名单无效，未接受本场启动；请退出后重试。');return;}
+    m.selectedPlayerSlots=slots.slice();m.started=true;m.selecting=false;clearTimeout(m.timer);
+    setBar(m.cfg.lines?.start ? '「' + m.cfg.lines.start + '」' : '对战开始！');
+  }
   else if (d.type === 'PKM_BATTLE_ERROR') { m.started = true; setBar('对战配置有误：' + (d.payload?.message || '')); if (m.sess) { m.sess.error = d.payload?.message || '配置有误'; entryStatus(m.sess); } }
   else if (d.type === 'PKM_BATTLE_RESULT' && d.payload && d.payload.hostTag===m.tag) {
     if (m.done) return; m.done = true; m.settling=true;
@@ -8907,6 +8897,9 @@ function awardRememberedBattleParticipantsFriendship(pkm,amount,reason,refsOverr
 function honorNamedInBody(body,key){const text=String(body||'');return key==='leagueChampion'?/(?:联盟冠军|联盟大赛冠军|宝可梦联盟冠军|石英大会冠军|白银大会冠军|铃兰大会冠军|橘子联盟胜利者杯|胜利者杯冠军|league champion|pokemon league champion)/i.test(text):/(?:地区冠军|关都冠军|城都冠军|丰缘冠军|神奥冠军|合众冠军|卡洛斯冠军|阿罗拉冠军|伽勒尔冠军|帕底亚冠军|regional champion)/i.test(text);}
 function honorPatchSetsTrue(ops,key){return ops.some(o=>{const g=o.segs||[],truth=o.value===true||o.value===1||String(o.value).toLowerCase()==='true';if(g[0]!=='pkm'||g[1]!=='player'||g[2]!=='honors')return false;if(g.length===4&&g[3]===key)return truth;if(g.length===3&&isObj(o.value))return o.value[key]===true;return false;});}
 async function applyResult(m, payload) {
+  const reportedSlots=(payload.playerTeam||[]).map(p=>p.hostSlot),selected=m.selectedPlayerSlots;
+  if(!m.started||!Array.isArray(selected)||selected.length!==reportedSlots.length||selected.some((slot,i)=>slot!==reportedSlots[i])||new Set(reportedSlots).size!==reportedSlots.length)
+    throw new Error('结果中的参赛名单与赛前确认不一致，未写回任何队伍数据。');
   const outcome = payload.outcome || (payload.winner === 'player' ? 'victory' : payload.winner === 'enemy' ? 'defeat' : 'draw');
   if(outcome==='captured'&&(m.type!=='wild'||payload.winner!=='player'||payload.capture?.success!==true||!payload.capture?.spec?.species))
     throw new Error('收服结果缺少有效的野生成功记录，本场结果未结算，请重新对战。');
@@ -9179,20 +9172,43 @@ function onGenerationAfterCommands(type,options,dryRun){
   refreshInjection();
 }
 // v1.3.4：等 MVU 先处理完这一楼再同步；MVU 一直没有写入（没装、报错）时，按 AI 的 JSONPatch 自己写入
+const mvuBondTransactions=new WeakMap();
+function onMvuCommands(variables,commands,content){
+  if(!variables?.stat_data?.pkm||!Array.isArray(commands))return;
+  const removed=PKMBondSync.quarantine(commands);
+  const token=PKMBondSync.bind(chat(),content,generationSerial);
+  if(!token){
+    if(removed.length)LOG('MVU 好感指令无法唯一对应当前消息/候选：本次不由 MVU 直接写入，改由消息级校验同步。');
+    return;
+  }
+  const base=prevPkm(token.id)||normalize(clone(variables.stat_data.pkm)),plan=patchPlan(content,base);
+  mvuBondTransactions.set(variables,{token,base,plan,removed});
+}
+function onMvuEnded(variables){
+  const tx=variables&&mvuBondTransactions.get(variables);if(variables)mvuBondTransactions.delete(variables);
+  if(tx&&PKMBondSync.current(tx.token,chat(),generationSerial)){
+    const pkm=variables.stat_data.pkm,outcome=PKMBondSync.settle(pkm,tx.base,tx.plan,{messageId:tx.token.id,swipe:tx.token.swipe,signature:tx.token.signature});
+    tx.plan.warnings.push(...outcome.warnings);PKMBondSync.display(variables,tx.base,outcome);showPatchWarnings(tx.plan,tx.token.id);
+    // Ordinary state/identity repairs use the already token-checked delayed path,
+    // after MVU has persisted this exact result. No second bond delta is applied.
+    scheduleSync(tx.token.id,0,tx.token);
+  }else if(tx?.removed?.length)LOG('好感事务的消息或候选已变化；已隔离的关系指令未提交。');
+  setTimeout(()=>{refreshAll();refreshInjection();},50);
+}
 const SYNC_DELAYS = [2500, 6000, 12000];
 function scheduleSync(mesid, n = 0, token = null) {
   const c=chat(),m=c[mesid];
-  if(!token)token={chat:c,swipe:m?.swipe_id??0,text:String(m?.mes||''),serial:generationSerial};
+  if(!token)token={chat:c,id:mesid,swipe:m?.swipe_id??0,text:PKMBondSync.textKey(m?.mes),serial:generationSerial};
   setTimeout(() => {
     if (destroyed) return;
     try {
       const now=chat(),current=now[mesid];
-      if(now!==token.chat||now.length-1!==mesid||!current||current.is_user||(current.swipe_id??0)!==token.swipe||String(current.mes||'')!==token.text||generationInFlight||generationSerial!==token.serial)return;
+      if(now!==token.chat||now.length-1!==mesid||!current||current.is_user||(current.swipe_id??0)!==token.swipe||PKMBondSync.textKey(current.mes)!==token.text||generationInFlight||generationSerial!==token.serial)return;
       const own = hasOwnStat(mesid), mvu = !!(W.Mvu || P.Mvu);
       if (!own && mvu && n < SYNC_DELAYS.length - 1 && parsePatchOps(current.mes,prevPkm(mesid)).length) { scheduleSync(mesid, n + 1, token); return; }
       if (needsSync(mesid, { full: !own })) writePkm(pkm => {
         const live=chat()[mesid];
-        if(chat()!==token.chat||chat().length-1!==mesid||(live?.swipe_id??0)!==token.swipe||String(live?.mes||'')!==token.text||generationSerial!==token.serial)throw new Error('候选回复已变化，跳过延迟补丁。');
+        if(chat()!==token.chat||chat().length-1!==mesid||(live?.swipe_id??0)!==token.swipe||PKMBondSync.textKey(live?.mes)!==token.text||generationSerial!==token.serial)throw new Error('候选回复已变化，跳过延迟补丁。');
         applySync(pkm, mesid, { full: !hasOwnStat(mesid) && findStat()?.id !== mesid });
       }).catch(e => LOG('同步失败', e));
     } catch (e) { LOG(e); }
@@ -10006,7 +10022,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: "20261115-pp-item-use-v1", base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: REPAIR_BUILD, bondVersion:PKMBondSync.version, base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
@@ -10032,7 +10048,10 @@ async function start() {
     if (typeof W.waitGlobalInitialized === 'function') await Promise.race([W.waitGlobalInitialized('Mvu'), sleep(6000)]);
     const mvu = W.Mvu || P.Mvu;
     if (mvu?.events?.VARIABLE_UPDATE_ENDED && typeof W.eventOn === 'function') {
-      W.eventOn(mvu.events.VARIABLE_UPDATE_ENDED, variables => { try { const pkm = variables?.stat_data?.pkm; if (pkm) { normalize(pkm); applySync(pkm, lastAiId()); ensureAllIndividuals(pkm); } } catch (e) { LOG(e); } setTimeout(() => { refreshAll(); refreshInjection(); }, 50); });
+      if(mvu.events.COMMAND_PARSED){
+        const a=W.eventOn(mvu.events.COMMAND_PARSED,onMvuCommands),b=W.eventOn(mvu.events.VARIABLE_UPDATE_ENDED,onMvuEnded);
+        cleanups.push(()=>{a?.stop?.();b?.stop?.();});
+      }else LOG('当前 MVU 无 COMMAND_PARSED：不在匿名 ENDED 回调中猜测消息归属；仅使用可核对的消息延迟同步。');
     }
   } catch (e) { LOG('MVU 钩子未安装（不影响主要功能）', e); }
   onChatEvent();
