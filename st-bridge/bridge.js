@@ -9,6 +9,7 @@ import '../src/engine/held-sync.js?v=20261113-comprehensive-fix-v6';
 import '../src/engine/ability-choice.js?v=1.3.31';
 import './ability-random.js?v=20261115-normal-ability-random-v2';
 import {habitatAt, habitatPool, HABITAT_LABELS, indoorAt, isCenterLocation, completedTreatment} from './field-fixes.js?v=20261113-comprehensive-fix-v6';
+import {isPPItem, ppItemInfo, ppItemBagKey, previewPPItem, applyPPItem} from './pp-items.mjs?v=20261115-pp-item-use-v1';
 // 宝可梦·关都之旅 · 20261026-six-fixes-1（保留竖屏与多随行；水域/治疗/配音修复）
 // v1.3.62（friend-v62）：① 亲密度日常互动修复——AI 常写的 5 段路径 delta（/pkm/party/slots/N/friendship）不再被静默丢弃；160 以下每楼可 +1~+3（需具体互动）
 // ② 初始亲密值分级——开局初始伙伴 70、战斗收服 40、被剧情打动主动跟随 100~130（friendshipInit 一次性校准通道，上限 130）
@@ -217,7 +218,7 @@ function spriteUrl(name,{anim=false,shiny=false}={}) {
 const spriteImg = (name, opts = {}, cls = 'pk-spr') => { const u = spriteUrl(name, opts); return u ? `<img class="${cls}" src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer" > ` : `<span class="${cls} pk-spr-ph">?</span>`; };
 function itemIcon(name) {
   const localCatalogIcons={ '自行车':'bicycle', '香水（30mL）':'sachet' };
-  const slug = localCatalogIcons[name] || K.ITEM_ICONS[name];
+  const slug = localCatalogIcons[name] || ppItemInfo(name)?.sprite || K.ITEM_ICONS[name];
   const emoji = (K.ITEM_EMOJI.find(([re]) => re.test(name)) || [null, '🎒'])[1];
   return slug ? `<img class="pk-item" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/${slug}.png" alt="" loading="lazy" onerror="this.replaceWith(document.createTextNode('${emoji}'))">` : `<span class="pk-item-e">${emoji}</span>`;
 }
@@ -9596,7 +9597,7 @@ function canonicalCareItem(name){const raw=String(name??'').trim();return Object
 function allItemEvolutionEdges(){return [...Object.values(DIRECT_ITEM_EVOLUTIONS),...Object.values(SPECIAL_ITEM_EVOLUTIONS)].flat();}
 function hasItemEvolution(name){const item=canonicalCareItem(name);return allItemEvolutionEdges().some(e=>e.item===item);}
 function isCareItem(name){const n=canonicalCareItem(name);return Object.hasOwn(CARE_HP,n)||Object.hasOwn(CARE_STATUS,n)||CARE_ALL_STATUS.has(n)||CARE_FULL_HP.has(n)||CARE_REVIVE_HALF.has(n)||CARE_REVIVE_FULL.has(n)||Object.hasOwn(CARE_VITAMINS,n);}
-function isDirectUseItem(name){return isCareItem(name)||canonicalCareItem(name)==='神奇糖果'||hasItemEvolution(name);}
+function isDirectUseItem(name){return isPPItem(name)||isCareItem(name)||canonicalCareItem(name)==='神奇糖果'||hasItemEvolution(name);}
 function careStatusKey(value){const s=String(value??'').trim().toLowerCase();if(!s)return'';if(/濒死|倒下|失去战斗能力|faint/.test(s))return'faint';if(/中毒|剧毒|poison|toxic/.test(s))return'poison';if(/麻痹|瘫痪|paraly/.test(s))return'paralysis';if(/灼伤|烧伤|烫伤|burn/.test(s))return'burn';if(/冰冻|冻结|冻伤|freeze|frozen/.test(s))return'freeze';if(/睡眠|睡着|沉睡|sleep/.test(s))return'sleep';return'';}
 function directItemEvolutionInfo(name,mon,pkm){
  const item=canonicalCareItem(name),id=speciesId(mon?.species||mon?.name),edges=[...(DIRECT_ITEM_EVOLUTIONS[id]||[]),...(SPECIAL_ITEM_EVOLUTIONS[id]||[])].filter(e=>e.item===item);
@@ -9645,6 +9646,7 @@ function careBatchInfo(name,mon,pkm,requested=1){
  return{...last,hp:base.hp,max:base.max,nextHp:sim.hp,heal,valid:used>0,reason:used?used<count?'效果已达到上限；无效余量会留在背包。':last.reason:base.reason,revive,cured,curedConfusion,friendshipLoss,evGain,evNow:base.evStat?Math.max(0,Math.floor(Number(evs[base.evStat])||0)):base.evNow,evTotal:base.evStat?evTotal:base.evTotal,used,requested:count};
 }
 function showCare(name,id,options={}){
+ if(isPPItem(name)){showPPItemTargetMenu(name,options.dragged? id:null);return;}
  if(PD.getElementById('pkm-kanto-modal')){toast('对战中请在对战窗口使用道具，避免与战斗结算冲突。');return;}
  const pkm=readPkm(),mon=pkm.party.slots.find(m=>m.uid===id),evolutionItem=hasItemEvolution(name),evolutionUse=evolutionItem&&(!heldItemId(name)||options.dragged===true),directCareUse=options.dragged===true&&isCareItem(name),equipId=(evolutionUse||directCareUse)?'':heldItemId(name);if(!mon||!isFollowing(pkm,id)||(!isDirectUseItem(name)&&!equipId)||!(Number(pkm.player.bag[name])>0))return;
  const quantityEnabled=directCareUse,maxQuantity=Math.max(1,Math.floor(Number(pkm.player.bag[name])||1));let selectedQuantity=1;
@@ -9748,17 +9750,45 @@ function showPendingMovePrompt(id){
   d.remove();if(!applied){toast('存档中的待学招式或队伍已变化，请重新打开队伍栏。','warning');return;}renderPanel();schedulePendingMovePrompt();
  });
 }
-function showPPItemTargetMenu(){
- const item='PP回复药',pkm=readPkm(),count=Math.max(0,Number(pkm.player?.bag?.[item])||0);if(count<1){toast('背包里没有 PP回复药。','warning');return;}
- const mons=pkm.party.slots.map((m,i)=>({m,i})).filter(({m})=>hasMon(m));if(!mons.length){toast('队伍里没有可恢复招式 PP 的宝可梦。','warning');return;}
+function showPPItemTargetMenu(item='PP回复药',targetUid=null){
+ item=String(item||'').trim();const info=ppItemInfo(item);if(!info)return;
+ if(PD.getElementById('pkm-kanto-modal')){toast('对战中请在对战窗口使用道具，避免与战斗结算冲突。','warning');return;}
+ const pkm=readPkm(),bag=pkm.player?.bag||{},bagKey=ppItemBagKey(bag,item),count=bagKey?Math.max(0,Math.floor(Number(bag[bagKey])||0)):0;
+ if(count<1){toast(`背包里没有 ${item}。`,'warning');return;}
+ const allMons=pkm.party.slots.map((m,i)=>({m,i})).filter(({m})=>hasMon(m));
+ const mons=targetUid?allMons.filter(({m})=>m.uid===targetUid):allMons;
+ if(targetUid&&!mons.length){toast('拖放目标已不在队伍中；道具未消耗。','warning');return;}
+ if(!mons.length){toast('队伍里没有可恢复招式 PP 的宝可梦。','warning');return;}
+ if(targetUid&&!isFollowing(pkm,targetUid)){toast('目标宝可梦当前没有放出随行；道具未消耗。','warning');return;}
  const d=PD.createElement('div');d.id='pkm-pp-item-target';d.className='pkb';
- const rows=mons.map(({m,i})=>{const moves=(m.moves||[]).filter(Boolean).map((move,slot)=>{const max=maxPP(move),id=moveIdOf(move),saved=Object.keys(m.pp||{}).find(k=>(moveIdOf(k)||String(k).toLowerCase())===(id||String(move).toLowerCase())),cur=max==null?0:(saved!=null?Math.max(0,Math.min(max,Math.floor(Number(m.pp[saved])||0))):max);return{move,slot,max,cur};}).filter(x=>x.max!=null);return `<section style="border:1px solid #d8deea;border-radius:12px;padding:9px;margin:8px 0"><b>${esc(monName(m))} · Lv.${esc(m.lv??'?')}</b><div style="display:grid;gap:5px;margin-top:7px">${moves.map(x=>`<button type="button" class="ghost" data-pp-target="${i}" data-pp-slot="${x.slot}" ${x.cur>=x.max?'disabled':''}>${esc(canonicalMoveName(x.move)||x.move)} · PP ${x.cur}/${x.max}${x.cur<x.max?' · 回复10':''}</button>`).join('')||'<small>没有可识别 PP 上限的招式</small>'}</div></section>`;}).join('');
- d.innerHTML=`<div class="care-card"><h3>使用 PP回复药</h3><p>选择一只宝可梦的一项招式，恢复最多 10 PP。只在确实恢复时消耗 1 个。</p><div style="max-height:min(60vh,520px);overflow:auto">${rows}</div><div class="acts"><button type="button" class="ghost" data-item-cancel>取消</button></div></div>`;PD.body.append(d);
- d.addEventListener('click',async e=>{if(e.target.closest('[data-item-cancel]')||e.target===d){d.remove();return;}const b=e.target.closest('[data-pp-target]');if(!b||b.disabled)return;const i=Number(b.dataset.ppTarget),slot=Number(b.dataset.ppSlot),before=readPkm().party.slots[i],move=before?.moves?.[slot];if(!move)return;let restored=0;try{await writePkm(pk=>{const m=pk.party.slots[i],bag=Math.max(0,Number(pk.player?.bag?.[item])||0),name=m?.moves?.[slot],max=maxPP(name);if(!hasMon(m)||!name||!Number.isFinite(max)||bag<1)return;const id=moveIdOf(name),key=Object.keys(m.pp||{}).find(k=>(moveIdOf(k)||String(k).toLowerCase())===(id||String(name).toLowerCase())),cur=key!=null?Math.max(0,Math.min(max,Math.floor(Number(m.pp[key])||0))):max;if(cur>=max)return;m.pp=isObj(m.pp)?m.pp:{};const next=Math.min(max,cur+10);if(next<max)m.pp[name]=next;for(const k of Object.keys(m.pp))if(k!==name&&(moveIdOf(k)||String(k).toLowerCase())===(id||String(name).toLowerCase()))delete m.pp[k];if(next>=max)delete m.pp[name];if(!Object.keys(m.pp).length)m.pp=null;pk.player.bag[item]=bag-1;if(!pk.player.bag[item])delete pk.player.bag[item];restored=next-cur;});}catch(err){toast('PP回复失败：'+(err?.message||err),'warning');return;}d.remove();if(restored)toast(`${monName(readPkm().party.slots[i])}的${canonicalMoveName(move)||move}恢复了 ${restored} PP。`);else toast('目标招式 PP 已变化或已满；未消耗道具。','warning');});
+ const single=info.scope==='single',deps={maxPP,moveIdOf};
+ const rows=mons.map(({m})=>{
+  const preview=previewPPItem(m,item,deps),uid=esc(m.uid||''),head=`<b>${esc(monName(m))} · Lv.${esc(m.lv??'?')}</b>`;
+  if(single){
+   const moves=preview.moves.map(x=>`<button type="button" class="ghost" data-pp-target-uid="${uid}" data-pp-slot="${x.slot}" ${x.restored>0&&m.uid?'':'disabled'}>${esc(canonicalMoveName(x.name)||x.name)} · PP ${x.current}/${x.max}${x.restored>0?` · 恢复${x.restored} PP`:' · 已满'}</button>`).join('')||'<small>没有可识别 PP 上限的招式</small>';
+   return `<section style="border:1px solid #d8deea;border-radius:12px;padding:9px;margin:8px 0">${head}<div style="display:grid;gap:5px;margin-top:7px">${moves}</div></section>`;
+  }
+  const able=preview.moves.filter(x=>x.restored>0).length,summary=preview.moves.length?`可恢复 ${able}/${preview.moves.length} 项，合计 +${preview.totalRestored} PP`:'没有可识别 PP 上限的招式';
+  return `<section style="border:1px solid #d8deea;border-radius:12px;padding:9px;margin:8px 0">${head}<button type="button" class="ghost" data-pp-target-uid="${uid}" data-pp-slot="" ${preview.valid&&m.uid?'':'disabled'} style="display:block;width:100%;margin-top:7px">${esc(summary)}</button></section>`;
+ }).join('');
+ const scopeText=single?'选择一项招式，':'选择一只宝可梦，';
+ d.innerHTML=`<div class="care-card"><h3>使用 ${esc(item)}</h3><p>${itemIcon(item)} <b>${esc(item)}</b>：${scopeText}${esc(info.description)}仅在 PP 实际恢复时消耗 1 个。${targetUid?'（已按拖放目标筛选）':''}</p><div style="max-height:min(60vh,520px);overflow:auto">${rows}</div><div class="acts"><button type="button" class="ghost" data-item-cancel>取消</button></div></div>`;PD.body.append(d);
+ d.addEventListener('click',async e=>{
+  if(e.target.closest('[data-item-cancel]')||e.target===d){d.remove();return;}
+  const b=e.target.closest('[data-pp-target-uid]');if(!b||b.disabled)return;
+  const monUid=b.dataset.ppTargetUid,slotText=b.dataset.ppSlot,moveSlot=slotText===''?null:Number(slotText);let result=null;
+  try{await writePkm(pk=>{result=applyPPItem(pk,{itemName:item,monUid,moveSlot},deps);});}
+  catch(err){toast('PP回复失败：'+(err?.message||err),'warning');return;}
+  d.remove();
+  if(result?.ok){
+   const mon=readPkm().party.slots.find(x=>x.uid===monUid),effect=result.moves.map(x=>`${canonicalMoveName(x.name)||x.name} +${x.restored}`).join('、');
+   toast(`${monName(mon||{})}恢复 PP：${effect}（合计 +${result.totalRestored}）；已消耗 1 个 ${item}，队伍与背包已同步。`);
+  }else toast(result?.reason==='no-pp'?'目标招式 PP 已满或发生变化；未消耗道具。':result?.reason==='stock'?`背包里的 ${item} 数量已变化；未消耗道具。`:'目标或招式已变化；未恢复 PP，也未消耗道具。','warning');
+ });
 }
 function showItemUseMenu(name,mount){
  const item=String(name||'').trim(),pkm=readPkm(),evolutionUse=hasItemEvolution(item)&&!heldItemId(item),dualPurpose=hasItemEvolution(item)&&!!heldItemId(item);
- if(item==='PP回复药'){showPPItemTargetMenu();return;}
+ if(isPPItem(item)){showPPItemTargetMenu(item);return;}
  if(item.startsWith('学习机·')){toast('学习机可重复使用；在队伍栏打开宝可梦资料并调整招式即可选择已购买的招式。','info');return;}
  if(isRepelItem(item)){showGoldenRepelTargetMenu(mount);return;}
  if(isDirectUseItem(item)||heldItemId(item)){
@@ -9825,16 +9855,19 @@ function installBagDrag(win,root){
  if(root.__pkmCareBinding?.owner===instance)return;root.__pkmCareBinding?.controller.abort();
  const controller=new win.AbortController();root.__pkmCareBinding={owner:instance,controller};cleanups.push(()=>controller.abort());
  const bind=(type,fn,options={})=>root.addEventListener(type,fn,{...options,signal:controller.signal});let active=null;
- const stop=()=>{if(active?.timer)win.clearTimeout(active.timer);active=null;PD.getElementById('pkm-item-drag')?.remove();PD.querySelectorAll('.pkm-drop-ready').forEach(n=>n.classList.remove('pkm-drop-ready'));};
- // 指针在 iframe 外用开（拖到卡片外）时 iframe 收不到 pointerup，必须由父页面兜底清理。
+ const stop=()=>{if(active?.timer)win.clearTimeout(active.timer);if(active?.item)active.item.style.outline='';active=null;PD.getElementById('pkm-item-drag')?.remove();PD.querySelectorAll('.pkm-drop-ready').forEach(n=>n.classList.remove('pkm-drop-ready'));};
+ const frameRect=()=>{try{const r=win.frameElement?.getBoundingClientRect();if(r)return{left:r.left,top:r.top,width:r.width,height:r.height};}catch(_){}return{left:0,top:0,width:Number(win.innerWidth)||1,height:Number(win.innerHeight)||1};};
+ const toParentPoint=(e,a)=>{const r=frameRect(),sx=r.width>0&&Number(win.innerWidth)>0?r.width/Number(win.innerWidth):1,sy=r.height>0&&Number(win.innerHeight)>0?r.height/Number(win.innerHeight):1;return{x:r.left+e.clientX*sx,y:r.top+e.clientY*sy};};
+ // iframe 内的 pointerup 不会冒泡到父文档；跨出 iframe 后改由父文档接管移动与松手。
  if(!PD.__pkmDragEscape){PD.__pkmDragEscape=true;const esc=()=>{PD.getElementById('pkm-item-drag')?.remove();PD.querySelectorAll('.pkm-drop-ready').forEach(n=>n.classList.remove('pkm-drop-ready'));};PD.addEventListener('pointerup',esc,true);PD.addEventListener('pointercancel',esc,true);}
  bind('pointerdown',e=>{
   const item=e.target.closest('[data-p=bag] [data-use-item]');if(!item)return;
   // 上一次拖拽如果因为抬起事件丢失（切窗口、滚动、面板重绘）而没清理，
   // 会留下一个浮层/active 状态，导致“用过一次后怎么拖都没反应”。这里先兜底清一次。
   stop();const name=item.dataset.useItem||item.querySelector('b')?.textContent.trim();if(!worldItemUsable(name)&&!isDirectUseItem(name)&&!heldItemId(name))return;
-  const touch=e.pointerType==='touch';
-  const a=active={pointer:e.pointerId,name,sx:e.clientX,sy:e.clientY,moved:false,armed:!touch,touch,item,fr:win.frameElement?.getBoundingClientRect()||{left:0,top:0}};
+  const touch=e.pointerType==='touch',fr=frameRect(),sx=fr.width>0&&Number(win.innerWidth)>0?fr.width/Number(win.innerWidth):1,sy=fr.height>0&&Number(win.innerHeight)>0?fr.height/Number(win.innerHeight):1;
+  const start={x:fr.left+e.clientX*sx,y:fr.top+e.clientY*sy};
+  const a=active={pointer:e.pointerId,name,start,moved:false,armed:!touch,touch,item,fr};
   if(touch)a.timer=win.setTimeout(()=>{if(active!==a)return;a.armed=true;item.style.outline='2px solid #477bdf';},420);
  });
  bind('click',e=>{const item=e.target.closest('[data-p=bag] .item[data-use-item]');if(!item)return;if(item.dataset.pkmDragged){delete item.dataset.pkmDragged;e.preventDefault();e.stopPropagation();return;}showItemUseMenu(item.dataset.useItem,null);});
@@ -9847,15 +9880,32 @@ function installBagDrag(win,root){
  // preventDefault，那会连带吞掉轻点道具时的 click。）
  bind('dragstart',e=>{if(e.target.closest?.('[data-p=bag]'))e.preventDefault();});
  bind('selectstart',e=>{if(e.target.closest?.('[data-p=bag]'))e.preventDefault();});
- bind('pointermove',e=>{
-  if(!active||active.pointer!==e.pointerId)return;
-  if(Math.hypot(e.clientX-active.sx,e.clientY-active.sy)>8){if(!active.armed){stop();return;}active.moved=true;}
-  if(!active.moved)return;e.preventDefault();
-  let ghost=PD.getElementById('pkm-item-drag');if(!ghost){ghost=PD.createElement('div');ghost.id='pkm-item-drag';ghost.className='pkb';ghost.innerHTML=itemIcon(active.name);PD.body.append(ghost);}
-  const x=e.clientX+active.fr.left,y=e.clientY+active.fr.top;ghost.style.left=x+'px';ghost.style.top=y+'px';PD.querySelectorAll('.pkm-drop-ready').forEach(n=>n.classList.remove('pkm-drop-ready'));const hit=PD.elementFromPoint(x,y);(isRepelItem(active.name)?hit?.closest('.pkm-follow-unit,.slot-card[data-select="party"][data-i]'):hit?.closest('.pkm-follow-unit'))?.classList.add('pkm-drop-ready');
- });
- const end=e=>{if(!active)return;const a=active;a.item.style.outline='';stop();if(e.type!=='pointerup'||!a.armed||!a.moved)return;a.item.dataset.pkmDragged='1';win.setTimeout(()=>delete a.item.dataset.pkmDragged,700);const x=e.clientX+a.fr.left,y=e.clientY+a.fr.top,hit=PD.elementFromPoint(x,y),followTarget=hit?.closest('.pkm-follow-unit'),partyTarget=hit?.closest('.slot-card[data-select="party"][data-i]'),target=followTarget;if(isRepelItem(a.name)&&(followTarget||partyTarget)){const pkm=readPkm(),mon=followTarget?pkm.party.slots.find(m=>m.uid===followTarget.dataset.uid):pkm.party.slots[Number(partyTarget.dataset.i)];if(mon)showWorldItem(a.name,null,mon);else toast(`队伍已变化；${a.name}未消耗。`,'warning');return;}if(worldItemUsable(a.name)){showWorldItem(a.name);return;}if(target)showCare(a.name,target.dataset.uid,{dragged:true});else{toast('请把可使用的背包道具拖到已放出的宝可梦身上；未消耗。');}};bind('pointerup',end);bind('pointercancel',end);
+ const move=(e,space)=>{
+  const a=active;if(!a||a.pointer!==e.pointerId)return;
+  const p=space==='parent'?{x:e.clientX,y:e.clientY}:toParentPoint(e,a);
+  if(Math.hypot(p.x-a.start.x,p.y-a.start.y)>8){if(!a.armed){stop();return;}a.moved=true;}
+  if(!a.moved)return;e.preventDefault();
+  let ghost=PD.getElementById('pkm-item-drag');if(!ghost){ghost=PD.createElement('div');ghost.id='pkm-item-drag';ghost.className='pkb';ghost.innerHTML=itemIcon(a.name);PD.body.append(ghost);}
+  const x=p.x,y=p.y;ghost.style.left=x+'px';ghost.style.top=y+'px';PD.querySelectorAll('.pkm-drop-ready').forEach(n=>n.classList.remove('pkm-drop-ready'));const hit=PD.elementFromPoint(x,y);(isRepelItem(a.name)?hit?.closest('.pkm-follow-unit,.slot-card[data-select="party"][data-i]'):hit?.closest('.pkm-follow-unit'))?.classList.add('pkm-drop-ready');
+ };
+ const end=(e,space)=>{
+  const a=active;if(!a||a.pointer!==e.pointerId)return;
+  const p=space==='parent'?{x:e.clientX,y:e.clientY}:toParentPoint(e,a);
+  if(e.type==='pointerup'&&a.armed&&Math.hypot(p.x-a.start.x,p.y-a.start.y)>8)a.moved=true;
+  a.item.style.outline='';stop();if(e.type!=='pointerup'||!a.armed||!a.moved)return;
+  a.item.dataset.pkmDragged='1';win.setTimeout(()=>delete a.item.dataset.pkmDragged,700);
+  const hit=PD.elementFromPoint(p.x,p.y),followTarget=hit?.closest('.pkm-follow-unit'),partyTarget=hit?.closest('.slot-card[data-select="party"][data-i]'),target=followTarget;
+  if(isRepelItem(a.name)&&(followTarget||partyTarget)){const pkm=readPkm(),mon=followTarget?pkm.party.slots.find(m=>m.uid===followTarget.dataset.uid):pkm.party.slots[Number(partyTarget.dataset.i)];if(mon)showWorldItem(a.name,null,mon);else toast(`队伍已变化；${a.name}未消耗。`,'warning');return;}
+  if(worldItemUsable(a.name)){showWorldItem(a.name);return;}
+  if(target){if(isPPItem(a.name))showPPItemTargetMenu(a.name,target.dataset.uid);else showCare(a.name,target.dataset.uid,{dragged:true});}
+  else toast('请把可使用的背包道具拖到已放出的宝可梦身上；未消耗。');
+ };
+ bind('pointermove',e=>move(e,'child'),{passive:false});bind('pointerup',e=>end(e,'child'));bind('pointercancel',e=>end(e,'child'));
+ const parentMove=e=>move(e,'parent'),parentUp=e=>end(e,'parent');
+ PD.addEventListener('pointermove',parentMove,{capture:true,passive:false});PD.addEventListener('pointerup',parentUp,true);PD.addEventListener('pointercancel',parentUp,true);
+ cleanups.push(()=>{PD.removeEventListener('pointermove',parentMove,true);PD.removeEventListener('pointerup',parentUp,true);PD.removeEventListener('pointercancel',parentUp,true);});
 }
+
 
 
 function installFollowBallFix() {
@@ -9956,7 +10006,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: "20261111-ev-pp-shop-v9", base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: "20261115-pp-item-use-v1", base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }

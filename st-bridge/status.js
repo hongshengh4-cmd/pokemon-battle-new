@@ -1,4 +1,5 @@
 import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.js?v=1.3.31';
+import {ppItemInfo} from './pp-items.mjs?v=20261115-pp-item-use-v1';
 import './plot-guard.js?v=20261115-worldbook-date-event-ability-v3';
 if(globalThis.PKMPlotGuard?.version!=='20261113-comprehensive-fix-v6')throw new Error('剧情和计时模块版本不匹配，请完整部署并刷新缓存。');
 // External status runtime 20261030-all-requested-fixes-v8; original card UI retained.
@@ -57,7 +58,7 @@ if(globalThis.PKMPlotGuard?.version!=='20261113-comprehensive-fix-v6')throw new 
   const IT_ALIAS = { '老旧鱼竿': '破旧钓竿', '旧鱼竿': '破旧钓竿', '破旧鱼竿': '破旧钓竿', '鱼竿': '破旧钓竿', '钓竿': '破旧钓竿', '好鱼竿': '好钓竿', '厉害鱼竿': '厉害钓竿', '脚踏车': '自行车', '单车': '自行车', '解毒剂': '解毒药', '麻痹药': '解麻药', '解麻痹药': '解麻药', '烧伤药': '灼伤药', '全复药': '全复药', '圣特安努号船票': '船票', '地图': '城镇地图', '学习机': '学习装置', '解烧伤药': '灼伤药', '穿洞绳': '离洞绳', '宝可梦玩偶': '皮皮玩偶', 'HP增强剂': 'ＨＰ增强剂', '击中要害': '要害攻击' };
   const itemById = {}; Object.keys(DATA.IT).forEach(k => { itemById[DATA.IT[k][0]] = k; });
   function item(name) {
-    const s = String(name || '').trim(); const k = DATA.IT[s] ? s : IT_ALIAS[s] && DATA.IT[IT_ALIAS[s]] ? IT_ALIAS[s] : itemById[s.toLowerCase().replace(/[\s_]+/g, '-')] || null;
+    const s = String(name || '').trim(); const pp=ppItemInfo(s);if(pp)return{name:s,id:pp.sprite,pk:1,d:pp.description};const k = DATA.IT[s] ? s : IT_ALIAS[s] && DATA.IT[IT_ALIAS[s]] ? IT_ALIAS[s] : itemById[s.toLowerCase().replace(/[\s_]+/g, '-')] || null;
     if (k) { const r = DATA.IT[k]; return { name: s, id: r[0], pk: r[1], d: r[2] }; }
     let pk = 0; if (/球$/.test(s)) pk = 2; else if (/(伤药|解.药|灼伤药|万灵药|全复药|活力|元气|PP回复药|果$|牛奶|汽水|之水|果汁)/.test(s)) pk = 1; else if (/(票|证|钥匙|卡$|信$|地图|检视镜|之笛|自行车|钓竿|学习机|化石|琥珀)/.test(s)) pk = 3;
     return { name: s, id: '', pk: pk, d: '' };
