@@ -6,7 +6,7 @@
  */
 (function (root) {
   'use strict';
-  const VERSION = '20261116-bond-npc-moves-team-v1';
+  const VERSION = '20261116-bond-guard-hotfix2';
   const FIELDS = ['love', 'last', 'why'];
   const obj = x => x && typeof x === 'object' && !Array.isArray(x);
   const clone = x => x === undefined ? undefined : JSON.parse(JSON.stringify(x));
@@ -111,7 +111,9 @@
         continue;
       }
       if (!obj(now) || !obj(want)) { result.conflicts.push(key); result.warnings.push(`人物 ${key} 的整条记录被删除或替换，未猜测恢复。`); continue; }
-      const aligned = [was, want, externallyRequested].some(rec => obj(rec) && equal(trio(now), trio(rec)));
+      // A schema that clamps love to ±100 may have executed the raw patch; that is still the same source.
+      const clampedRaw = obj(externallyRequested) && typeof externallyRequested.love === 'number' ? { ...externallyRequested, love: Math.max(-100, Math.min(100, externallyRequested.love)) } : null;
+      const aligned = [was, want, externallyRequested, clampedRaw].some(rec => obj(rec) && equal(trio(now), trio(rec)));
       if (!aligned) { result.conflicts.push(key); result.warnings.push(`人物 ${key} 的好感三项与来源快照和可见结果不一致，未覆盖外部数值。`); continue; }
       for (const field of FIELDS) if (!equal(now[field], want[field])) { now[field] = clone(want[field]); result.changed = true; }
       if (accepted.has(key) && Number.isInteger(meta.messageId)) {

@@ -99,6 +99,16 @@ installSpriteRecovery(document);
   initBattleMusic();
   const normId = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   let battle = null, moveCache = {}, selectedMechanic = null, animating = false;
+  // 野生战斗"逃离"的不同原因：玩偶 / 野生宝可梦瞬间移动逃走 / 被吼叫·吹飞赶走
+  function escapeTitle() {
+    const r = battle?.escapeReason;
+    return r === 'wildFled' ? '野生宝可梦逃走了' : r === 'forceSwitch' ? '野生宝可梦被赶走了' : r === 'blownAway' ? '被赶出了战斗' : '已逃离野生战斗';
+  }
+  function escapeDetail() {
+    const r = battle?.escapeReason, wild = battle?.cur?.(1), nm = wild ? displayPokemonName(wild) : '野生宝可梦';
+    return r === 'wildFled' ? `${nm} 用瞬间移动逃走了，战斗结束。` : r === 'forceSwitch' ? `${nm} 被赶走了，战斗结束。`
+      : r === 'blownAway' ? `我方宝可梦被 ${nm} 赶走了，战斗结束。` : '已成功逃离野生战斗。';
+  }
   let doubleActionSlot = 0, doubleActions = [null, null], pendingDoubleTarget = null;
   let menuView = 'home', commandMessage = '', encounterId = '', collectionLimit = 48, announcedBattle = null;
   let worldStorage = null; try { worldStorage = window.localStorage; } catch (_) {}
@@ -107,8 +117,8 @@ installSpriteRecovery(document);
   const EMBED = new URLSearchParams(location.search).has('embed');
   if (EMBED) document.documentElement.classList.add('embed');
   let dataReady = false, pendingHostConfig = null, hostTag = null, hostMode = false;
-  const APP_VERSION = '20261116-bond-npc-moves-team-v1';
-  const hostVersions = () => ({version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',lifecycleVersion:window.PKMMoveLifecycle?.version||'',selectionVersion:window.PKMTeamSelection?.version||'',normalAbilityVersion:window.PKMNormalAbility?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||'',genderVersion:window.PKMGender?.version||''});
+  const APP_VERSION = '20261116-ps-move-scripts-v1';
+  const hostVersions = () => ({version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',moveScriptsVersion:window.PKMMoveScripts?.VERSION||'',lifecycleVersion:window.PKMMoveLifecycle?.version||'',selectionVersion:window.PKMTeamSelection?.version||'',normalAbilityVersion:window.PKMNormalAbility?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||'',genderVersion:window.PKMGender?.version||''});
   let formatTag = '', formatRule = ''; // v1.3.8：角色卡发来的赛制（例：3v3、3只 vs 1只），显示在行动菜单的标签上
   let typeLabel = ''; // v1.3.9：角色卡发来的对战类型（道馆战 / 训练家对战 / 劲敌对战 / 火箭队……），标签第一段
   // 宿主模式：球袋来自角色卡变量（MVU），只存在本页内存里，不读写本机存档。
@@ -360,7 +370,7 @@ installSpriteRecovery(document);
   function snapPokemon(p) {
     return p ? {
       speciesId: p.speciesId, originalSpeciesId: p.originalSpeciesId, rawName: p.name, name: displayPokemonName(p), hp: p.hp, maxHp: p.maxHp,
-      fainted: p.fainted, status: p.status, isMega: p.isMega, dynamaxed: p.dynamaxed,
+      fainted: p.fainted, status: p.status, isMega: p.isMega, dynamaxed: p.dynamaxed, shiny: !!p.shiny,
       nameText: displayPokemonName(p) + (p.status ? `（${PKMBattle.STATUS_NAMES[p.status] || p.status}）` : ''),
       dynamaxForm: p.dynamaxForm, terastallized: p.terastallized, teraType: p.teraType, mechanic: p.mechanic, zType: p.zType,
     } : null;
@@ -369,6 +379,68 @@ installSpriteRecovery(document);
     if (!battle) return null;
     return { weather: battle.weather, field: { ...battle.field }, active: battle.active.slice(), activeSlots: battle.activeSlots.map(x => x.slice()), winner: battle.winner, teams: battle.teams.map(team => team.map(snapPokemon)) };
   }
+  /* ---------- Showdown battle animations inside the original layout (src/ui/ps/ps-theater.js) ----------
+     The engine resolves a whole turn synchronously and records an ordered, presentation-only event stream.
+     While it plays, render() draws the fighters from theaterState (the state as of the current event) and
+     the log only up to the current event; the final state is drawn once playback ends. */
+  let theater = null, theaterState = null;
+  const theaterOn = () => !!(battle && !window.PKMPreview && window.PKMPSTheater?.isReady() && !PKMPSTheater.reducedMotion());
+  const cloneMon = p => p ? { ...p, stages: { ...(p.stages || {}) } } : null;
+  function theaterCapture() {
+    if (!theaterOn() || typeof battle.animReset !== 'function') return null;
+    battle.animReset();
+    return { teams: battle.teams.map(team => team.map(cloneMon)), activeSlots: battle.activeSlots.map(x => x.slice()), logLimit: battle.log.length };
+  }
+  function theaterArm(cap) {
+    if (!cap || !battle) return null;
+    const events = battle.animFlush().slice();
+    battle._animOn = false;
+    if (!events.length) return null;
+    theaterState = {
+      teams: cap.teams, activeSlots: cap.activeSlots, logLimit: cap.logLimit,
+      get mons() { return [0, 1].map(side => [0, 1].map(slot => { const i = this.activeSlots[side]?.[slot]; return i != null && i >= 0 ? this.teams[side][i] || null : null; })); },
+    };
+    return events;
+  }
+  function getTheater() {
+    if (theater) return theater;
+    theater = PKMPSTheater.create({
+      arena: () => document.querySelector('.arena'),
+      fighter: (side, slot) => fighterEl(side, slot),
+      rawBox: (side, slot) => spriteEl(side, slot),
+      spriteBox: (side, slot) => { const f = fighterEl(side, slot); return f && !f.hidden ? spriteEl(side, slot) : null; },
+      boxRect: (side, slot) => {
+        if (slot === 1 && !battle?.double) return null;
+        const f = fighterEl(side, slot), box = spriteEl(side, slot);
+        if (!f || !box) return null;
+        const hidden = f.hidden;
+        if (hidden) { f.hidden = false; f.style.visibility = 'hidden'; }
+        const t = box.style.transform; box.style.transform = '';
+        const r = box.getBoundingClientRect();
+        box.style.transform = t;
+        if (hidden) { f.hidden = true; f.style.visibility = ''; }
+        return r;
+      },
+      perspective: (side, slot) => { const box = spriteEl(side, slot); return box ? parseFloat(getComputedStyle(box).getPropertyValue('--perspective-size')) || 0 : 0; },
+      bodyPoint: (side, slot) => { const pt = spritePointAt(side, slot, 'body'); return pt ? { x: pt.x, y: pt.y } : null; },
+      state: () => theaterState,
+      renderFighters: () => { if (battle) renderFighters(); },
+      revealLog: n => { if (!theaterState || !battle) return; const next = Math.min(battle.log.length, n); if (next > theaterState.logLimit) { theaterState.logLimit = next; renderLog(); } },
+      updateMon: (side, index, fn) => { const m = theaterState?.teams?.[side]?.[index]; if (m) fn(m); },
+      setActive: (side, slot, index, mon) => {
+        if (!theaterState) return;
+        const slots = theaterState.activeSlots[side];
+        while (slots.length <= slot) slots.push(-1);
+        slots[slot] = index;
+        if (mon) theaterState.teams[side][index] = cloneMon(mon);
+      },
+      statusName: code => PKMBattle.STATUS_NAMES?.[code] || code,
+      statName: k => ({ atk: '攻击', def: '防御', spa: '特攻', spd: '特防', spe: '速度', accuracy: '命中', evasion: '闪避' })[k] || k,
+      typeName: t => zhType(t),
+    });
+    return theater;
+  }
+  if (window.PKMPSTheater && !window.PKMPreview) PKMPSTheater.load().catch(err => console.warn('[ps-theater] animations unavailable, using built-in effects', err));
   function ensureDoubleFighters() {
     for (const side of [0, 1]) {
       const selector = side === 0 ? '.fighter.player' : '.fighter.enemy';
@@ -658,9 +730,10 @@ installSpriteRecovery(document);
     const back = isBackSpriteUrl(url);
     return [Math.max(0, Math.min(1, body[0] + (back ? .2 : -.15))), Math.max(0, body[1] - .25)];
   }
-  function spritePoint(side, kind = 'body') {
+  function spritePoint(side, kind = 'body') { return spritePointAt(side, 0, kind); }
+  function spritePointAt(side, slot, kind = 'body') {
     const arena = document.querySelector('.arena');
-    const el = spriteEl(side);
+    const el = spriteEl(side, slot);
     if (!arena || !el) return null;
     const stage = arena.getBoundingClientRect(), r = el.getBoundingClientRect();
     const base = { arena, w: arena.clientWidth, h: arena.clientHeight };
@@ -1033,7 +1106,7 @@ installSpriteRecovery(document);
     if (ended) menuView = 'end';
     const view = menuView;
     for (const [id, value] of [['command-home','home'],['command-fight-panel','fight'],['command-switch-panel','switch'],['command-balls-panel','balls'],['command-items-panel','items'],['command-end','end']]) $(id).hidden = view !== value;
-    $('command-title').textContent = animating ? '行动进行中…' : ended ? (battle.outcome === 'captured' ? '收服成功！' : battle.outcome === 'escaped' ? '已逃离野生战斗' : '本场战斗已结束')
+    $('command-title').textContent = animating ? '行动进行中…' : ended ? (battle.outcome === 'captured' ? '收服成功！' : battle.outcome === 'escaped' ? escapeTitle() : '本场战斗已结束')
       : battle.pendingSwitch !== null ? (battle.double ? `请为${battle.pendingSwitch + 1}号位（${displayPokemonName(battle.cur(0,battle.pendingSwitch))}）选择替补` : '请选择下一只出战宝可梦') : ({home: `${displayPokemonName(battle.cur(0))}，要做什么？`, fight: `${displayPokemonName(battle.cur(0, battle.double ? doubleActionSlot : 0))} · 选择招式`, switch: battle.double && battle.pendingSwitch === null ? `为${displayPokemonName(battle.cur(0, doubleActionSlot))}选择替补` : '选择出战宝可梦', balls: '选择精灵球', items: '选择战斗道具'}[view]);
     const isWild = battle.encounterType === 'wild';
     const shownTurn = battle._turnState ? battle.turnCount : battle.turnCount + (ended ? 0 : 1);
@@ -1059,11 +1132,11 @@ installSpriteRecovery(document);
     $('command-status').textContent = commandMessage || (actionLock && !animating ? actionLock.reason : '') || (animating ? '请等待当前演出结束。' : view === 'home' ? '先选择行动，再决定招式、队友或精灵球。' : view === 'fight' ? fightHint : '');
     if (ended && hostMode) $('command-end-text').textContent = battle.outcome === 'captured'
       ? `收服了${displayPokemonName(battle.cur(1))}！结果已回传角色卡，手机返回／电脑按 Esc 退出后继续。`
-      : battle.outcome === 'escaped' ? '已成功逃离野生战斗；玩偶消耗已回传角色卡。手机返回／电脑按 Esc 退出后继续。'
+      : battle.outcome === 'escaped' ? `${escapeDetail()}${battle.escapeReason && battle.escapeReason !== 'doll' ? '结果' : '玩偶消耗'}已回传角色卡。手机返回／电脑按 Esc 退出后继续。`
       : '对战结束，结果已回传角色卡。手机返回／电脑按 Esc 退出后继续。';
     else if (ended) $('command-end-text').textContent = battle.outcome === 'captured'
       ? `${displayPokemonName(battle.cur(1))} 已收入仓库${worldStore.error ? '（当前仅临时保存，请导出）' : '并保存到本机'}。可在仓库选择位置加入下场编队。`
-      : battle.outcome === 'escaped' ? '已成功逃离野生战斗。' 
+      : battle.outcome === 'escaped' ? escapeDetail() 
       : isWild ? '这次遭遇结束了。可以继续寻找新的野生宝可梦。' : '对战结束。也可以进入野生遭遇，收服新的伙伴。';
     for (const id of ['btn-start','btn-wild','btn-next-wild','btn-config','sel-enemy','sel-diff','btn-supply','btn-import-save','btn-box','btn-end-box']) $(id).disabled = animating;
     if (animating) document.querySelectorAll('.mechanic-slot button, #moves button, #switches button, #ball-list button').forEach(b => { b.disabled = true; });
@@ -1097,8 +1170,18 @@ installSpriteRecovery(document);
       root.appendChild(button);
     }
   }
-  function unlockAfterAnimations(before, action, logStart) {
+  function unlockAfterAnimations(before, action, logStart, events) {
     const ref = battle;
+    if (events && theaterState) {
+      const done = () => {
+        theaterState = null;
+        if (battle !== ref) return;
+        animating = false; commandMessage = ''; menuView = viewAfterAction(action); after();
+      };
+      getTheater().play(events).catch(err => console.warn('[ps-theater]', err)).finally(done);
+      return;
+    }
+    theaterState = null;
     const duration = playTurnAnimations(before, action, logStart) || 1400;
     setTimeout(() => {
       if (battle !== ref) return;
@@ -1302,16 +1385,8 @@ installSpriteRecovery(document);
     };
     root.appendChild(b);
   }
-  function render() {
+  function renderFighters() {
     if (!battle) return;
-    if (battle.double && (!battle.cur(0, doubleActionSlot) || battle.cur(0, doubleActionSlot).fainted)) {
-      const nextSlot = [0, 1].find(slot => battle.cur(0, slot) && !battle.cur(0, slot).fainted);
-      if (nextSlot !== undefined) doubleActionSlot = nextSlot;
-    }
-    const activePlayer = battle.cur(0, battle.double ? doubleActionSlot : 0) || battle.cur(0);
-    const me = activePlayer, foe = battle.cur(1);
-    const arena = document.querySelector('.arena');
-    arena.classList.toggle('is-doubles', !!battle.double);
     const fill = (fighter, p, side, slot) => {
       const info = fighter?.querySelector('.fighter-info');
       if (!fighter || !p || p.fainted) { if (fighter) fighter.hidden = true; return; }
@@ -1342,16 +1417,40 @@ installSpriteRecovery(document);
       setSprite(sprite, p, side === 0);
       sprite.classList.toggle('is-captured', side === 1 && battle.outcome === 'captured');
     };
-    for (const side of [0, 1]) for (let slot = 0; slot < 2; slot++) fill(fighterEl(side, slot), battle.cur(side, slot), side, slot);
+    const view = theaterState ? theaterState.mons : null;
+    for (const side of [0, 1]) for (let slot = 0; slot < 2; slot++) fill(fighterEl(side, slot), view ? view[side][slot] : battle.cur(side, slot), side, slot);
     const teamRow = (side, el) => {
       el.innerHTML = '';
-      battle.teams[side].forEach((p, i) => {
+      const team = theaterState ? theaterState.teams[side] : battle.teams[side];
+      const activeSlots = theaterState ? theaterState.activeSlots[side] : battle.activeSlots[side];
+      team.forEach((p, i) => {
         const s = document.createElement('span');
-        s.className = 'pip' + (battle.activeSlots[side].includes(i) ? ' active' : '') + (p.fainted ? ' fainted' : '');
+        s.className = 'pip' + (activeSlots.includes(i) ? ' active' : '') + (p.fainted ? ' fainted' : '');
         s.title = `${displayPokemonName(p)}，体力 ${p.hp}/${p.maxHp}`; s.setAttribute('aria-label', s.title); el.appendChild(s);
       });
     };
     teamRow(0, $('p-team')); teamRow(1, $('e-team'));
+  }
+  function renderLog() {
+    const log = $('log');
+    if (!log || !battle) return;
+    const logWasAtBottom = log.scrollHeight - log.clientHeight - log.scrollTop <= 28;
+    const logScrollTop = log.scrollTop;
+    log.textContent = (theaterState ? battle.log.slice(0, theaterState.logLimit) : battle.log).map(translateText).join('\n');
+    if (logWasAtBottom || theaterState) log.scrollTop = log.scrollHeight;
+    else log.scrollTop = Math.min(logScrollTop, Math.max(0, log.scrollHeight - log.clientHeight));
+  }
+  function render() {
+    if (!battle) return;
+    if (battle.double && (!battle.cur(0, doubleActionSlot) || battle.cur(0, doubleActionSlot).fainted)) {
+      const nextSlot = [0, 1].find(slot => battle.cur(0, slot) && !battle.cur(0, slot).fainted);
+      if (nextSlot !== undefined) doubleActionSlot = nextSlot;
+    }
+    const activePlayer = battle.cur(0, battle.double ? doubleActionSlot : 0) || battle.cur(0);
+    const me = activePlayer, foe = battle.cur(1);
+    const arena = document.querySelector('.arena');
+    arena.classList.toggle('is-doubles', !!battle.double);
+    renderFighters();
     PKMFieldFX.sync(document.querySelector('.arena'), battle);
     const fieldParts = [];
     const weatherNames = { sun: '☀️ 大晴天', rain: '🌧️ 下雨', sand: '🌪️ 沙暴', snow: '❄️ 下雪' };
@@ -1369,12 +1468,7 @@ installSpriteRecovery(document);
     sideText(battle.field.sides[0], '我方'); sideText(battle.field.sides[1], '敌方');
     $('field-state').textContent = '战场：' + (fieldParts.length ? fieldParts.join(' · ') : '无特殊效果');
 
-    const log = $('log');
-    const logWasAtBottom = log.scrollHeight - log.clientHeight - log.scrollTop <= 28;
-    const logScrollTop = log.scrollTop;
-    log.textContent = battle.log.map(translateText).join('\n');
-    if (logWasAtBottom) log.scrollTop = log.scrollHeight;
-    else log.scrollTop = Math.min(logScrollTop, Math.max(0, log.scrollHeight - log.clientHeight));
+    renderLog();
 
     const over = battle.winner !== null;
     if (battle.pendingSwitch !== null) selectedMechanic = null;
@@ -1386,7 +1480,7 @@ installSpriteRecovery(document);
     const foeNow = battle.cur(1, 0);
     const actionLock = battle.pendingSwitch === null ? battle.lockInfo(me) : null;
     me.moves.forEach((m, i) => {
-      const shown = PKMBattle.transformMove(me, m, selectedMechanic);
+      const shown = (PKMBattle.prepareMove || (( _u, _t, x) => x))(me, foeNow, PKMBattle.transformMove(me, m, selectedMechanic));
       const b = document.createElement('button');
       b.type = 'button';
       b.className = `move-btn type-${String(shown.type || '').toLowerCase()}`;
@@ -1433,8 +1527,10 @@ installSpriteRecovery(document);
       b.onclick = () => {
         if (animating) return;
         if (battle.pendingSwitch !== null) {
-          const before = snapshotBattle(), logStart = battle.log.length;
-          if (battle.forceSwitch(i)) { animating = true; commandMessage = ''; menuView = 'fight'; after(); requestAnimationFrame(() => unlockAfterAnimations(before, { kind: 'switch' }, logStart)); }
+          const before = snapshotBattle(), logStart = battle.log.length, cap = theaterCapture();
+          const ok = battle.forceSwitch(i), events = ok ? theaterArm(cap) : null;
+          if (!ok && battle) battle._animOn = false;
+          if (ok) { animating = true; commandMessage = ''; menuView = 'fight'; after(); requestAnimationFrame(() => unlockAfterAnimations(before, { kind: 'switch' }, logStart, events)); }
         }
         else chooseBattleAction({ kind: 'switch', index: i });
       };
@@ -1443,7 +1539,7 @@ installSpriteRecovery(document);
     const res = $('result');
     if (over) {
       res.classList.remove('hidden');
-      res.textContent = battle.outcome === 'captured' ? '收服成功！' : battle.outcome === 'escaped' ? '已逃离野生战斗' : battle.outcome === 'draw' ? '双方同时倒下，请人工裁定' : battle.winner === 0 ? '🏆 胜利！' : '💀 败北……';
+      res.textContent = battle.outcome === 'captured' ? '收服成功！' : battle.outcome === 'escaped' ? escapeTitle() : battle.outcome === 'draw' ? '双方同时倒下，请人工裁定' : battle.winner === 0 ? '🏆 胜利！' : '💀 败北……';
     } else if (battle.pendingSwitch !== null) {
       res.classList.remove('hidden');
       res.textContent = battle.double ? `请为${battle.pendingSwitch + 1}号位选择替补` : '请选择下一只宝可梦出战';
@@ -1600,11 +1696,12 @@ installSpriteRecovery(document);
       if (reason) { commandMessage = reason; renderCommands(); return; }
     }
     animating = true; commandMessage = ''; renderCommands();
-    const ref = battle, before = snapshotBattle(), logStart = battle.log.length;
+    const ref = battle, before = snapshotBattle(), logStart = battle.log.length, cap = theaterCapture();
     battle.turn({ kind: 'double', actions });
+    const events = theaterArm(cap);
     selectedMechanic = null; doubleActionSlot = 0; doubleActions = [null, null]; pendingDoubleTarget = null;
     menuView = battle.pendingSwitch !== null ? 'switch' : 'fight'; after();
-    requestAnimationFrame(() => unlockAfterAnimations(before, { kind: 'double', actions }, logStart));
+    requestAnimationFrame(() => unlockAfterAnimations(before, { kind: 'double', actions }, logStart, events));
   }
   function act(a) {
     if (a?.kind === 'double') { actDouble(a.actions || []); return; }
@@ -1628,9 +1725,12 @@ installSpriteRecovery(document);
     }
     const finishTurn = () => {
       if (battle !== battleRef) return;
+      const cap = theaterCapture();
       battle.turn(a);
+      const events = theaterArm(cap);
       selectedMechanic = null; menuView = panelForAction(a); // stay on the move list while the turn plays out
       after();
+      if (events) { requestAnimationFrame(() => unlockAfterAnimations(before, chosen, logStart, events)); return; }
       for (const side of [0, 1]) {
         const old = before.teams[side]?.[before.active[side]], current = battle.cur(side);
         if (old?.dynamaxed && current && !current.dynamaxed && before.active[side] === battle.active[side]) {
@@ -1644,7 +1744,9 @@ installSpriteRecovery(document);
     const willTransform = a.kind === 'move' && mech && mech !== 'z' && meP && meP.mechanic === mech
       && !battle.mechanicUsed[0][mech]
       && !(mech === 'mega' && meP.isMega) && !(mech === 'dynamax' && meP.dynamaxed) && !(mech === 'tera' && meP.terastallized);
-    if (willTransform) {
+    // Showdown playback animates mega/dynamax/tera and the recall in turn order from the event stream.
+    if (theaterOn()) finishTurn();
+    else if (willTransform) {
       chosen.preAnimated = true;
       animating = true;
       const newSpeciesId = mech === 'mega' ? meP.megaForm
@@ -1926,7 +2028,8 @@ installSpriteRecovery(document);
     if (sideEl) sideEl.textContent = String((cfg && cfg.rules?.sideLabel) || (battle.encounterType === 'wild' ? '野生' : '敌方')).slice(0, 6);
     after();
     if (EMBED && !window.PKMPreview) void startBattleMusic();
-    if (!window.PKMPreview) requestAnimationFrame(() => {
+    if (theaterOn()) { const ref = battle; animating = true; renderCommands(); document.querySelector('.arena')?.classList.add('ps-intro'); requestAnimationFrame(() => getTheater().intro().catch(err => console.warn('[ps-theater]', err)).finally(() => { if (battle === ref) { animating = false; after(); } })); }
+    else if (!window.PKMPreview) requestAnimationFrame(() => {
       if (battle.double) { [0, 1].forEach(slot => { setTimeout(() => playSendOut(1, slot), slot * 180); setTimeout(() => playSendOut(0, slot), 300 + slot * 180); }); }
       else { playSendOut(1); setTimeout(() => playSendOut(0), 150); }
     });

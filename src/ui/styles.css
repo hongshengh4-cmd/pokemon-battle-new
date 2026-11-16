@@ -1235,3 +1235,35 @@ html.embed .action-card>.command-home,html.embed .action-card>.command-panel,htm
 .roster-footer{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:10px;margin-top:18px}.roster-footer p{flex:1 1 100%;margin:0 0 3px;color:#565b59;font-size:14px}
 .roster-footer button{padding:10px 18px;border:2px solid #b8b9a5;border-radius:9px;background:#fff;font-weight:700;color:#454b46;cursor:pointer}.roster-footer .roster-confirm{background:#55856d;color:#fff;border-color:#47755f}.roster-footer button:disabled{opacity:.45;cursor:not-allowed}
 @media(max-width:520px){.roster-list{grid-template-columns:1fr}.roster-card{padding:16px}.roster-card h2{font-size:20px}.roster-pick{padding:10px}.roster-overlay{padding:8px}.roster-card{max-height:calc(100dvh - 16px)}}
+
+/* ---------- Showdown battle animations, projected onto the original arena (src/ui/ps/ps-theater.js) ----------
+   Only animation layers live here; statbars, log and command cards keep the original layout. */
+.arena > .ps-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: inherit; }
+.arena > .ps-bgfx { z-index: 2; }
+.arena > .ps-bgfx > .background { position: absolute; inset: 0; background-size: cover !important; background-position: center !important; }
+.arena > .ps-fx { z-index: 6; }
+.arena > .ps-fx > img { position: absolute; display: block; max-width: none; max-height: none; pointer-events: none; user-select: none; }
+.arena > .ps-proxies { visibility: hidden; }
+.arena > .ps-proxies > * { position: absolute; }
+.arena { background-position: 0 var(--ps-shake, 0px); }
+.arena::before { transform: translateY(var(--ps-shake, 0px)); }
+.arena::after { transform: translate(-50%, calc(-50% + var(--ps-shake, 0px))) rotate(-4deg); }
+.arena > .field-fx { translate: 0 var(--ps-shake, 0px); }
+.arena.ps-playing .hpfill { transition: width .35s linear; }
+.arena.ps-intro [data-role="sprite"], .arena.ps-intro .fighter-info { opacity: 0; }
+.arena.ps-playing [data-role="sprite"] { will-change: transform, opacity; }
+.ps-result { position: absolute; z-index: 7; width: 170px; margin-left: -85px; text-align: center; display: none; pointer-events: none; }
+.ps-result strong {
+  display: inline-block; padding: 3px 11px; border-radius: 999px; white-space: nowrap;
+  font-size: 13px; font-weight: 900; line-height: 1.35; letter-spacing: .02em; color: #fff;
+  background: #6b7280; border: 2px solid rgba(255, 255, 255, .92); box-shadow: 0 6px 16px rgba(41, 38, 51, .2);
+}
+.ps-result-bad strong { background: linear-gradient(135deg, #fb7185, var(--pink-deep, #e84f83)); }
+.ps-result-good strong { background: linear-gradient(135deg, #34d399, #10b981); }
+.ps-result-neutral strong { background: linear-gradient(135deg, #94a3b8, #64748b); }
+.ps-result-brn strong { background: linear-gradient(135deg, #fb923c, #ea580c); }
+.ps-result-psn strong { background: linear-gradient(135deg, #c084fc, #9333ea); }
+.ps-result-par strong { background: linear-gradient(135deg, #facc15, #ca8a04); }
+.ps-result-slp strong { background: linear-gradient(135deg, #a5b4fc, #6366f1); }
+.ps-result-frz strong { background: linear-gradient(135deg, #67e8f9, #0891b2); }
+@media (max-width: 760px) { .ps-result strong { font-size: 11px; padding: 2px 8px; } }

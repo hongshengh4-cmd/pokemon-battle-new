@@ -1,0 +1,35 @@
+<!doctype html><meta charset="utf-8"><title>Move-rule scenarios</title>
+<style>html,body{margin:0;height:100%}iframe{width:100%;height:100%;border:0}</style>
+<iframe id="f" src="../../index.html?embed=1&v=ps"></iframe>
+<script>
+// Scenario harness for Showdown animations in the original layout. ?s=mega|gmax|tera|z|doubles|faint
+window.__msgs=[];
+const s=new URLSearchParams(location.search).get('s')||'mega';
+const P={
+ weather:[{species:'Castform',level:50,moves:['raindance','weatherball','sunnyday'],gender:'M'}],
+ teleport:[{species:'Pidgey',level:12,moves:['tackle'],gender:'M'}],
+ trap:[{species:'Arbok',level:40,moves:['wrap','splash'],gender:'M'},{species:'Pikachu',level:40,moves:['thunderbolt'],gender:'F'}],
+ mega:[{species:'Gengar',level:60,item:'Gengarite',moves:['shadowball','thunderbolt','hypnosis'],gender:'M'},{species:'Pikachu',level:50,moves:['thunderbolt'],gender:'F'}],
+ gmax:[{species:'Charizard',level:60,mechanic:'dynamax',dynamaxForm:'gmax',moves:['flamethrower','airslash'],gender:'M'},{species:'Pikachu',level:50,moves:['thunderbolt'],gender:'F'}],
+ tera:[{species:'Pikachu',level:60,mechanic:'tera',teraType:'Electric',moves:['thunderbolt','surf'],gender:'F'},{species:'Eevee',level:50,moves:['tackle'],gender:'M'}],
+ z:[{species:'Raichu',level:60,item:'Electrium Z',moves:['thunderbolt','quickattack'],gender:'M'},{species:'Eevee',level:50,moves:['tackle'],gender:'M'}],
+ faint:[{species:'Mewtwo',level:90,moves:['psychic','icebeam','earthquake','flamethrower'],gender:'N'},{species:'Eevee',level:50,moves:['tackle'],gender:'M'}],
+ doubles:[{species:'Garchomp',level:60,moves:['earthquake','dragonclaw'],gender:'M'},{species:'Gardevoir',level:60,moves:['moonblast','psychic'],gender:'F'},{species:'Pikachu',level:50,moves:['thunderbolt'],gender:'F'}],
+};
+const E={
+ weather:[{species:'Golem',level:45,moves:['defensecurl']}],
+ teleport:[{species:'Abra',level:10,moves:['teleport']}],
+ trap:[{species:'Snorlax',level:45,moves:['splash']},{species:'Lapras',level:45,moves:['icebeam']}],
+ doubles:[{species:'Machamp',level:55,moves:['crosschop']},{species:'Vileplume',level:55,moves:['sludgebomb']},{species:'Golem',level:55,moves:['rockslide']}],
+ faint:[{species:'Rattata',level:10,moves:['tackle']},{species:'Spearow',level:10,moves:['peck']},{species:'Zubat',level:10,moves:['bite']}],
+};
+const enemy=E[s]||[{species:'Snorlax',level:55,moves:['bodyslam','yawn']},{species:'Lapras',level:50,moves:['icebeam']}];
+const party=(P[s]||P.mega).map((p,i)=>({...p,hostSlot:i}));
+const dbl=s==='doubles', wild=s==='teleport';
+const cfg={rules:{teamSize:party.length,playerLimit:party.length,enemyLimit:enemy.length,tag:dbl?'双打':'单打',label:'test',rule:'测试',battleMode:dbl?'double':'single',typeLabel:wild?'野生遭遇':'训练家对战',opponent:'测试员',sideLabel:'对手'},
+ encounter:{type:wild?'wild':'trainer'},difficulty:'easy',
+ p1:{entrants:[{name:'host-player',party}]},p2:{entrants:[{name:'host-enemy',party:enemy}]},
+ host:{tag:'ps-'+s,identityKey:'ps-'+s,balls:{pokeball:3},battleItems:{},intro:'Showdown 动画测试：'+s}};
+addEventListener('message',e=>{const d=e.data||{};__msgs.push(d);
+ if(d.type==='PKM_BATTLE_READY'&&!window.__sent){window.__sent=true;document.getElementById('f').contentWindow.postMessage({type:'PKM_BATTLE_CONFIG',payload:cfg},'*');}});
+</script>

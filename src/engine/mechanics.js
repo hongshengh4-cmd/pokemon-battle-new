@@ -141,6 +141,18 @@
   const ITEMS = {
     '': ['无道具', '不携带道具'],
     leftovers: ['剩饭', '每回合回复 1/16 最大 HP'],
+    damprock: ['潮湿岩石', '携带者使用或引发的下雨持续 8 回合'],
+    heatrock: ['炽热岩石', '携带者使用或引发的大晴天持续 8 回合'],
+    smoothrock: ['沙沙岩石', '携带者使用或引发的沙暴持续 8 回合'],
+    icyrock: ['冰冷岩石', '携带者使用或引发的下雪持续 8 回合'],
+    lightclay: ['光之黏土', '反射壁、光墙、极光幕持续 8 回合'],
+    terrainextender: ['大地膜', '携带者使用或引发的场地持续 8 回合'],
+    utilityumbrella: ['万能伞', '不受大晴天、下雨对招式威力的影响'],
+    gripclaw: ['紧缠钩爪', '束缚类招式必定持续 7 回合'],
+    bindingband: ['紧绑束带', '束缚类招式每回合伤害提高到 1/6'],
+    shedshell: ['美丽空壳', '无论被如何困住都能替换'],
+    widelens: ['广角镜', '招式命中率 ×1.1'],
+    safetygoggles: ['防尘护目镜', '不受粉末类招式与沙暴伤害影响'],
     blacksludge: ['黑色污泥', '毒系每回合回复，否则受到伤害'],
     lifeorb: ['生命宝珠', '招式威力 ×1.3，攻击命中后损失 1/10 HP'],
     choiceband: ['讲究头巾', '攻击 ×1.5，只能重复使用同一招式'],
@@ -210,7 +222,7 @@
   };
 
   const TYPES = ['Normal', 'Fire', 'Water', 'Electric', 'Grass', 'Ice', 'Fighting', 'Poison', 'Ground', 'Flying', 'Psychic', 'Bug', 'Rock', 'Ghost', 'Dragon', 'Dark', 'Steel', 'Fairy'];
-  const TYPE_ZH = { Normal: '一般', Fire: '火', Water: '水', Electric: '电', Grass: '草', Ice: '冰', Fighting: '格斗', Poison: '毒', Ground: '地面', Flying: '飞行', Psychic: '超能力', Bug: '虫', Rock: '岩石', Ghost: '幽灵', Dragon: '龙', Dark: '恶', Steel: '钢', Fairy: '妖精' };
+  const TYPE_ZH = { Typeless: '无属性', Normal: '一般', Fire: '火', Water: '水', Electric: '电', Grass: '草', Ice: '冰', Fighting: '格斗', Poison: '毒', Ground: '地面', Flying: '飞行', Psychic: '超能力', Bug: '虫', Rock: '岩石', Ghost: '幽灵', Dragon: '龙', Dark: '恶', Steel: '钢', Fairy: '妖精' };
   const Z_CRYSTALS = {
     Normal: 'normaliumz', Fire: 'firiumz', Water: 'wateriumz', Electric: 'electriumz', Grass: 'grassiumz', Ice: 'iciumz',
     Fighting: 'fightiniumz', Poison: 'poisoniumz', Ground: 'groundiumz', Flying: 'flyiniumz', Psychic: 'psychiumz', Bug: 'buginiumz',

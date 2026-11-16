@@ -3,8 +3,8 @@ import * as K from './kanto-data.js?v=20261113-comprehensive-fix-v6';
 import './gender.js?v=20261115-gender-bond-hotfix1';
 import './battle-mechanics.js?v=20261113-comprehensive-fix-v6';
 import './plot-guard.js?v=20261115-worldbook-date-event-ability-v3';
-import './patch-guard.js?v=20261116-bond-npc-moves-team-v1';
-import './bond-sync.js?v=20261116-bond-npc-moves-team-v1';
+import './patch-guard.js?v=20261116-bond-guard-hotfix2';
+import './bond-sync.js?v=20261116-bond-guard-hotfix2';
 import '../src/engine/gear-resolve.js?v=20261113-comprehensive-fix-v6';
 import '../src/engine/held-sync.js?v=20261113-comprehensive-fix-v6';
 import '../src/engine/ability-choice.js?v=1.3.31';
@@ -41,7 +41,9 @@ import {isPPItem, ppItemInfo, ppItemBagKey, previewPPItem, applyPPItem} from './
 //       ④ 变量摘要里电脑仓库每只附带性格/资质，收服摘要附带完整个体信息，AI 叙述与变量不再出现两套数值。
 
 const EXPECTED_BUILD='20261113-comprehensive-fix-v6';
-const REPAIR_BUILD='20261116-bond-npc-moves-team-v1';
+const REPAIR_BUILD='20261116-bond-guard-hotfix2';
+// Battle-site handshake versions are tracked separately from the card-side repair build.
+const BATTLE_SITE_BUILD='20261116-ps-move-scripts-v1', BATTLE_RULES_BUILD='20261116-bond-npc-moves-team-v1';
 if(K.VERSION!=='1.3.66-comprehensive-v6'||globalThis.PKMNormalAbility?.version!=='20261115-normal-ability-random-v2'||globalThis.PKMGender?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.worldbookStoryPolicy!=='date-key-autostart-v1'||globalThis.PKMPatchGuard?.version!==REPAIR_BUILD||globalThis.PKMBondSync?.version!==REPAIR_BUILD||globalThis.PKMGearResolve?.version!==EXPECTED_BUILD||globalThis.PKMBattleGear?.fixVersion!==EXPECTED_BUILD)
   throw new Error('修复模块版本不完整：请先部署本包全部覆盖文件并刷新缓存。');
 const VERSION = K.VERSION;
@@ -1343,7 +1345,11 @@ function showPatchWarnings(plan,mesid){
  el.dataset.signature=signature;el.replaceChildren();
  const details=PD.createElement('details'),summary=PD.createElement('summary'),body=PD.createElement('div');
  summary.textContent='变量补丁待核对（'+warnings.length+'项，点击展开）';summary.style.cursor='pointer';
- body.textContent=warnings.join('；')+'。桥接校验不等于已拦截外部 MVU 写入；请核对本楼变量。';
+ const list=PD.createElement('ul');list.style.cssText='margin:6px 0;padding-left:18px';
+ for(const w of warnings){const li=PD.createElement('li');li.textContent=w;list.appendChild(li);}
+ const note=PD.createElement('div');note.style.cssText='opacity:.8;font-size:12px';
+ note.textContent=warnings.every(w=>/好感补丁未采用/.test(w))?'以上好感改动没有计入（已达上限的人物会被静默忽略，不在此列）；本楼其他变量照常更新。':'请核对本楼变量。';
+ body.append(list,note);
  details.append(summary,body);el.append(details);
  el.style.maxHeight='35vh';el.style.overflow='auto';
 }
@@ -8582,7 +8588,7 @@ function onEngineMessage(d) {
   if (d.type === 'PKM_BATTLE_EXIT') { closeBattle();return; }
   if (d.type === 'PKM_BATTLE_READY') {
     const v=d.payload||{},expected='20261113-comprehensive-fix-v6';
-    if([v.version,v.engineVersion,v.lifecycleVersion,v.selectionVersion].some(x=>x!==REPAIR_BUILD)||v.normalAbilityVersion!=='20261115-normal-ability-random-v2'||[v.gearVersion,v.gearDataVersion,v.genderVersion].some(x=>x!==expected)){
+    if([v.version,v.engineVersion].some(x=>x!==BATTLE_SITE_BUILD)||[v.lifecycleVersion,v.selectionVersion].some(x=>x!==BATTLE_RULES_BUILD)||v.moveScriptsVersion!==BATTLE_SITE_BUILD||v.normalAbilityVersion!=='20261115-normal-ability-random-v2'||[v.gearVersion,v.gearDataVersion,v.genderVersion].some(x=>x!==expected)){
       m.verified=false;m.sent=false;clearTimeout(m.timer);
       setBar('对战版本不匹配或网站未完整部署，已拒绝启动旧引擎。请一起上传全部覆盖文件、刷新缓存后重试；手机返回或电脑 Esc 可退出。');return;
     }
@@ -8616,6 +8622,7 @@ function onEngineMessage(d) {
   }
 }
 const OUTCOME_ZH = { victory: '胜利', defeat: '败北', captured: '收服成功', escaped:'逃跑成功', draw: '平局/中止' };
+const ESCAPE_REASON_ZH = { wildFled: '野生宝可梦逃走', forceSwitch: '野生宝可梦被赶走', blownAway: '被赶出战斗' };
 function monFromCapture(cap, enemy, cfgEnemy, pkm) {
   const spec = cap.spec || {},sid=speciesId(spec.species || cap.species),gender=PKMGender.normalize(spec.gender);
   if(PKMGender.rate(sid)!==null&&!PKMGender.allowed(sid,gender))throw new Error('收服结果的性别与物种不符，本场未结算；请重新对战。');
@@ -8635,7 +8642,7 @@ function monFromCapture(cap, enemy, cfgEnemy, pkm) {
   return mon;
 }
 // v1.3.8：胜负判定说明（参赛的全部失去战斗能力 = 判负）；v1.3.9：两边全队
-function verdictText(outcome, fmt, pTeam, eTeam) {
+function verdictText(outcome, fmt, pTeam, eTeam, escapeReason = null) {
   const pn = pTeam.length, en = eTeam.length;
   if (fmt?.firstFaintLoses) {
     if (outcome === 'defeat') return '榴柑道馆双打接力：我方有一只倒下，整组判负';
@@ -8647,7 +8654,13 @@ function verdictText(outcome, fmt, pTeam, eTeam) {
   if (outcome === 'victory') return fmt?.wild ? `野生的${zhSpecies(eTeam[0]?.baseSpecies || eTeam[0]?.species) || '宝可梦'}失去战斗能力，获胜`
     : fmt?.full ? `对方的${en}只全部失去战斗能力，获胜` : `对方参赛的${en}只全部失去战斗能力，获胜`;
   if (outcome === 'captured') return '收服成功，对战结束';
-  if (outcome === 'escaped') return '使用宝可梦玩偶成功逃离野生战斗';
+  if (outcome === 'escaped') {
+    const wildName = zhSpecies(eTeam[0]?.baseSpecies || eTeam[0]?.species) || '宝可梦';
+    if (escapeReason === 'wildFled') return `野生的${wildName}使用瞬间移动逃走了，对战结束，不计胜负`;
+    if (escapeReason === 'forceSwitch') return `野生的${wildName}被招式赶走了，对战结束，不计胜负`;
+    if (escapeReason === 'blownAway') return `我方宝可梦被野生的${wildName}赶走了，对战结束，不计胜负`;
+    return '使用宝可梦玩偶成功逃离野生战斗';
+  }
   return '对战中止，不计胜负';
 }
 function evolutionWorld(pkm){const st=latestState()?.state||{};return {time:String(st.时间||pkm?.world?.time||''),location:String(st.地点||pkm?.world?.location||''),weather:String(st.天气||st.weather||pkm?.world?.weather||'')};}
@@ -8982,7 +8995,7 @@ async function applyResult(m, payload) {
     gymBadgeAward=grantGymBadgeReward(pkm,cfg,m.type,outcome);if(gymBadgeAward){summaryParts.push(`获得${gymBadgeAward}，声望+1000`);honorNotes.push(...awardBattleParticipantsFriendship(pkm,payload,3,`${gymBadgeAward}徽章`));}
     // 5) 战绩
     pkm.battle.count += 1; if (won) pkm.battle.wins += 1;
-    summaryParts.push(`${OUTCOME_ZH[outcome] || '结束'} · ${fmtText}${cfg.opponent ? ' · 对手：' + cfg.opponent : ''} · ${payload.turns || 0} 回合`);
+    summaryParts.push(`${(outcome === 'escaped' && ESCAPE_REASON_ZH[payload.escapeReason]) || OUTCOME_ZH[outcome] || '结束'} · ${fmtText}${cfg.opponent ? ' · 对手：' + cfg.opponent : ''} · ${payload.turns || 0} 回合`);
     if (capturedName) summaryParts.push(`收服了${capturedName}（${placed}${capturedDetail ? '；' + capturedDetail : ''}）`);
     if(bondNotes.length)summaryParts.push('战斗亲密值：'+bondNotes.join('，'));if(honorNotes.length)summaryParts.push('徽章荣誉亲密值：'+honorNotes.join('，'));
     if(evGains.length)summaryParts.push('努力值：'+evGains.map(x=>`${x.name} ${x.changes.map(c=>`${K.STAT_ZH[c.stat]}+${c.gain}`).join('、')}（合计 ${x.total}/510）`).join('；'));
@@ -9009,7 +9022,7 @@ async function applyResult(m, payload) {
   const joined = new Set(pTeam.map(p => p.hostSlot));
   // 结果写入后才查看队伍：只列开战前已有的未参赛者，不能把刚收服/进化附带的新伙伴误写成“开战前濒死”。
   const bench = pkm.party.slots.map((s, i) => (hasMon(s) && m.partyUids?.[i] && String(s.uid||'')===m.partyUids[i] && !joined.has(i) ? monName(s) + (s.status === '濒死' || s.hp === 0 ? '（濒死）' : '') : null)).filter(Boolean);
-  const verdict = verdictText(outcome, fmt, pTeam, eTeam);
+  const verdict = verdictText(outcome, fmt, pTeam, eTeam, payload.escapeReason || null);
   const res = {
     id: cfg.id || null, event: cfg.event || '自由', type: m.type, opponent: cfg.opponent || null, outcome, turns: payload.turns || 0,
     format: fmt.wild ? '野外1只' : fmt.name, rule: fmt.rule, lineup: { player: pTeam.length, enemy: eTeam.length }, verdict, bench, autoTeam: m.comp?.added?.length ? m.comp.added : undefined,
@@ -9022,7 +9035,7 @@ async function applyResult(m, payload) {
   const used = Object.entries(K.BALL_ZH).map(([id, zh]) => { const n = PKMHeldSync.consumedStock(m.balls,payload.ballStock,id); return n > 0 ? `${zh}×${n}` : null; }).filter(Boolean);
   const usedTrainerItems=Object.entries(TRAINER_ITEM_ZH_TO_ID).map(([zh,id])=>{const n=PKMHeldSync.consumedStock(m.battleItems,payload.itemStock,id);return n>0?`${zh}×${n}`:null;}).filter(Boolean);
   const line = outcome === 'defeat' ? cfg.lines?.player_lose : (outcome === 'victory' || outcome === 'captured') ? cfg.lines?.player_win : null;
-  const human = [`【战斗结果】${OUTCOME_ZH[outcome] || '结束'}｜${fmt.wild ? `野外遭遇（${fmt.tag}）` : fmt.full ? `${K.BATTLE_LABEL?.[m.type] || '对战'}·两边全队（我方${res.player.length}只 vs 对方${res.enemy.length}只）` : `${K.TYPE_LABEL[m.type] || '对战'} ${fmt.name}`}｜${res.opponent || (m.type === 'wild' ? '野生宝可梦' : '对手')}｜${res.turns} 回合`,
+  const human = [`【战斗结果】${(outcome === 'escaped' && ESCAPE_REASON_ZH[payload.escapeReason]) || OUTCOME_ZH[outcome] || '结束'}｜${fmt.wild ? `野外遭遇（${fmt.tag}）` : fmt.full ? `${K.BATTLE_LABEL?.[m.type] || '对战'}·两边全队（我方${res.player.length}只 vs 对方${res.enemy.length}只）` : `${K.TYPE_LABEL[m.type] || '对战'} ${fmt.name}`}｜${res.opponent || (m.type === 'wild' ? '野生宝可梦' : '对手')}｜${res.turns} 回合`,
     `判定：${verdict}。`,
     `${fmt.wild ? `我方（可轮换${res.player.length}只）` : fmt.full ? `我方（能战斗的${res.player.length}只都可轮换）` : `我方参赛（${res.player.length}只）`}：${res.player.map(p => `${p.name} Lv${p.lv} ${p.fainted ? '濒死' : `HP ${p.hp}/${p.maxHp}${p.status ? '·' + p.status : ''}`}${p.entered ? '' : '（没轮到出场）'}`).join('；')}`,
     bench.length ? (fmt.wild || fmt.full ? `没能参战（开战前已失去战斗能力）：${bench.join('、')}` : `未参赛（这场没上场，体力不变）：${bench.join('、')}`) : '',
