@@ -1,0 +1,131 @@
+name: 整理误传到根目录的文件
+
+# 用途：网页上传时如果选中的是文件而不是文件夹，文件会被摊平到仓库根目录。
+# 本工作流会把根目录里这类文件放回 src/ 或 st-bridge/ 中唯一同名的位置，
+# 删除根目录副本，然后可选地自动运行“下载宝可梦图片并部署网站”。
+# 只处理根目录的 .js / .mjs / .css / .json 文件；index.html、说明文件、找不到唯一去处的文件一律不动。
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 处理方式
+        type: choice
+        default: 放回正确位置并删除根目录副本
+        options:
+          - 放回正确位置并删除根目录副本
+          - 只删除根目录副本（不更新正确位置的文件）
+          - 只检查不修改
+      deploy:
+        description: 整理完成后自动运行“下载宝可梦图片并部署网站”
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: pokemon-local-images
+  cancel-in-progress: false
+
+jobs:
+  tidy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 获取所选分支
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+
+      - name: 检查并整理根目录文件
+        id: tidy
+        env:
+          MODE: ${{ inputs.mode }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os, subprocess, hashlib
+          from pathlib import Path
+
+          mode = os.environ.get('MODE', '')
+          check_only = mode.startswith('只检查')
+          delete_only = mode.startswith('只删除')
+          if subprocess.check_output(['git', 'status', '--porcelain'], text=True).strip():
+              raise SystemExit('工作区不是干净状态，停止，不做任何修改。')
+
+          EXTS = {'.js', '.mjs', '.css', '.json'}
+          SEARCH = ['src', 'st-bridge']          # 网站实际发布的代码目录
+          md5 = lambda p: hashlib.md5(Path(p).read_bytes()).hexdigest()
+
+          # 收集 src/、st-bridge/ 下所有文件，按文件名建立索引
+          index = {}
+          for top in SEARCH:
+              for p in Path(top).rglob('*'):
+                  if p.is_file():
+                      index.setdefault(p.name, []).append(p)
+
+          moved, deleted, same, skipped = [], [], [], []
+          for f in sorted(Path('.').iterdir()):
+              if not f.is_file() or f.suffix.lower() not in EXTS:
+                  continue
+              targets = index.get(f.name, [])
+              if len(targets) != 1:
+                  skipped.append(f'{f.name}（在 src/、st-bridge/ 中找到 {len(targets)} 个同名文件，无法确定去处，未处理）')
+                  continue
+              t = targets[0]
+              if md5(f) == md5(t):
+                  same.append(f'{f.name} = {t}（内容相同，只删除根目录副本）')
+                  if not check_only:
+                      subprocess.check_call(['git', 'rm', '-q', '--', str(f)])
+              elif delete_only:
+                  deleted.append(f'{f.name}（与 {t} 不同，按选择只删除根目录副本，{t} 保持原样）')
+                  if not check_only:
+                      subprocess.check_call(['git', 'rm', '-q', '--', str(f)])
+              else:
+                  moved.append(f'{f.name} → {t}（用根目录的新文件覆盖）')
+                  if not check_only:
+                      subprocess.check_call(['git', 'mv', '-f', '--', str(f), str(t)])
+
+          lines = ['## 整理结果', f'处理方式：{mode}', '']
+          for title, items in [('放回正确位置', moved), ('内容相同，删除根目录副本', same),
+                               ('只删除根目录副本', deleted), ('未处理', skipped)]:
+              if items:
+                  lines.append(f'### {title}（{len(items)}）')
+                  lines += [f'- {x}' for x in items]
+                  lines.append('')
+          if not (moved or same or deleted or skipped):
+              lines.append('根目录没有需要整理的文件。')
+          report = '\n'.join(lines)
+          print(report)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as fh:
+              fh.write(report + '\n')
+          changed = (not check_only) and bool(moved or same or deleted)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+              fh.write(f'changed={"true" if changed else "false"}\n')
+          PY
+
+      - name: 提交修改
+        if: steps.tidy.outputs.changed == 'true'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git commit -q -m "整理误传到根目录的文件"
+          git push origin "HEAD:${{ github.ref_name }}"
+          git show --stat --format='已提交 %h：%s' HEAD
+
+      - name: 自动运行部署
+        if: steps.tidy.outputs.changed == 'true' && inputs.deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if [ -f .github/workflows/pokemon-local-images.yml ]; then
+            gh workflow run pokemon-local-images.yml --ref "${{ github.ref_name }}"
+            echo "已触发“下载宝可梦图片并部署网站”，请到 Actions 页面查看进度。" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "未找到部署工作流 pokemon-local-images.yml，请手动部署。" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
