@@ -3,22 +3,26 @@
   const PLOT_RE = /([A-Z]{2,3}\d{2,3})\s*[｜|]\s*节点\s*(\d+)\s*[｜|]\s*(进行中|节点完成|完成|跳过)/;
   const FREE_RE = /自由\s*[｜|]\s*节点\s*0\s*[｜|]\s*进行中/;
   // The story has numbered fictional years, not a real-world epoch. To retain
-  // the existing EP199 next-morning boundary, numbered year 3 is the first
-  // leap year; thereafter use the Gregorian 4/100/400 rule (year N ≡ N+1).
+  // the existing day arithmetic, numbered year 3 is the first leap year
+  // (year N ≡ N+1 under 4/100/400). The compressed 1997–1998 chain has no Feb 29.
   // This is an explicit clock convention, not a claim about real history.
   const CALENDAR='story-calendar-year3-leap-v1';
   const leap=y=>{const n=y+1;return n%4===0&&(n%100!==0||n%400===0);};
+  // 故事第1年 = 1997年。旧存档的“第N年”继续可读，新文本统一写公历年份。
+  const BASE_YEAR=1996;
+  const DATE_RE=/(?:第\s*(\d+)\s*年|((?:19|20)\d{2})\s*年)\s*(\d+)\s*月\s*(\d+)\s*日(?:\s*(\d{1,2})[:：](\d{2}))?/;
+  const DATE_RE_G=new RegExp(DATE_RE.source,'g');
   const finiteMinute=v=>v!==null&&v!==undefined&&v!==''&&Number.isSafeInteger(Number(v))?Number(v):null;
   function date(text) {
-    const m=String(text||'').match(/第\s*(\d+)\s*年\s*(\d+)\s*月\s*(\d+)\s*日(?:\s*(\d{1,2})[:：](\d{2}))?/);
+    const m=String(text||'').match(DATE_RE);
     if(!m)return null;
-    const [y,mo,d]=m.slice(1,4).map(Number),hasTime=m[4]!==undefined,h=hasTime?Number(m[4]):0,mi=hasTime?Number(m[5]):0;
+    const y=m[1]!==undefined?Number(m[1]):Number(m[2])-BASE_YEAR,[mo,d]=m.slice(3,5).map(Number),hasTime=m[5]!==undefined,h=hasTime?Number(m[5]):0,mi=hasTime?Number(m[6]):0;
     if(!Number.isSafeInteger(y)||y<1||y>1000000||mo<1||mo>12||d<1||h>23||mi>59)return null;
     const lengths=[31,leap(y)?29:28,31,30,31,30,31,31,30,31,30,31];
     if(d>lengths[mo-1])return null;
     const priorYears=(y-1)*365+Math.floor(y/4)-Math.floor(y/100)+Math.floor(y/400);
     const day=priorYears+lengths.slice(0,mo-1).reduce((a,b)=>a+b,0)+d,minute=day*1440+h*60+mi;
-    return {y,mo,d,h,mi,day,minute,hasTime,text:`第${y}年 ${mo}月${d}日${hasTime?` ${String(h).padStart(2,'0')}:${String(mi).padStart(2,'0')}`:''}`};
+    return {y,year:BASE_YEAR+y,mo,d,h,mi,day,minute,hasTime,text:`${BASE_YEAR+y}年 ${mo}月${d}日${hasTime?` ${String(h).padStart(2,'0')}:${String(mi).padStart(2,'0')}`:''}`};
   }
   // v5 persisted a synthetic 31-day-per-month minute count. Decode its
   // calendar labels first; never treat that number as the new clock directly.
@@ -51,7 +55,7 @@
       if(eventId){
         if(seen.has(eventId))continue;seen.add(eventId);
         const content=String(e.content||''),dateKeys=[...new Set(keys.map(k=>date(String(k))?.text).filter(Boolean))],line=(content.match(/(?:^|\n)-\s*时间[:：]\s*([^\n]+)/)||[])[1]||'';
-        const dates=[...line.matchAll(/第\s*\d+\s*年\s*\d+\s*月\s*\d+\s*日(?:\s*\d{1,2}[:：]\d{2})?/g)].map(m=>date(m[0])).filter(Boolean);
+        const dates=[...line.matchAll(DATE_RE_G)].map(m=>date(m[0])).filter(Boolean);
         const start=dates[0]||null, end=dates.length>1?dates[1]:null;
         const block=(content.split(/\n- 节点[:：]\s*\n/)[1]||'').split(/\n\s*介入点[：:]|\n- 对战机会|\n- 收尾|\n- 涉及角色|\n<\/Plot_Event>/)[0];
         const nodes=block?block.split(/\n(?=\s{2}\d+\.\s)/).map(t=>t.trim()).filter(Boolean):[];
@@ -69,47 +73,50 @@
     list.sort((a,b)=>((a.date?.day??Infinity)-(b.date?.day??Infinity))||(a.ord-b.ord));
     return {list,stages};
   }
-  // Select one date-keyed worldbook event for the next generation. This is a
-  // non-blocking prompt scheduler: a later-dated event supersedes an older
-  // unfinished marker, and malformed/missing state simply falls back to date.
-  function dateActivation(book,states,timeText,world={}){
-    const now=date(timeText);if(!now)return null;
+  // 主线调度（参考“待推进事件”队首机制）：事件按时间线首尾相接成一条链。
+  // - 上一个事件完成（或玩家明确放弃=跳过）后，下一个事件立即成为队首；
+  // - 队首未到预定时间：交给正文在场景空闲时快进到该时刻开演；已到/已过：照常开演，不跳过、不倒填；
+  // - 进行中的事件按节点推进；节点有跨日开放时间且未到时，同样由正文快进。
+  // 只生成提示，不拦截、不改写回复。
+  function schedule(book,states,timeText,world={}){
     const list=Array.isArray(book)?book:(book?.list||[]);if(!list.length)return null;
-    const byId=new Map(list.map(e=>[e.id,e])),lastById=new Map(),markers=[];
-    const remember=st=>{
-      const m=String(st?.剧情||'').match(PLOT_RE);if(!m||!byId.has(m[1]))return;
-      const mark={id:m[1],node:Number(m[2]),status:m[3]};markers.push(mark);lastById.set(mark.id,mark);
-    };
-    for(const st of states||[])remember(st);
-    if(!markers.length&&world?.event&&byId.has(String(world.event)))
-      remember({剧情:`${world.event}｜节点${Number(world.node)||1}｜${world.nodeStatus||'进行中'}`});
-    const latest=markers.length?markers[markers.length-1]:null;
-    const eventDay=e=>{
-      if(Number.isSafeInteger(e?.date?.day))return e.date.day;
-      const ds=(e?.dateKeys||[]).map(k=>date(k)?.day).filter(Number.isSafeInteger);
-      return ds.length?Math.min(...ds):Infinity;
-    };
-    const totalOf=e=>Math.max(1,Array.isArray(e?.nodes)&&e.nodes.length?e.nodes.length:1);
-    const resolved=(e,m)=>!!m&&(['完成','跳过'].includes(m.status)||(m.status==='节点完成'&&Number(m.node)>=totalOf(e)));
-    const build=(e,m,reason)=>{
-      const total=totalOf(e);let node=Math.max(1,Math.min(total,Number(m?.node)||1));
-      if(m?.status==='节点完成')node++;
-      if(node>total)return null;
-      const scene=e.nodes?.[node-1];
-      return {event:e,node,total,scene:scene&&scene!=='（全事件）'?scene:e.content,clock:now.text,reason};
-    };
-    const current=latest&&byId.get(latest.id);
-    const matches=list.filter(e=>Array.isArray(e.dateKeys)&&e.dateKeys.includes(now.text));
-    if(current&&!resolved(current,latest)&&eventDay(current)<=now.day){
-      const hasNewerDue=matches.some(e=>eventDay(e)>eventDay(current)&&!resolved(e,lastById.get(e.id)));
-      if(!hasNewerDue)return build(current,latest,matches.some(e=>e.id===current.id)?'active-date-match':'continue-active');
+    const now=date(timeText),index=Object.fromEntries(list.map((e,i)=>[e.id,i]));
+    let last=null;
+    for(const st of states||[]){
+      const m=String(st?.剧情||'').match(PLOT_RE);
+      if(m&&index[m[1]]!==undefined)last={id:m[1],node:Number(m[2]),status:m[3]};
     }
-    if(!matches.length)return null;
-    const newestDay=Math.max(...matches.map(eventDay));
-    const due=matches.filter(e=>eventDay(e)===newestDay&&!resolved(e,lastById.get(e.id)));
-    if(!due.length)return null;
-    const sameDayActive=latest&&due.find(e=>e.id===latest.id);
-    return build(sameDayActive||due[0],sameDayActive?latest:lastById.get(due[0].id),'date-trigger');
+    if(!last&&world?.event&&index[String(world.event)]!==undefined)
+      last={id:String(world.event),node:Number(world.node)||1,status:world.nodeStatus||'进行中'};
+    const totalOf=e=>Math.max(1,Array.isArray(e?.nodes)&&e.nodes.length?e.nodes.length:1);
+    const sceneOf=(e,n)=>{const t=e.nodes?.[n-1];return t&&t!=='（全事件）'?t:e.content;};
+    let i=0,node=1,active=false;
+    if(last){
+      const cur=list[index[last.id]],total=totalOf(cur);
+      const done=last.status==='完成'||last.status==='跳过'||(last.status==='节点完成'&&last.node>=total);
+      if(done)i=index[last.id]+1;
+      else{i=index[last.id];active=true;node=Math.max(1,Math.min(total,(Number(last.node)||1)+(last.status==='节点完成'?1:0)));}
+    }
+    const clock=now?.text||'';
+    if(i>=list.length)return {kind:'finished',clock,previous:last?list[index[last.id]]:null};
+    const event=list[i],total=totalOf(event),next=list[i+1]||null;
+    const location=((event.content.match(/主要地点[:：]\s*([^\n]+)/)||[])[1]||'').trim();
+    const base={event,node,total,location,stage:event.stage,clock,next,previous:last&&!active?list[index[last.id]]:null};
+    if(active){
+      const open=nodeMinimum(NODE_OPEN,event.id,node);
+      const wait=now&&open&&now.minute<open.minute?open:null;
+      return {...base,kind:'active',scene:sceneOf(event,node),nextScene:node<total?sceneOf(event,node+1):'',wait,waitMinutes:wait?wait.minute-now.minute:0,reason:wait?'node-wait':'continue-active'};
+    }
+    const target=event.date;
+    const upcoming=!!(now&&target&&now.minute<event.startMinute);
+    return {...base,kind:upcoming?'upcoming':'start',scene:sceneOf(event,1),nextScene:total>1?sceneOf(event,2):'',
+      target,waitMinutes:upcoming?event.startMinute-now.minute:0,late:!!(now&&now.minute>event.lastStartMinute),
+      reason:upcoming?'fast-forward':(now?'due':'no-clock')};
+  }
+  // 兼容旧接口名：桥接器早期版本调用 dateActivation。
+  function dateActivation(book,states,timeText,world={}){
+    const plan=schedule(book,states,timeText,world);
+    return plan&&plan.kind!=='finished'?plan:null;
   }
   function position(book,states,world={},timeText='',opts={}){
     const list=book?.list||[];if(!list.length)return null;
@@ -119,7 +126,7 @@
       if(!st)continue; latest=st;
       const g=String(st.剧情||''),m=g.match(PLOT_RE);
       if(m&&index[m[1]]!==undefined){
-        const cur={id:m[1],node:Number(m[2]),status:m[3],bodyPresent:st.__plotBodyPresent};
+        const skip=m[3]==='跳过',cur={id:m[1],node:skip?list[index[m[1]]].nodes.length:Number(m[2]),status:skip?'完成':m[3],bodyPresent:skip?true:st.__plotBodyPresent};
         if(last&&!sequenceConflict){
           const a=index[last.id],b=index[cur.id],total=list[a].nodes.length;
           if(last.status==='跳过')sequenceConflict=`旧记录把 ${last.id} 标为跳过，不能视为已发生。`;
@@ -209,99 +216,98 @@
   }
   // Only directly stated, unambiguous cross-day facts are machine checked.
   // Other prose chronology remains a prompt constraint and cannot be semantically proven by this module.
-  // Under the explicit fictional calendar above, year 3 includes Feb 29.
-  // This keeps EP199's established next-morning guard without inventing a real-world year.
+  // Dates below follow the compressed 1997–1998 chain timeline (tools/timeline/plan.cjs).
   const NODE_OPEN={
-    EP005:{4:"第1年 6月14日 00:00"},
-    EP033:{4:"第1年 11月5日 00:00"},
-    EP084:{2:"第2年 10月25日 00:00"},
-    EP109:{2:"第2年 11月30日 00:00"},
-    EP112:{2:"第2年 12月3日 10:00"},
-    EP113:{1:"第2年 12月3日 10:00"},
-    EP128:{2:"第2年 12月18日 00:00"},
-    EP165:{2:"第3年 1月26日 00:00"},
-    EP199:{2:"第3年 2月29日 00:00"},
-    EP273:{2:"第3年 8月2日 00:00"},
-    EP275:{2:"第3年 8月7日 00:00"},
-    MOV04:{3:"第3年 3月8日 00:00"}
+    EP005:{4:"1997年 5月28日 00:00"},
+    EP033:{4:"1997年 7月26日 00:00"},
+    EP084:{2:"1997年 10月31日 00:00"},
+    EP109:{2:"1997年 11月29日 00:00"},
+    EP112:{2:"1997年 12月2日 10:00"},
+    EP113:{1:"1997年 12月2日 10:00"},
+    EP128:{2:"1997年 12月17日 00:00"},
+    EP165:{2:"1998年 1月25日 00:00"},
+    EP199:{2:"1998年 2月28日 00:00"},
+    EP273:{2:"1998年 5月24日 00:00"},
+    EP275:{2:"1998年 5月29日 00:00"},
+    MOV04:{3:"1998年 3月8日 00:00"}
   };
   const NODE_FINISH={
-    EP002:{4:"第1年 5月24日 00:00"},
-    EP003:{2:"第1年 5月25日 00:00"},
-    EP004:{4:"第1年 6月4日 00:00"},
-    EP011:{2:"第1年 7月29日 00:00"},
-    EP013:{4:"第1年 8月4日 00:00"},
-    EP014:{2:"第1年 8月7日 00:00"},
-    EP020:{2:"第1年 8月26日 00:00",4:"第1年 8月28日 00:00"},
-    EP023:{3:"第1年 9月10日 00:00"},
-    EP033:{3:"第1年 11月5日 00:00"},
-    SP02:{3:"第1年 12月29日 00:00"},
-    EP050:{2:"第2年 3月26日 00:00"},
-    EP075:{2:"第2年 9月2日 00:00"},
-    EP077:{4:"第2年 9月4日 00:00"},
-    EP079:{3:"第2年 9月7日 00:00"},
-    EP084:{1:"第2年 10月25日 00:00"},
-    EP096:{1:"第2年 11月7日 00:00"},
-    EP097:{1:"第2年 11月8日 00:00"},
-    EP099:{2:"第2年 11月10日 00:00"},
-    EP101:{2:"第2年 11月12日 00:00"},
-    EP102:{1:"第2年 11月13日 00:00"},
-    EP104:{2:"第2年 11月17日 00:00"},
-    EP105:{2:"第2年 11月18日 00:00"},
-    EP106:{2:"第2年 11月19日 00:00"},
-    EP112:{1:"第2年 12月3日 10:00"},
-    EP117:{2:"第2年 12月7日 00:00"},
-    EP123:{1:"第2年 12月13日 00:00"},
-    EP124:{1:"第2年 12月14日 00:00"},
-    EP125:{1:"第2年 12月15日 00:00"},
-    EP126:{1:"第2年 12月16日 00:00"},
-    EP127:{1:"第2年 12月17日 00:00"},
-    EP130:{1:"第2年 12月20日 00:00"},
-    EP135:{1:"第2年 12月25日 00:00"},
-    EP136:{1:"第2年 12月26日 00:00"},
-    EP137:{1:"第2年 12月27日 00:00"},
-    EP140:{1:"第2年 12月30日 00:00"},
-    EP151:{1:"第3年 1月10日 00:00"},
-    EP153:{1:"第3年 1月12日 00:00"},
-    EP154:{1:"第3年 1月13日 00:00"},
-    EP156:{1:"第3年 1月17日 00:00"},
-    EP160:{1:"第3年 1月21日 00:00"},
-    EP167:{1:"第3年 1月28日 00:00"},
-    EP172:{2:"第3年 2月2日 00:00"},
-    EP176:{1:"第3年 2月6日 00:00"},
-    EP177:{2:"第3年 2月7日 00:00"},
-    EP179:{1:"第3年 2月9日 00:00"},
-    EP187:{1:"第3年 2月17日 00:00"},
-    EP194:{2:"第3年 2月24日 00:00"},
-    EP199:{1:"第3年 2月29日 00:00"},
-    EP205:{1:"第3年 3月7日 00:00"},
-    EP212:{1:"第3年 3月16日 00:00"},
-    EP213:{1:"第3年 3月17日 00:00"},
-    EP216:{1:"第3年 3月20日 00:00"},
-    EP217:{1:"第3年 3月21日 00:00"},
-    EP218:{1:"第3年 3月22日 00:00"},
-    EP219:{1:"第3年 3月23日 00:00"},
-    EP220:{1:"第3年 3月24日 00:00"},
-    EP222:{1:"第3年 3月26日 00:00"},
-    EP223:{2:"第3年 3月27日 00:00"},
-    EP225:{1:"第3年 3月29日 00:00"},
-    EP226:{1:"第3年 3月30日 00:00"},
-    EP229:{1:"第3年 4月2日 00:00"},
-    EP230:{1:"第3年 4月3日 00:00"},
-    EP231:{1:"第3年 4月4日 00:00"},
-    EP246:{1:"第3年 4月19日 00:00"},
-    EP252:{2:"第3年 4月25日 00:00"},
-    EP258:{2:"第3年 5月4日 00:00"},
-    EP259:{1:"第3年 5月5日 00:00"},
-    EP264:{1:"第3年 5月10日 00:00"},
-    EP267:{1:"第3年 7月28日 00:00"},
-    EP268:{1:"第3年 7月29日 00:00"},
-    EP269:{1:"第3年 7月30日 00:00"},
-    EP270:{1:"第3年 7月31日 00:00"},
-    EP273:{1:"第3年 8月2日 00:00"},
-    EP274:{2:"第3年 8月4日 00:00"},
-    MOV04:{2:"第3年 3月8日 00:00"},
-    MOV05:{5:"第3年 5月1日 00:00"}
+    EP002:{4:"1997年 5月23日 00:00"},
+    EP003:{2:"1997年 5月24日 00:00"},
+    EP004:{4:"1997年 5月26日 00:00"},
+    EP011:{2:"1997年 6月10日 00:00"},
+    EP013:{4:"1997年 6月14日 00:00"},
+    EP014:{2:"1997年 6月16日 00:00"},
+    EP020:{2:"1997年 6月28日 00:00",4:"1997年 6月30日 00:00"},
+    EP023:{3:"1997年 7月6日 00:00"},
+    EP033:{3:"1997年 7月26日 00:00"},
+    SP02:{3:"1997年 8月9日 00:00"},
+    EP050:{2:"1997年 9月2日 00:00"},
+    EP075:{2:"1997年 10月20日 00:00"},
+    EP077:{4:"1997年 10月22日 00:00"},
+    EP079:{3:"1997年 10月25日 00:00"},
+    EP084:{1:"1997年 10月31日 00:00"},
+    EP096:{1:"1997年 11月13日 00:00"},
+    EP097:{1:"1997年 11月14日 00:00"},
+    EP099:{2:"1997年 11月16日 00:00"},
+    EP101:{2:"1997年 11月18日 00:00"},
+    EP102:{1:"1997年 11月19日 00:00"},
+    EP104:{2:"1997年 11月22日 00:00"},
+    EP105:{2:"1997年 11月23日 00:00"},
+    EP106:{2:"1997年 11月24日 00:00"},
+    EP112:{1:"1997年 12月2日 10:00"},
+    EP117:{2:"1997年 12月6日 00:00"},
+    EP123:{1:"1997年 12月12日 00:00"},
+    EP124:{1:"1997年 12月13日 00:00"},
+    EP125:{1:"1997年 12月14日 00:00"},
+    EP126:{1:"1997年 12月15日 00:00"},
+    EP127:{1:"1997年 12月16日 00:00"},
+    EP130:{1:"1997年 12月19日 00:00"},
+    EP135:{1:"1997年 12月24日 00:00"},
+    EP136:{1:"1997年 12月25日 00:00"},
+    EP137:{1:"1997年 12月26日 00:00"},
+    EP140:{1:"1997年 12月29日 00:00"},
+    EP151:{1:"1998年 1月9日 00:00"},
+    EP153:{1:"1998年 1月11日 00:00"},
+    EP154:{1:"1998年 1月12日 00:00"},
+    EP156:{1:"1998年 1月16日 00:00"},
+    EP160:{1:"1998年 1月20日 00:00"},
+    EP167:{1:"1998年 1月27日 00:00"},
+    EP172:{2:"1998年 2月1日 00:00"},
+    EP176:{1:"1998年 2月5日 00:00"},
+    EP177:{2:"1998年 2月6日 00:00"},
+    EP179:{1:"1998年 2月8日 00:00"},
+    EP187:{1:"1998年 2月16日 00:00"},
+    EP194:{2:"1998年 2月23日 00:00"},
+    EP199:{1:"1998年 2月28日 00:00"},
+    EP205:{1:"1998年 3月7日 00:00"},
+    EP212:{1:"1998年 3月16日 00:00"},
+    EP213:{1:"1998年 3月17日 00:00"},
+    EP216:{1:"1998年 3月20日 00:00"},
+    EP217:{1:"1998年 3月21日 00:00"},
+    EP218:{1:"1998年 3月22日 00:00"},
+    EP219:{1:"1998年 3月23日 00:00"},
+    EP220:{1:"1998年 3月24日 00:00"},
+    EP222:{1:"1998年 3月26日 00:00"},
+    EP223:{2:"1998年 3月27日 00:00"},
+    EP225:{1:"1998年 3月29日 00:00"},
+    EP226:{1:"1998年 3月30日 00:00"},
+    EP229:{1:"1998年 4月2日 00:00"},
+    EP230:{1:"1998年 4月3日 00:00"},
+    EP231:{1:"1998年 4月4日 00:00"},
+    EP246:{1:"1998年 4月19日 00:00"},
+    EP252:{2:"1998年 4月25日 00:00"},
+    EP258:{2:"1998年 5月3日 00:00"},
+    EP259:{1:"1998年 5月4日 00:00"},
+    EP264:{1:"1998年 5月9日 00:00"},
+    EP267:{1:"1998年 5月19日 00:00"},
+    EP268:{1:"1998年 5月20日 00:00"},
+    EP269:{1:"1998年 5月21日 00:00"},
+    EP270:{1:"1998年 5月22日 00:00"},
+    EP273:{1:"1998年 5月24日 00:00"},
+    EP274:{2:"1998年 5月26日 00:00"},
+    MOV04:{2:"1998年 3月8日 00:00"},
+    MOV05:{5:"1998年 5月1日 00:00"}
   };
   function nodeMinimum(table,event,node){const v=table[event]?.[node];return v?date(v):null;}
   function onsetFailure(event,previous,nextState,end){
@@ -341,7 +347,7 @@
         previousTime=t;continue;
       }
       if(!m||indexes[m[1]]===undefined)return '旧记录的剧情状态缺失、格式不明或事件不在当前世界书；无法核对节点顺序。';
-      const id=m[1],node=Number(m[2]),status=m[3],i=indexes[id],e=list[i];
+      const id=m[1],i=indexes[id],e=list[i],skip=m[3]==='跳过',node=skip?e.nodes.length:Number(m[2]),status=skip?'完成':m[3];
       const wrongStage=stageFailure(st,e);if(wrongStage)return '旧记录的'+wrongStage;
       if(!seenPlot){
         // An old or compressed chat may legitimately start mid-story. The first visible
@@ -352,10 +358,9 @@
         // unseen history; do not demand a declared onset record for it.
         firstIsStart=(i===0&&node===1);
       }
-      if(status==='跳过')return `旧记录把 ${id} 标为跳过，不能视为已发生。`;
       if(node<1||node>e.nodes.length)return `旧记录的 ${id} 节点${node} 超出范围。`;
       if(status==='完成'&&node!==e.nodes.length)return `旧记录在 ${id} 最后一个节点之前标记整件事件完成。`;
-      if(['完成','节点完成'].includes(status)&&st.__plotBodyPresent===false)return `旧记录只标记 ${id} 节点${node} 已完成，但没有可核对的正文。`;
+      if(!skip&&['完成','节点完成'].includes(status)&&st.__plotBodyPresent===false)return `旧记录只标记 ${id} 节点${node} 已完成，但没有可核对的正文。`;
       if(t.minute<e.startMinute)return `旧记录的 ${id} 时间早于固定开始窗口。`;
       const limit=Math.min(e.endMinute,list[i+1]?.lastStartMinute??Infinity);
       // The first visible state of an old chat is a snapshot of where the story already
@@ -390,8 +395,8 @@
   // Runtime only schedules date-keyed worldbook scenes; this compatibility validator never gates a reply.
   // Never block, rewrite, or classify a reply as invalid.
   function validate(book,pos,previousState,nextState,world={}){
-    return {ok:true,policy:'date-key-autostart-v1'};
+    return {ok:true,policy:'queue-chain-fastforward-v1'};
   }
-  const api={version:'20261113-comprehensive-fix-v6',worldbookStoryPolicy:'date-key-autostart-v1',PLOT_RE,FREE_RE,CALENDAR,leap,date,legacyMinute,repelDeadline,makeEvents,dateActivation,position,validate,NODE_OPEN,NODE_FINISH};root.PKMPlotGuard=api;
+  const api={version:'20261113-comprehensive-fix-v6',worldbookStoryPolicy:'queue-chain-fastforward-v1',BASE_YEAR,PLOT_RE,FREE_RE,CALENDAR,leap,date,legacyMinute,repelDeadline,makeEvents,schedule,dateActivation,position,validate,NODE_OPEN,NODE_FINISH};root.PKMPlotGuard=api;
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

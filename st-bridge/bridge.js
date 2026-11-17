@@ -1,8 +1,8 @@
 import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './sprite-recovery.js?v=1.3.31';
-import * as K from './kanto-data.js?v=20261117-premier-ball';
+import * as K from './kanto-data.js?v=20261117-chain-timeline-v1';
 import './gender.js?v=20261115-gender-bond-hotfix1';
 import './battle-mechanics.js?v=20261113-comprehensive-fix-v6';
-import './plot-guard.js?v=20261115-worldbook-date-event-ability-v3';
+import './plot-guard.js?v=20261117-chain-timeline-v1';
 import './patch-guard.js?v=20261116-bond-guard-hotfix2';
 import './bond-sync.js?v=20261116-bond-guard-hotfix2';
 import '../src/engine/gear-resolve.js?v=20261113-comprehensive-fix-v6';
@@ -44,7 +44,7 @@ const EXPECTED_BUILD='20261113-comprehensive-fix-v6';
 const REPAIR_BUILD='20261116-bond-guard-hotfix2';
 // Battle-site handshake versions are tracked separately from the card-side repair build.
 const BATTLE_SITE_BUILD='20261116-ps-move-scripts-v1', BATTLE_RULES_BUILD='20261116-bond-npc-moves-team-v1';
-if(K.VERSION!=='1.3.66-comprehensive-v6'||globalThis.PKMNormalAbility?.version!=='20261115-normal-ability-random-v2'||globalThis.PKMGender?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.worldbookStoryPolicy!=='date-key-autostart-v1'||globalThis.PKMPatchGuard?.version!==REPAIR_BUILD||globalThis.PKMBondSync?.version!==REPAIR_BUILD||globalThis.PKMGearResolve?.version!==EXPECTED_BUILD||globalThis.PKMBattleGear?.fixVersion!==EXPECTED_BUILD)
+if(K.VERSION!=='1.3.66-comprehensive-v6'||globalThis.PKMNormalAbility?.version!=='20261115-normal-ability-random-v2'||globalThis.PKMGender?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.worldbookStoryPolicy!=='queue-chain-fastforward-v1'||globalThis.PKMPatchGuard?.version!==REPAIR_BUILD||globalThis.PKMBondSync?.version!==REPAIR_BUILD||globalThis.PKMGearResolve?.version!==EXPECTED_BUILD||globalThis.PKMBattleGear?.fixVersion!==EXPECTED_BUILD)
   throw new Error('修复模块版本不完整：请先部署本包全部覆盖文件并刷新缓存。');
 const VERSION = K.VERSION;
 const W = window;
@@ -664,7 +664,7 @@ function parseState(text) {
 function parseDate(s) {
   const d=PKMPlotGuard.date(s);if(!d)return null;
   // The non-plot displays historically use noon for a date without a time.
-  return {...d,h:d.hasTime?d.h:12,mi:d.hasTime?d.mi:0,text:`第${d.y}年 ${d.mo}月${d.d}日`};
+  return {...d,h:d.hasTime?d.h:12,mi:d.hasTime?d.mi:0,text:`${d.year}年 ${d.mo}月${d.d}日`};
 }
 // Migrate only the working snapshot, never rewrite earlier chat messages. v5
 // stored 31-day-month clock numbers; an undecodable value is retained for
@@ -765,7 +765,7 @@ function cardEntries() { const c = ctx(); const ch = c?.characters?.[c?.characte
 function defaultPkm() {
   if (!initvarCache) {
     const e = cardEntries().find(x => /\[initvar\]/i.test(x.comment || ''));
-    try { initvarCache = JSON.parse(e.content).pkm; } catch (_) { initvarCache = { player: { name: '{{user}}', money: 10000, badges: [], bag: { 精灵球: 10, 伤药: 20, 活力碎片: 5, 'PP回复药': 5 }, reputation: 0 }, party: { slots: [], box: [], follow: null }, dex: { seen: {}, caught: [], shiny: {} }, world: { location: '真新镇·大木研究所', time: '第1年 5月22日 07:00', mode: '同行模式' }, npcs: { records: {} }, battle: { count: 0, wins: 0, lastResult: null, done: [] } }; }
+    try { initvarCache = JSON.parse(e.content).pkm; } catch (_) { initvarCache = { player: { name: '{{user}}', money: 10000, badges: [], bag: { 精灵球: 10, 伤药: 20, 活力碎片: 5, 'PP回复药': 5 }, reputation: 0 }, party: { slots: [], box: [], follow: null }, dex: { seen: {}, caught: [], shiny: {} }, world: { location: '真新镇·大木研究所', time: '1997年 5月22日 07:00', mode: '同行模式' }, npcs: { records: {} }, battle: { count: 0, wins: 0, lastResult: null, done: [] } }; }
   }
   const pkm = clone(initvarCache);
   if (pkm.player && /\{\{user\}\}/.test(pkm.player.name || '')) pkm.player.name = userName();
@@ -1143,7 +1143,7 @@ function makeStarter(species, nickname, mode, choice='预设') {
     name: species, species, nickname: nickname || null, gender: sex, lv: 5, quality: 'medium',
     nature: K.NATURES[Math.floor(Math.random() * K.NATURES.length)], ability: selectSpeciesAbility(species, null, Math.random), isLead: true, isAce: false,
     moves: s.moves.slice(), ball: '精灵球', uid: uid(), friendship: { official: FRIENDSHIP_STARTER_BASE },
-    met: mode === '沙盒模式' ? '第1年 5月22日 · 真新镇·大木研究所后院，大木博士托付' : '第1年 5月22日 · 真新镇·大木研究所，大木博士赠送',
+    met: mode === '沙盒模式' ? '1997年 5月22日 · 真新镇·大木研究所后院，大木博士托付' : '1997年 5月22日 · 真新镇·大木研究所，大木博士赠送',
     notes: mode === '小智模式' ? '大木博士给的最后一只宝可梦，不肯进精灵球' : '大木博士给的第一只宝可梦',
   });
   mon.quality = null; ensureIndividual(mon); // 随机个体值（按总和推算资质）
@@ -1161,7 +1161,7 @@ const worldReady = W.PKM_BUNDLED_PLOT ? Promise.resolve() : fetch(BASE + 'st-bri
   .then(r => (r.ok ? r.json() : null)).then(j => {
     if(j?.version==='20261113-comprehensive-fix-v6'&&Array.isArray(j.entries)&&j.entries.length){
       onlineEntries=j.entries;onlineMeta={version:j.version,count:j.entries.length};eventCache=null;refreshInjection();
-      LOG('世界书事件数据已加载 '+j.entries.length+' 条（按游戏日期自动选取剧情场景；不做剧情阻断）');
+      LOG('世界书事件数据已加载 '+j.entries.length+' 条（主线按事件链推进，未到时间自动快进；不做剧情阻断）');
     } else LOG('线上世界书版本未匹配，回退卡内日期事件数据；剧情调度仅按日期注入场景，不阻断生成。');
   }).catch(e=>LOG('线上世界书加载失败，回退卡内修订版',e?.message||e));
 // Prefer the actual card's book; a partial book must not be silently mixed with
@@ -1266,14 +1266,46 @@ function bondRules(pkm, st) {
     '【宝可梦叫声】宝可梦（会说话的喵喵除外）只会喊自己的名字或名字的音节，队伍里的叫法见上面的“叫声”。不要把名字截成不存在的叫法（例如小火龙不叫“小火小火”，应是“小火龙～！”“小～火龙！”）。',
     '【能力与 PP】宝可梦的个体值、性格、能力值和招式剩余 PP 由脚本维护；只有实际完成宝可梦中心治疗后才将队伍每只 hp、status、pp replace 为 null（全部回满）；正文要明确说明治疗完成，路过、预约或治疗中不能回满。局部治疗只更新实际治疗对象。'].join('\n');
 }
+const durationText=min=>{const m=Math.max(0,Math.round(min)),d=Math.floor(m/1440),h=Math.floor((m%1440)/60);return d?`约${d}天${h?h+'小时':''}`:h?`约${h}小时`:'不到1小时';};
+const plotTitle=e=>`${e.id}「${e.title||e.id}」`;
+// 主线调度提示：仿“待推进事件”队首机制。事件首尾相接，上一件完成后下一件立刻成为队首；
+// 未到时间时由正文在场景空闲时快进，到时/晚到照常开演。只提供提示，不拦截生成。
+function plotSchedulePrompt(plan,st){
+  if(!plan)return '';
+  const here=st?.地点||'';
+  if(plan.kind==='finished')return `【主线调度】本卡配置的主线事件已全部完成（最后一件：${plan.previous?plotTitle(plan.previous):'—'}）。之后按玩家选择自由冒险，不再自动快进。`;
+  const e=plan.event,src=e.sourceComment||('📜事件详情·'+e.id),when=e.dateLabel.replace(/（[^）]*）\s*$/,'');
+  const head=[`【主线调度·待推进事件】${plotTitle(e)}｜阶段：${e.stage||'—'}｜预定：${when}｜地点：${plan.location||'见条目'}`,
+    `当前游戏时间：${plan.clock||'（状态栏未写时间）'}${here?`｜玩家所在：${here}`:''}${plan.previous?`｜上一件已结束：${plotTitle(plan.previous)}`:''}`];
+  const agency='玩家行动优先：玩家正在对战、购物、治疗、交谈或明确说要做别的事时，先如实写完玩家的行动，不打断、不强拉、不代替玩家行动或发言；玩家明确表示要放弃这件事时，本轮剧情行写“'+e.id+'｜节点'+plan.node+'｜跳过”，下一件事件随即成为队首，被放弃的经过不补写。';
+  const pace='节点按编号推进，每轮通常完成一个节点、最多两个；玩家的行动若已经达成某节点的目的，就算该节点完成。玩家不在场时，可用明确标注的【幕后／玩家角色尚不知情】场景演出，或把玩家合理带入；角色不知道尚未发生或没被告知的事。';
+  if(plan.kind==='active'){
+    const lines=[...head,`进行中：第${plan.node}/${plan.total}节点（世界书《${src}》）。本轮从这个节点接着演：`,plan.scene];
+    if(plan.wait)lines.push(`本节点按原文要到 ${plan.wait.h||plan.wait.mi?plan.wait.text:`${plan.wait.year}年 ${plan.wait.mo}月${plan.wait.d}日（当天合适的时段）`} 才开始（距现在${durationText(plan.waitMinutes)}）。场景空闲时，用一两句过场（休息、过夜、赶路）快进到该时刻再演本节点；状态栏时间写快进后的时刻。`);
+    if(plan.nextScene)lines.push('下一节点预告（只供衔接，不提前演出）：'+String(plan.nextScene).split('\n')[0].slice(0,80));
+    else lines.push('这是最后一个节点：真实收束后剧情行写“完成”，下一件事件会自动接上。');
+    lines.push(pace,agency);
+    return lines.join('\n');
+  }
+  const opening=[`节点1（世界书《${src}》）：`,plan.scene];
+  if(e.hook)opening.push('介入点：'+e.hook);
+  if(plan.kind==='upcoming'){
+    return [...head,`距离预定开始还有${durationText(plan.waitMinutes)}。`,
+      `【自动快进】判断本轮场景是否空闲：玩家这轮没有具体待办（例如继续赶路、休息、“然后呢”、“随便”、简短回应），上一幕已经收束，也没有进行中的对战、购物、治疗或对话——那么本幕先用两三句过场概括这段时间（沿途的道路与城镇、训练、露营、天气），直接快进到 ${e.date?.hasTime?e.date.text:(e.date?.text||'')+' 当天合适的时段'}，抵达“${plan.location||'事件地点'}”，然后开演节点1。状态栏的时间、地点写快进之后的实际值。`,
+      '如果玩家正在做具体的事，或明确说要停留、自由活动、去别处：照玩家的意思写，不快进；可以在本幕末尾自然带出动身的念头。下一轮场景空闲时再快进。时间不能倒退；快进只到预定开始时刻为止，不要越过它。',
+      '人物不能预知这件事；预告信息只用于安排节奏和场景。',
+      ...opening,pace,agency].join('\n');
+  }
+  return [...head,plan.late?'预定时间已过：照常开始这件事，按当前实际时间演，不倒填时间；可用一句话自然交代事情为何仍在发生。':'预定时间已到：本轮开始这件事。',
+    `玩家不在“${plan.location||'事件地点'}”时，先用简短的赶路过场把一行人带到那里（写明经过的道路与花费的时间，状态栏时间、地点如实更新），再开演；不得瞬移。新事件开始后剧情行写“${e.id}｜节点1｜进行中”。`,
+    ...opening,pace,agency].join('\n');
+}
 function dateDrivenPlotPrompt(messages,st,pkm) {
   try {
     const states=(messages||[]).filter(m=>m&&!m.is_user&&!m.is_system).map(m=>parseState(m.mes)).filter(Boolean);
-    const plan=PKMPlotGuard.dateActivation(events(),states,st?.时间||pkm?.world?.time||'',pkm?.world||{});
-    if(!plan)return '';
-    const event=plan.event,title=event.title||event.id,source=event.sourceComment||('📜事件详情·'+event.id);
-    return `【日期自动触发的世界书剧情】\n游戏时间：${plan.clock}\n当前日期对应条目：《${source}》｜${event.id}「${title}」\n本轮直接按该世界书条目的第${plan.node}/${plan.total}节点进入正文；以下是该节点原文，作为当前场景素材自然续写，不要把它写成系统提醒，也不要求玩家编辑或重新生成。\n${plan.scene}\n玩家行动、已经发生的正文与存档优先；旧事件未完成、节点编号不一致或剧情行没更新，都不能挡住本日期事件触发。不要补演旧节点，不代替玩家行动；真实演完后照常更新剧情行。`;
-  } catch(e) { LOG('日期剧情调度失败，继续正常生成',e?.message||e); return ''; }
+    const plan=PKMPlotGuard.schedule(events(),states,st?.时间||pkm?.world?.time||'',pkm?.world||{});
+    return plotSchedulePrompt(plan,st||{地点:pkm?.world?.location});
+  } catch(e) { LOG('主线调度失败，继续正常生成',e?.message||e); return ''; }
 }
 function buildInjection() {
   const c = chat().slice(0, injectionCutoff === Infinity ? undefined : injectionCutoff + 1); if (!c.length) return '';
@@ -2603,7 +2635,7 @@ function renderSetup(el) {
         <div class="pko-ribbon">动画关都篇 · 你的旅程由此开始</div>
         <img class="pko-logo" src="${IMG('logo-pokemon.webp')}" alt="Pokémon" onerror="this.remove()">
         <h1 class="pko-cn-title">关都之旅</h1>
-        <p class="pko-quote">第1年 5月22日，真新镇。<br>今天，是新人训练家出发的日子。</p>
+        <p class="pko-quote">1997年 5月22日，真新镇。<br>今天，是新人训练家出发的日子。</p>
         <div class="pko-menu">
           <button class="pko-primary" data-act="next"><span class="n">01</span><span><b>开始旅程</b><small>NEW JOURNEY</small></span><i>→</i></button>
           <button class="pko-second" data-act="about"><span class="n">02</span><span><b>旅程说明</b><small>HOW TO PLAY</small></span><i>${S.about ? '↑' : '↗'}</i></button>
@@ -2611,7 +2643,7 @@ function renderSetup(el) {
         <div class="pko-meta"><span>三种旅程模式</span><span>网页实战对战</span><span>图鉴 · 队伍 · 仓库</span></div>
       </div>
       ${S.about ? `<div class="pko-about"><b>📖 旅程说明</b><ul>
-        <li>🗓️ 故事从第1年 5月22日的真新镇开始，沿着动画关都篇的时间线推进；你可以同行、扮演小智，或者自由旅行。</li>
+        <li>🗓️ 故事从1997年 5月22日的真新镇开始，沿着动画的时间线一集接一集推进（事件之间没戏时会自动快进到下一件事）；你可以同行、扮演小智，或者自由旅行。</li>
         <li>⚔️ 你亲自参与的对战会打开全屏战斗界面，在你自己的对战网页里实际演算，胜负和体力会自动写回队伍。</li>
         <li>📕 每条回复末尾是图鉴状态栏（训练家 / 图鉴 / 背包 / 好感 / 地图 / 附近）。</li>
         <li>🔴 右下角的精灵球是队伍与电脑，可以换首发，也可以让宝可梦出球跟着你。</li></ul></div>` : ''}
@@ -2794,7 +2826,7 @@ async function submitSetup() {
       else delete pkm.integration.pendingStarter;
       for(const mon of [...givenParty,...box]){
         addSeen(pkm,mon.species,'EP001');
-        pkm.dex.seen[mon.species]=['EP001',info.start.location,'第1年 5月22日'];
+        pkm.dex.seen[mon.species]=['EP001',info.start.location,'1997年 5月22日'];
         if(!pkm.dex.caught.includes(mon.species))pkm.dex.caught.push(mon.species);
       }
       const rec=pkm.npcs.records;

@@ -147,7 +147,7 @@ if(globalThis.PKMPlotGuard?.version!=='20261113-comprehensive-fix-v6')throw new 
       const e = entries.find(x => /\[initvar\]/i.test(x.comment || ''));
       if (e) { initialPkmCache = JSON.parse(e.content).pkm; return initialPkmCache; }
     } catch (_) {}
-    initialPkmCache = { player:{money:3000,reputation:0,badges:[],bag:{精灵球:10,伤药:5}}, party:{slots:[],box:[]}, dex:{seen:{},caught:[],shiny:{}}, world:{location:'真新镇·大木研究所',time:'第1年 5月22日 07:00',mode:'同行模式'}, battle:{count:0,wins:0} };
+    initialPkmCache = { player:{money:3000,reputation:0,badges:[],bag:{精灵球:10,伤药:5}}, party:{slots:[],box:[]}, dex:{seen:{},caught:[],shiny:{}}, world:{location:'真新镇·大木研究所',time:'1997年 5月22日 07:00',mode:'同行模式'}, battle:{count:0,wins:0} };
     return initialPkmCache;
   }
   function stableKey(v) {
