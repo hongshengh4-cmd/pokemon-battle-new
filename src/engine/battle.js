@@ -424,7 +424,7 @@
     if (!baseMove) return baseMove;
     if (baseMove.category === 'Status' || !baseMove.basePower) {
       const guard = MOVES.maxguard || { id: 'maxguard', name: '极巨防壁', type: 'Normal', category: 'Status', basePower: 0, accuracy: true, pp: 10, priority: 4, target: 'self', volatileStatus: 'maxguard', flags: {} };
-      return { ...guard, _isMax: true, _baseId: baseMove.id, ppLeft: baseMove.ppLeft };
+      return { ...guard, id: 'maxguard', _isMax: true, _baseId: baseMove.id, ppLeft: baseMove.ppLeft };
     }
     let info = MECH?.maxMoveForType(baseMove.type) || { id: 'maxstrike', name: '极巨攻击' };
     let name = info.name, id = info.id;

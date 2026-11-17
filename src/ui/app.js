@@ -150,14 +150,20 @@ installSpriteRecovery(document);
   const zhNature = id => !id ? '无修正' : (ZH.natures?.[normId(id)] || '未知性格');
   const displayPokemonName = p => p.hasNickname ? p.name : zhSpecies(p.speciesId, p.speciesName || p.name);
   const displayItemName = item => !item ? '' : (PKMMechanics.ITEMS[item.id]?.name || '未知道具');
+  const hasCjk = s => /[\u3400-\u9fff]/.test(String(s || ''));
   function displayMoveName(shown, base) {
     if (!shown) return '未知招式';
     if (shown._isZ) return `Ｚ招式·${zhMove(shown._baseId || base?.id, base?.name || '')}`;
+    // 只显示中文：缺 id 时按英文名换算 id 再查中文表（如 Max Guard → maxguard → 极巨防壁）。
+    const id = shown.id || normId(shown.name) || (shown._isMax && shown.volatileStatus === 'maxguard' ? 'maxguard' : '');
     if (shown._isMax) {
-      if (String(shown.id || '').startsWith('gmax')) return `超极巨${zhType(shown.type)}招式`;
-      return zhMove(shown.id, shown.name);
+      if (String(id).startsWith('gmax')) return `超极巨${zhType(shown.type)}招式`;
+      if (shown.category === 'Status' || shown.volatileStatus === 'maxguard') return ZH.moves?.maxguard || '极巨防壁';
     }
-    return zhMove(shown.id, shown.name);
+    const zh = zhMove(id, '');
+    if (hasCjk(zh) && zh !== '未知招式') return zh;
+    if (shown._isMax) return `极巨${zhType(shown.type)}招式`;
+    return hasCjk(shown.name) ? shown.name : '未知招式';
   }
   function buildTextPairs() {
     const pairs = [];
@@ -256,6 +262,23 @@ installSpriteRecovery(document);
     img.parentElement?.classList.toggle('is-dynamax', !!p.dynamaxed);
     img.parentElement?.classList.toggle('is-mega', !!p.isMega);
   }
+  // 元素相对祖先的布局位置（沿 offsetParent 链累加），忽略所有 CSS transform / 动画。
+  function layoutOffsetWithin(el, ancestor) {
+    let left = 0, top = 0, node = el;
+    while (node && node !== ancestor) {
+      left += node.offsetLeft; top += node.offsetTop;
+      const parent = node.offsetParent;
+      if (!parent || (parent !== ancestor && !ancestor.contains(parent))) {
+        // 场地不在 offsetParent 链上：退回到矩形差（极少见）
+        const a = ancestor.getBoundingClientRect(), r = el.getBoundingClientRect();
+        return { left: r.left - a.left, top: r.top - a.top };
+      }
+      if (parent !== ancestor) { left += parent.clientLeft; top += parent.clientTop; }
+      else { left += ancestor.clientLeft; top += ancestor.clientTop; }
+      node = parent;
+    }
+    return { left, top };
+  }
   // Keep the measured feet unchanged; project them through the new layout size.
   function groundAlign(img, url) {
     const box = img?.parentElement;
@@ -279,13 +302,15 @@ installSpriteRecovery(document);
     let permanentScale=giant?(img._spriteState.dynamaxForm==='gmax'?1.55:1.4):(img._spriteState?.isMega?1.07:1),shiftX=0,shiftY=0;
     const arena=box.closest('.arena');
     if(giant&&arena){
-      const ar=arena.getBoundingClientRect(),br=box.getBoundingClientRect(),pivot=geometry.originY/100*img.clientHeight;
-      const floor=br.top-ar.top+box.clientHeight-27,below=img.clientHeight-pivot;
-      permanentScale=Math.min(permanentScale,(ar.height-36)/img.clientHeight,(ar.width-28)/img.clientWidth);
-      const safeFloor=Math.max(pivot*permanentScale+18,Math.min(ar.height-below*permanentScale-18,floor));
+      // 必须用布局坐标：极巨化过场时 PS 动画/入场动画会给精灵框加 transform（缩放到 0 再弹出），
+      // getBoundingClientRect 读到的是变形中的位置，算出的位移会把宝可梦整只推出场地。
+      const bo=layoutOffsetWithin(box,arena),arW=arena.offsetWidth,arH=arena.offsetHeight,pivot=geometry.originY/100*img.clientHeight;
+      const floor=bo.top+box.clientHeight-27,below=img.clientHeight-pivot;
+      permanentScale=Math.min(permanentScale,(arH-36)/img.clientHeight,(arW-28)/img.clientWidth);
+      const safeFloor=Math.max(pivot*permanentScale+18,Math.min(arH-below*permanentScale-18,floor));
       shiftY=safeFloor-floor;
-      const half=img.clientWidth*permanentScale*.5,center=br.left-ar.left+img.offsetLeft+img.clientWidth*.5;
-      shiftX=Math.max(half+14,Math.min(ar.width-half-14,center))-center;
+      const half=img.clientWidth*permanentScale*.5,center=bo.left+img.offsetLeft+img.clientWidth*.5;
+      shiftX=Math.max(half+14,Math.min(arW-half-14,center))-center;
     }
     img.style.setProperty('--sprite-scale',String(permanentScale));
     geometry=PKMSpriteSizing.ground({...inputs,permanentScale,giantShadow:giant,shadowMaxWidth:giant&&arena?arena.clientWidth*.88:undefined,shadowMaxHeight:giant?92:undefined});
@@ -300,12 +325,36 @@ installSpriteRecovery(document);
     box.style.setProperty('--aura-height', `${(img.clientHeight*permanentScale*1.05).toFixed(2)}px`);
     box.style.setProperty('--giant-height',`${(img.clientHeight*permanentScale*.92).toFixed(2)}px`);
   }
+  // v1.3.72 极巨化位置：巨大化时的落地/防出界位移是按“精灵框在场地里的位置”算的。
+  // 以前只监听精灵图本身的尺寸；切换招式菜单、名字换成“超极巨化××”、横竖屏或宿主窗口变化时，
+  // 场地高度和精灵框位置变了，精灵图却没变，旧位移被沿用，宝可梦就被推到场地外面。
+  // 现在场地、精灵框、窗口任何一个尺寸变化，都在下一帧把所有精灵重新对齐。
+  let spriteRealignFrame = 0;
+  function realignAllSprites() {
+    if (spriteRealignFrame) return;
+    const run = () => {
+      spriteRealignFrame = 0;
+      document.querySelectorAll('.arena [data-role="sprite"] > img').forEach(img => {
+        if (img.isConnected && img.complete && img.naturalWidth) groundAlign(img, img.currentSrc || img.src);
+      });
+    };
+    spriteRealignFrame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(run) : setTimeout(run, 16);
+  }
   const spriteResizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(entries => {
+    let layoutChanged = false;
     for (const entry of entries) {
-      const img = entry.target.tagName === 'IMG' ? entry.target : entry.target.querySelector(':scope > img');
-      if (img?.isConnected) groundAlign(img, img.currentSrc || img.src);
+      if (entry.target.tagName !== 'IMG') { layoutChanged = true; continue; }
+      if (entry.target.isConnected) groundAlign(entry.target, entry.target.currentSrc || entry.target.src);
     }
+    if (layoutChanged) realignAllSprites();
   });
+  function observeSpriteLayout() {
+    if (!spriteResizeObserver) return;
+    document.querySelectorAll('.arena, .arena [data-role="sprite"]').forEach(el => spriteResizeObserver.observe(el));
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', observeSpriteLayout, { once: true }); else observeSpriteLayout();
+  window.addEventListener('resize', realignAllSprites);
+  window.visualViewport?.addEventListener('resize', realignAllSprites);
   function setSprite(el, p, back) {
     // HP/menu redraws must not destroy and reload the animated GIF every time.
     const visualKey = JSON.stringify([p.speciesId, p.originalSpeciesId, !!back, !!p.dynamaxed,
@@ -347,6 +396,7 @@ installSpriteRecovery(document);
     img.src = attempts[idx];
     el.appendChild(img);
     spriteResizeObserver?.observe(img);
+    spriteResizeObserver?.observe(el);
     if (p.dynamaxed) img.classList.add('state-dynamax');
     if (p.terastallized) { img.classList.add('state-tera'); img.style.setProperty('--mech', FX_TYPE_COLORS[p.teraType] || '#67e8f9'); }
     if (p.dynamaxed) {
@@ -629,6 +679,7 @@ installSpriteRecovery(document);
       } else await waitMs(840);
       if(opts.gmax)await waitMs(300);
       img.classList.remove('dynamax-burst');
+      groundAlign(img, img.currentSrc || img.src); realignAllSprites();
     } else if (kind === 'tera') {
       img.style.setProperty('--mech', FX_TYPE_COLORS[opts.teraType] || '#67e8f9');
       img.classList.add('tera-burst');
