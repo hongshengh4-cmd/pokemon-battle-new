@@ -1130,9 +1130,9 @@ function placeMon(pkm, mon) {
   if (idx >= 0) {
     mon.slot = idx + 1;
     if (!pkm.party.slots.some(hasMon)) mon.isLead = true;
-    pkm.party.slots[idx] = mon; return `队伍第${idx + 1}格`;
+    pkm.party.slots[idx] = mon; try { setHpRegenBaseline(pkm, mon); } catch (_) {} return `队伍第${idx + 1}格`;
   }
-  delete mon.slot; mon.isLead = false; pkm.party.box.push(mon); return '电脑（大木研究所）';
+  delete mon.slot; mon.isLead = false; pkm.party.box.push(mon); try { setHpRegenBaseline(pkm, mon); } catch (_) {} return '电脑（大木研究所）';
 }
 function makeStarter(species, nickname, mode, choice='预设') {
   const s = K.STARTERS[species],id=speciesId(species);
@@ -1249,11 +1249,24 @@ function npcKeyFor(records, raw) {
   }
   return null;
 }
+// v1.3.72：读取 MVU「变量更新方式」。只有明确选了“额外模型解析”才由更新模型记账；
+// 其余情况（随AI输出 / 未装 MVU，由桥接按回复里的补丁写入）都必须由剧情模型在回复末尾输出补丁。
+function mvuUpdateMode(){
+  try{
+    const s=ctx()?.extensionSettings?.mvu_settings||W.SillyTavern?.getContext?.()?.extensionSettings?.mvu_settings||P.SillyTavern?.getContext?.()?.extensionSettings?.mvu_settings;
+    return s?.更新方式==='额外模型解析'?'extra':'inline';
+  }catch(_){return 'inline';}
+}
+function updateModeRule(){
+  return mvuUpdateMode()==='extra'
+    ?'【本轮变量更新方式：MVU 额外模型解析（脚本已检测）】变量补丁由额外的更新模型依据 [mvu_update] 生成；剧情回复不要输出 <UpdateVariable> 或 JSONPatch。'
+    :'【本轮变量更新方式：随 AI 输出（脚本已检测）】本轮没有额外的更新模型，你就是唯一的记账者。正文里发生了需要记录的变化（人物好感 love/last/why、宝可梦亲密值、背包道具、金钱、HP/状态、地点外的其他变量等，脚本已结算的项目除外）时，必须在回复最末尾（<pkm_state> 之后）输出且只输出一次 <UpdateVariable><JSONPatch>[...]</JSONPatch></UpdateVariable>；没有变化才可省略。世界书、预设或回复格式里“额外模型解析专用／剧情模型不要输出补丁／避免重复记账”的说法只适用于额外模型模式，本轮不适用。';
+}
 function bondRules(pkm, st) {
   const names = String(st?.在场 || '').split(/[、，,／/；;\s]+/).map(x => x.replace(/[（(].*?[)）]/g, '').trim()).filter(Boolean);
   const keys = [...new Set(names.map(n => { const k = npcKeyFor(pkm.npcs.records, n); return k ? `${n}=${k}` : null; }).filter(Boolean))];
   const slots = pkm.party.slots.map((s, i) => (hasMon(s) ? `${monName(s)}=slots/${i}` : null)).filter(Boolean);
-  return ['【好感与亲密值（每轮都要检查）】以下补丁写法供当前负责变量更新的模型使用：额外模型解析模式下剧情模型不输出 <UpdateVariable>；只有单模型模式才由剧情模型提交一次。脚本已结算的变化不得重复。',
+  return ['【好感与亲密值（每轮都要检查）】以下补丁写法供当前负责变量更新的模型使用（谁负责见【本轮变量更新方式】）。脚本已结算的变化不得重复。同行的小智、小霞等人和 {{user}} 一起赶路、聊天、吃饭、并肩作战，只要正文写出了具体互动，就按下面规则加好感，不要因为“一直在一起”而漏记。',
     `- 本轮 {{user}} 和在场人物有实际互动（交谈、帮忙、请客、并肩作战、吵架又和好……）时，在 <UpdateVariable> 里给他/她好感：{"op":"delta","path":"/pkm/npcs/records/<key>/love","value":2}（日常 +1~3，救命或重大事件 +5~10，冒犯、背叛为负），同时 replace 这个人的 last（本次变化值）和 why（原因，15 字内）。`,
     `- 只有正文明确发生并完成的互动才可加减好感；否定（没有道谢）、意图、假设、梦境或未执行的请求不算。why 必须对应实际动作及对象；仅在场、面向、想象或计划不算。脚本按保守文字线索核对，拿不准就不写，不能凭补丁虚构互动。`,
     `- key 必须用英文 key，不能用中文名${keys.length ? '。上一幕在场人物：' + keys.join('、') : ''}。`,
@@ -1302,12 +1315,40 @@ function plotSchedulePrompt(plan,st){
     `玩家不在“${plan.location||'事件地点'}”时，先用简短的赶路过场把一行人带到那里（写明经过的道路与花费的时间，状态栏时间、地点如实更新），再开演；不得瞬移。新事件开始后剧情行写“${e.id}｜节点1｜进行中”。`,
     ...opening,pace,agency].join('\n');
 }
+// v1.3.72 同行模式开场衔接：EP001 节点1 的原文是“小智睡过头→穿睡衣赶去研究所”，而玩家开局已在研究所，
+// 模型容易让玩家一直在研究所空等、小智迟迟不出场。这里明确同一个上午的衔接方式。
+const COMPANION_EP001_PROMPT='【同行模式·EP001 开场衔接】{{user}} 是今天领宝可梦的另一名新人，开局已在大木研究所领好伙伴。节点1里“小智睡过头、穿着睡衣冲向研究所、路上被小茂嘲讽”是这个上午同时在发生的事，不要把小智一直留在家里，也不要让 {{user}} 在研究所长时间空等。\n- {{user}} 眼前的事（与博士交谈、和小茂交手等）一收束，就用一两句过场把时间推进到小智赶到研究所（上午稍晚，状态栏时间如实写），接着按节点1末尾→节点2→节点3演：小智在门口和小茂斗嘴、得知三只初始宝可梦已被领完、领到皮卡丘、皮卡丘电人、研究所外花子送行。\n- {{user}} 在场并结识小智；按同行模式，小智会主动提出一起出发，最终一同走上1号道路（{{user}} 的回应与决定交给玩家，不代写）。\n- 本条只调整开场衔接，不改变节点内容和顺序。';
+// v1.3.72 原作伙伴阵容：按主线进度注入，防止把原作人物的收服/进化转移给 {{user}}（例：小智的绿毛虫在 EP003 进化为铁甲蛹）。
+function companionRosterPrompt(pkm,st,beforeId){
+  try{
+    const mode=String(st?.模式||pkm?.world?.mode||pkm?.integration?.profile?.mode||'');
+    if(/沙盒/.test(mode))return '';
+    const pos=storyPos(beforeId);if(!pos)return '';
+    const out=[];
+    for(const [key,r] of Object.entries(K.NPC_ROSTERS||{})){
+      if(r.skipMode&&mode.includes(r.skipMode))continue;
+      const since=r.since?pos.index(r.since):-1;
+      const met=!!pkm?.npcs?.records?.[key]?.met;
+      if(!met&&!(pos.finished||(r.since?since>=0&&since<=pos.cur:true)))continue;
+      const team=rosterNow(r,pos).map(m=>m.species+(m.ace?'（王牌）':''));
+      if(team.length)out.push(`${r.name}：${team.join('、')}`);
+    }
+    if(!out.length)return '';
+    return ['【原作伙伴当前带着的宝可梦（按主线进度，脚本生成）】'+out.join('；'),
+      '- 这些宝可梦属于原作人物本人。主线里属于他们的收服、进化、离队（例如小智的绿毛虫在 EP003 末进化为铁甲蛹、EP004 进化为巴大蝶）必须发生在原作人物自己的宝可梦身上，不能转移到 {{user}} 的宝可梦上，也不能因为 {{user}} 介入就取消。',
+      '- {{user}} 可以参与、旁观或改变主线对战的过程，但原作人物的关键结果照常落在他们身上（例如 {{user}} 帮忙击退火箭队后，小智的绿毛虫仍按原作进化）；{{user}} 自己宝可梦的进化只以脚本写入的变量为准。',
+      '- 原作人物的阵容以本表为准，除非正文已经明确改变（届时对战块写 "exact":true）。'].join('\n');
+  }catch(e){LOG('伙伴阵容提示失败',e?.message||e);return '';}
+}
 function dateDrivenPlotPrompt(messages,st,pkm) {
   try {
     const states=(messages||[]).filter(m=>m&&!m.is_user&&!m.is_system).map(m=>parseState(m.mes)).filter(Boolean);
     const registered=pkm?.integration?.profile?.mode,world={...(pkm?.world||{}),mode:registered==='沙盒模式'?'沙盒模式':(pkm?.world?.mode||registered||'')};
     const plan=PKMPlotGuard.schedule(events(),states,st?.时间||pkm?.world?.time||'',world);
-    return plotSchedulePrompt(plan,st||{地点:pkm?.world?.location});
+    let out=plotSchedulePrompt(plan,st||{地点:pkm?.world?.location});
+    const curMode=String(world.mode||states.at(-1)?.模式||'');
+    if(out&&plan&&plan.kind!=='sandbox'&&plan.event?.id==='EP001'&&(plan.kind!=='active'||plan.node<=3)&&/同行/.test(curMode))out+='\n'+COMPANION_EP001_PROMPT;
+    return out;
   } catch(e) { LOG('主线调度失败，继续正常生成',e?.message||e); return ''; }
 }
 function buildInjection() {
@@ -1319,6 +1360,7 @@ function buildInjection() {
   const parts = ['【关都之旅·存档与玩法摘要】'];
   parts.push(`当前：模式 ${st?.模式 || pkm.world.mode || '—'}｜时间 ${st?.时间 || pkm.world.time || '—'}｜地点 ${st?.地点 || pkm.world.location || '—'}`);
   if(plotPrompt)parts.push(plotPrompt);
+  {const roster=companionRosterPrompt(pkm,st,injectionCutoff);if(roster)parts.push(roster);}
   parts.push('【榴柑道馆特例】EP109 的琉丽道馆赛写 type: gym、event: EP109、opponent: 琉丽，双方各两只；引擎自动采用双打且任一只倒下整组落败。该规则不套用于同集的火箭队遭遇；双方同一步骤均倒下时不自动决出胜者，请裁定。');
   parts.push('【对战赛制自动选择】对战系统不让玩家手动切换模式；必须按正文/裁判明确的赛制自动选择。正文写“双打”、doubles，或明确双方各有两只同时出战时，生成 <pkm_battle> 配置时写顶层 "battleMode":"double"（或 rules.battleMode），并让每只出战宝可梦各选一个行动；正文明确单打时写 "battleMode":"single"。仅 teamSize、队伍人数、参赛人数或 N 对 N 名额，不代表双打；赛制未明确说明同时出战时默认单打。野生遭遇始终单打。不要询问玩家或依赖手动 UI 切换。');
   const profile=pkm.integration.profile;
@@ -1337,7 +1379,8 @@ function buildInjection() {
   const lastUser = [...c].reverse().find(m => m.is_user);
   if (lastUser && /<pkm_result>/i.test(lastUser.mes || '')) parts.push('【对战结果】玩家的上一条消息带有 <pkm_result>：按结果续写战斗经过，不改写胜负。HP/状态、精灵球消耗、收服入队、图鉴登记已由脚本写入变量，不要重复写。');
   parts.push('【变量摘要（脚本生成，以此为准）】\n' + summaryText(pkm));
-  parts.push('【正文与状态栏的记账规则】正文和实际存档必须一致。只由当前 MVU 配置指定的更新模型结算一次：额外模型解析模式由额外模型依据 [mvu_update] 生成补丁，剧情模型不要输出 <UpdateVariable> 或 JSONPatch；单模型模式才由剧情模型在回复末尾输出一次补丁。只记明确发生且已确认的变化；使用道具要同时扣背包并更新对应 HP/status，脚本已经结算的项目不得重复。桥接会读取状态栏同步时间与地点；其他数据不能凭叙事假定已写入，若更新失败请核对存档。');
+  parts.push(updateModeRule());
+  parts.push('【正文与状态栏的记账规则】正文和实际存档必须一致，按【本轮变量更新方式】由负责的模型结算一次。只记明确发生且已确认的变化；使用道具要同时扣背包并更新对应 HP/status，脚本已经结算的项目不得重复。桥接会读取状态栏同步时间与地点；其他数据不能凭叙事假定已写入，若更新失败请核对存档。');
   parts.push(bondRules(pkm, st));
   return subUser(parts.join('\n\n'));
 }
@@ -1362,6 +1405,8 @@ function pathSegs(path) {
     : p.replace(/\[(\d+)\]/g, '.$1').split('.').map(x => x.replace(/^['"]|['"]$/g, ''));
   segs = segs.filter(x => x !== '');
   if (segs[0] === 'stat_data') segs.shift();
+  // v1.3.73：漏写 pkm 前缀的路径（/player/money、/npcs/records/ash/love）按 /pkm/... 处理，与卡内 Zod 指令修正一致。
+  if (segs.length && ['player','party','dex','world','npcs','battle'].includes(segs[0])) segs.unshift('pkm');
   return segs;
 }
 function patchPlan(text,base){
@@ -1520,10 +1565,13 @@ function regenRestoreCare(mon){let changed=false;if(mon.status!=null){mon.status
 function applyPassiveRegen(pkm,timeValue){
  const now=gameMinute(timeValue);if(now==null)return false;
  const clocks=regenClock(pkm);if(!clocks)return false;let changed=false;const live=new Set();
+ // 新入队却没有计时起点（旧版收服不写起点）：用上一次结算/受伤计时的时刻补上，不再把这段时间整段丢掉。
+ const known=Object.values(clocks).map(Number).filter(v=>Number.isFinite(v)&&v<=now),fallback=known.length?Math.max(...known):null;
  const lists=[['party',pkm.party.slots||[]],['box',Array.isArray(pkm.party.box)?pkm.party.box:[]]];
  for(const [scope,list] of lists)for(let i=0;i<list.length;i++){
   const mon=list[i];if(!hasMon(mon))continue;
-  const key=regenKey(mon,i,scope),prev=clocks[key]==null?NaN:Number(clocks[key]),h=panelHpInfo(mon);live.add(key);
+  const key=regenKey(mon,i,scope),h=panelHpInfo(mon);let prev=clocks[key]==null?NaN:Number(clocks[key]);live.add(key);
+  if(!Number.isFinite(prev)&&fallback!=null){prev=fallback;clocks[key]=prev;changed=true;}
   if(!Number.isFinite(prev)||now<prev){clocks[key]=now;changed=true;continue;}
   const hours=Math.floor((now-prev)/60);if(hours<=0)continue;
   clocks[key]=prev+hours*60;changed=true;

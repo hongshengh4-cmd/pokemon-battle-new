@@ -41,6 +41,7 @@
       segs.push(part);
     }
     if (segs[0] === 'stat_data') segs.shift();
+    if (segs.length && ['player', 'party', 'dex', 'world', 'npcs', 'battle'].includes(segs[0])) segs.unshift('pkm');
     return segs;
   }
   function protectedPath(segs) {
