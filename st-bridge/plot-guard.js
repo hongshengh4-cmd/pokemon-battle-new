@@ -80,6 +80,8 @@
   // 只生成提示，不拦截、不改写回复。
   function schedule(book,states,timeText,world={}){
     const list=Array.isArray(book)?book:(book?.list||[]);if(!list.length)return null;
+    // 沙盒模式：关闭全部主线事件，不排队首、不快进。
+    if(isSandbox(states,world))return {kind:'sandbox',mode:'沙盒模式',clock:date(timeText)?.text||''};
     const now=date(timeText),index=Object.fromEntries(list.map((e,i)=>[e.id,i]));
     let last=null;
     for(const st of states||[]){
@@ -113,10 +115,15 @@
       target,waitMinutes:upcoming?event.startMinute-now.minute:0,late:!!(now&&now.minute>event.lastStartMinute),
       reason:upcoming?'fast-forward':(now?'due':'no-clock')};
   }
+  function isSandbox(states,world){
+    if(/沙盒/.test(String(world?.mode||'')))return true;
+    for(let k=(states||[]).length-1;k>=0;k--){const m=String(states[k]?.模式||'');if(m)return /沙盒/.test(m);}
+    return false;
+  }
   // 兼容旧接口名：桥接器早期版本调用 dateActivation。
   function dateActivation(book,states,timeText,world={}){
     const plan=schedule(book,states,timeText,world);
-    return plan&&plan.kind!=='finished'?plan:null;
+    return plan&&plan.kind!=='finished'&&plan.kind!=='sandbox'?plan:null;
   }
   function position(book,states,world={},timeText='',opts={}){
     const list=book?.list||[];if(!list.length)return null;
@@ -397,6 +404,6 @@
   function validate(book,pos,previousState,nextState,world={}){
     return {ok:true,policy:'queue-chain-fastforward-v1'};
   }
-  const api={version:'20261113-comprehensive-fix-v6',worldbookStoryPolicy:'queue-chain-fastforward-v1',BASE_YEAR,PLOT_RE,FREE_RE,CALENDAR,leap,date,legacyMinute,repelDeadline,makeEvents,schedule,dateActivation,position,validate,NODE_OPEN,NODE_FINISH};root.PKMPlotGuard=api;
+  const api={version:'20261113-comprehensive-fix-v6',worldbookStoryPolicy:'queue-chain-fastforward-v1',BASE_YEAR,PLOT_RE,FREE_RE,CALENDAR,leap,date,legacyMinute,repelDeadline,makeEvents,schedule,isSandbox,dateActivation,position,validate,NODE_OPEN,NODE_FINISH};root.PKMPlotGuard=api;
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof globalThis!=='undefined'?globalThis:this);
