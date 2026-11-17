@@ -1295,18 +1295,20 @@ function plotSchedulePrompt(plan,st){
   if(!plan)return '';
   if(plan.kind==='sandbox')return `【沙盒模式·主线已关闭】本局是沙盒模式：动画主线事件（各集 EP、特别篇 SP、剧场版）全部关闭，不安排、不开演、不推进、不快进、不预告任何主线事件，也不按动画日程推动剧情。本条优先于世界书《总则》《剧情推进》《主线任务》、回复格式和系统指令里关于主线事件、事件链、自动快进与幕后场景的要求。\n- 镜头只跟着玩家：不写【幕后】场景，不切到小智、小霞、小刚、火箭队等原作人物那边的视角，不叙述玩家不在场时他们身上发生的事。\n- 原作人物只是这个世界里的普通居民：不会照动画情节主动找上门或引发事件；只有玩家主动前往、寻找或偶然碰到时才自然出现，按人物档案的性格行事，但不带入动画剧情走向。道馆馆主照常在道馆接受挑战。\n- 剧情完全由玩家的行动和选择推动；玩家没有具体打算时，描写眼前的场景、给出几个可去的方向，不替玩家决定。\n- 状态栏：模式写“沙盒模式”，阶段写“自由旅行”，剧情行固定写“剧情：自由｜节点0｜进行中”。`;
   const here=st?.地点||'';
+  const companionMode=/同行/.test(String(st?.模式||st?.__mode||''));
+  const attendance=companionMode?'【同行模式·主线强制会合】下一主线时间节点必须安排 {{user}} 本人到场：队伍曾经暂别、分头行动、离队或各自旅行，都不能让 {{user}} 脱离主线。禁止在幕后/异地单独演完小智等人的节点，再让 {{user}} 听说结果；禁止因“在场：无”或 {{user}} 当前不在事件地点而跳过、标完成或永久错过节点。若当前分开，在节点开始前先用符合实际路程与时间的过场安排 {{user}} 和同行队伍重新会合、共同抵达事件地点，并更新状态栏时间、地点、在场人物；不得瞬移，不抹掉已发生的分开/离队事实。玩家正在进行明确行动时先写完，不打断；该节点保持待推进，不得后台推进，下一空闲回复再安排会合。不得代写 {{user}} 的台词、选择或战斗指令。只有玩家明确表示拒绝/放弃该事件时才停止会合，此时保留节点等待，不写“完成”或“跳过”。这条覆盖《事件详情》中“玩家不在场时幕后演出”的一般规则。':'- 当前不是同行模式，不启用主线强制会合规则。';
   if(plan.kind==='finished')return `【主线调度】本卡配置的主线事件已全部完成（最后一件：${plan.previous?plotTitle(plan.previous):'—'}）。之后按玩家选择自由冒险，不再自动快进。`;
   const e=plan.event,src=e.sourceComment||('📜事件详情·'+e.id),when=e.dateLabel.replace(/（[^）]*）\s*$/,'');
   const head=[`【主线调度·待推进事件】${plotTitle(e)}｜阶段：${e.stage||'—'}｜预定：${when}｜地点：${plan.location||'见条目'}`,
     `当前游戏时间：${plan.clock||'（状态栏未写时间）'}${here?`｜玩家所在：${here}`:''}${plan.previous?`｜上一件已结束：${plotTitle(plan.previous)}`:''}`];
   const agency='玩家行动优先：玩家正在对战、购物、治疗、交谈或明确说要做别的事时，先如实写完玩家的行动，不打断、不强拉、不代替玩家行动或发言；玩家明确表示要放弃这件事时，本轮剧情行写“'+e.id+'｜节点'+plan.node+'｜跳过”，下一件事件随即成为队首，被放弃的经过不补写。';
-  const pace='节点按编号推进，每轮通常完成一个节点、最多两个；玩家的行动若已经达成某节点的目的，就算该节点完成。玩家不在场时，可用明确标注的【幕后／玩家角色尚不知情】场景演出，或把玩家合理带入；角色不知道尚未发生或没被告知的事。';
+  const pace=companionMode?'节点按编号推进，每轮通常完成一个、最多两个；玩家行动若已经达成节点目的即可完成。同行模式禁止幕后补演或让原作人物脱离 {{user}} 单独推进节点；节点必须等 {{user}} 到场后演，细则见下方“主线强制会合”。':'节点按编号推进，每轮通常完成一个节点、最多两个；玩家的行动若已经达成某节点的目的，就算该节点完成。玩家不在场时，可用明确标注的【幕后／玩家角色尚不知情】场景演出，或把玩家合理带入；角色不知道尚未发生或没被告知的事。';
   if(plan.kind==='active'){
     const lines=[...head,`进行中：第${plan.node}/${plan.total}节点（世界书《${src}》）。本轮从这个节点接着演：`,plan.scene];
     if(plan.wait)lines.push(`本节点按原文要到 ${plan.wait.h||plan.wait.mi?plan.wait.text:`${plan.wait.year}年 ${plan.wait.mo}月${plan.wait.d}日（当天合适的时段）`} 才开始（距现在${durationText(plan.waitMinutes)}）。场景空闲时，用一两句过场（休息、过夜、赶路）快进到该时刻再演本节点；状态栏时间写快进后的时刻。`);
     if(plan.nextScene)lines.push('下一节点预告（只供衔接，不提前演出）：'+String(plan.nextScene).split('\n')[0].slice(0,80));
     else lines.push('这是最后一个节点：真实收束后剧情行写“完成”，下一件事件会自动接上。');
-    lines.push(pace,agency);
+    lines.push(pace,agency,attendance);
     return lines.join('\n');
   }
   const opening=[`节点1（世界书《${src}》）：`,plan.scene];
@@ -1316,11 +1318,11 @@ function plotSchedulePrompt(plan,st){
       `【自动快进】判断本轮场景是否空闲：玩家这轮没有具体待办（例如继续赶路、休息、“然后呢”、“随便”、简短回应），上一幕已经收束，也没有进行中的对战、购物、治疗或对话——那么本幕先用两三句过场概括这段时间（沿途的道路与城镇、训练、露营、天气），直接快进到 ${e.date?.hasTime?e.date.text:(e.date?.text||'')+' 当天合适的时段'}，抵达“${plan.location||'事件地点'}”，然后开演节点1。状态栏的时间、地点写快进之后的实际值。`,
       '如果玩家正在做具体的事，或明确说要停留、自由活动、去别处：照玩家的意思写，不快进；可以在本幕末尾自然带出动身的念头。下一轮场景空闲时再快进。时间不能倒退；快进只到预定开始时刻为止，不要越过它。',
       '人物不能预知这件事；预告信息只用于安排节奏和场景。',
-      ...opening,pace,agency].join('\n');
+      ...opening,pace,agency,attendance].join('\n');
   }
   return [...head,plan.late?'预定时间已过：照常开始这件事，按当前实际时间演，不倒填时间；可用一句话自然交代事情为何仍在发生。':'预定时间已到：本轮开始这件事。',
     `玩家不在“${plan.location||'事件地点'}”时，先用简短的赶路过场把一行人带到那里（写明经过的道路与花费的时间，状态栏时间、地点如实更新），再开演；不得瞬移。新事件开始后剧情行写“${e.id}｜节点1｜进行中”。`,
-    ...opening,pace,agency].join('\n');
+    ...opening,pace,agency,attendance].join('\n');
 }
 // v1.3.72 同行模式开场衔接：EP001 节点1 的原文是“小智睡过头→穿睡衣赶去研究所”，而玩家开局已在研究所，
 // 模型容易让玩家一直在研究所空等、小智迟迟不出场。这里明确同一个上午的衔接方式。
@@ -1352,7 +1354,7 @@ function dateDrivenPlotPrompt(messages,st,pkm) {
     const states=(messages||[]).filter(m=>m&&!m.is_user&&!m.is_system).map(m=>parseState(m.mes)).filter(Boolean);
     const registered=pkm?.integration?.profile?.mode,world={...(pkm?.world||{}),mode:registered==='沙盒模式'?'沙盒模式':(pkm?.world?.mode||registered||'')};
     const plan=PKMPlotGuard.schedule(events(),states,st?.时间||pkm?.world?.time||'',world);
-    let out=plotSchedulePrompt(plan,st||{地点:pkm?.world?.location});
+    let out=plotSchedulePrompt(plan,{...(st||{地点:pkm?.world?.location}),__mode:world.mode});
     if(out&&plan?.kind==='sandbox')out+='\n- 剧情类世界书条目（事件详情、阶段节点表、分阶段人设、剧情推进、主线任务、大会赛制）已由脚本关闭。地点档案和人物档案里提到的动画经历只是这个世界的背景资料，不是本局要发生的事；不要据此安排、重演或推进动画剧情，也不要让原作人物按动画日程出现。';
     const curMode=String(world.mode||states.at(-1)?.模式||'');
     if(out&&plan&&plan.kind!=='sandbox'&&plan.event?.id==='EP001'&&(plan.kind!=='active'||plan.node<=3)&&/同行/.test(curMode))out+='\n'+COMPANION_EP001_PROMPT;
