@@ -9012,6 +9012,36 @@ async function finishWildBatch(){
 const GYM_BADGE_HINTS=[['琉璃徽章',['琉璃徽章','榴柑','琉丽']],['灰色徽章',['灰色徽章','岩石徽章','深灰','小刚','武志']],['蓝色徽章',['蓝色徽章','华蓝','小霞']],['橙色徽章',['橙色徽章','橘色徽章','枯叶','马志士']],['彩虹徽章',['彩虹徽章','玉虹','莉佳']],['粉红徽章',['粉红徽章','粉色徽章','浅红','阿桔']],['金色徽章',['金色徽章','金黄','娜姿']],['深红徽章',['深红徽章','红莲','夏伯']],['绿色徽章',['绿色徽章','常磐','坂木']]];
 GYM_BADGE_HINTS.push(...[["飞翼徽章",["飞翼徽章","桔梗道馆","桔梗市","阿速","飞行徽章"]],["昆虫徽章",["昆虫徽章","桧皮道馆","桧皮镇","阿笔","虫系徽章"]],["常规徽章",["常规徽章","标准徽章","满金道馆","满金市","小茜","平原徽章"]],["幻影徽章",["幻影徽章","缘朱道馆","缘朱市","松叶","幽灵徽章"]],["打击徽章",["打击徽章","湛蓝道馆","湛蓝市","阿四","格斗徽章"]],["钢铁徽章",["钢铁徽章","浅葱道馆","浅葱市","阿蜜","钢系徽章"]],["冰雪徽章",["冰雪徽章","冰冻徽章","卡吉道馆","卡吉镇","柳伯","冰之徽章"]],["升龙徽章",["升龙徽章","烟墨道馆","烟墨市","小椿","龙之徽章"]]]);
 function badgeForGymConfig(cfg){if(isLiuganGym(cfg))return '琉璃徽章';const stake=String(cfg?.stakes||'');for(const [badge,hints] of GYM_BADGE_HINTS)if(stake.includes(badge)||hints.some(h=>stake.includes(h)))return badge;const text=[cfg?.title,cfg?.opponent,cfg?.id].map(x=>String(x||'')).join(' ');for(const [badge,hints] of GYM_BADGE_HINTS)if(text.includes(badge)||hints.some(h=>text.includes(h)))return badge;return null;}
+// v1.3.71 对战奖金：只有 {{user}} 赢下对战时对手付钱（{{user}} 的特权），输了不用付；NPC 之间的对战不涉及。
+// 训练家 / 劲敌 / 联盟大会 = 对手队伍最高等级 × 20，每次赢都付；道馆 = 馆主队伍最高等级 × 50，只在首次赢得该馆徽章时付。
+// 野生、火箭队、强敌不付钱。等级取实际开战的对手阵容（含按原作补进的成员），缺失时回退到对战块 team。
+const BATTLE_PRIZE_RATE={trainer:20,rival:20,league:20,gym:50};
+function battlePrizeTopLevel(payload,cfgTeam){const lv=(payload?.enemyTeam||[]).map(e=>Number(e?.level)).filter(n=>Number.isFinite(n)&&n>0);const src=lv.length?lv:(Array.isArray(cfgTeam)?cfgTeam:[]).map(e=>Number(e?.level)).filter(n=>Number.isFinite(n)&&n>0);return src.length?Math.min(100,Math.floor(Math.max(...src))):0;}
+function battlePrizeKey(cfg){return String(cfg?.opponent||cfg?.id||cfg?.title||'').replace(/\s+/g,'');}
+function awardBattlePrize(pkm,cfg,type,outcome,payload,gymBadgeAward){
+  const rate=BATTLE_PRIZE_RATE[type];
+  if(outcome!=='victory'||!rate)return null;
+  if(type==='gym'){
+    if(!gymBadgeAward){
+      // 认得出徽章却没发 = 已经拿过这枚徽章，重赛不再付钱；认不出徽章的道馆按馆主只付一次。
+      if(typeof badgeForGymConfig==='function'&&badgeForGymConfig(cfg))return null;
+      const key=battlePrizeKey(cfg);if(!key)return null;
+      if(!isObj(pkm.integration))pkm.integration={};
+      const paid=Array.isArray(pkm.integration.gymPrizePaid)?pkm.integration.gymPrizePaid:(pkm.integration.gymPrizePaid=[]);
+      if(paid.includes(key))return null;paid.push(key);
+    }
+  }
+  const level=battlePrizeTopLevel(payload,cfg?.team);if(!level)return null;
+  const amount=level*rate;
+  pkm.player.money=Math.max(0,Number(pkm.player.money)||0)+amount;
+  return {amount,level,rate,type};
+}
+function battlePrizeSkipReason(type,outcome){
+  if(type==='wild')return '';
+  if(!BATTLE_PRIZE_RATE[type])return '这类对战不涉及奖金';
+  if(outcome!=='victory')return outcome==='defeat'?'输了不用付钱':'没有分出胜负';
+  return type==='gym'?'这个道馆的奖金已在首次赢得徽章时领取过':'';
+}
 function grantGymBadgeReward(pkm,cfg,type,outcome){if(type!=='gym'||outcome!=='victory')return null;const badge=badgeForGymConfig(cfg);if(!badge||!Array.isArray(pkm?.player?.badges)||pkm.player.badges.some(b=>canonicalJohtoBadge(b)===badge))return null;pkm.player.badges.push(badge);pkm.player.reputation=Math.max(0,Number(pkm.player.reputation)||0)+1000;return badge;}
 const FRIENDSHIP_HONOR_REWARDS={leagueChampion:{label:'联盟冠军',value:5},regionalChampion:{label:'地区冠军',value:10}};
 function battleFriendshipParticipants(pkm,payload){const seen=new Set(),rows=[];for(const p of payload?.playerTeam||[]){const i=Number(p.hostSlot);if(p.participated===false||!Number.isInteger(i)||i<0||seen.has(i))continue;const mon=pkm.party.slots[i];if(!hasMon(mon))continue;seen.add(i);rows.push({uid:mon.uid==null?'':String(mon.uid),slot:i,species:speciesId(mon.species||mon.name)});}return rows;}
@@ -9039,12 +9069,12 @@ async function applyResult(m, payload) {
   const fmt = m.fmt || battleFormat(cfg, (payload.playerTeam || []).length);
   const pN = (payload.playerTeam || []).length, eN = (payload.enemyTeam || []).length;
   const fmtText = fmt.wild ? `野外 · ${fmt.tag}` : fmt.full ? `两边全队（我方${pN}只 vs 对方${eN}只）` : fmt.name;
-  let placed = null, capturedName = null, capturedGender = null, gymBadgeAward = null, capturedDetail = null, captureInitPath = '';
+  let prizeAward = null, placed = null, capturedName = null, capturedGender = null, gymBadgeAward = null, capturedDetail = null, captureInitPath = '';
   let summaryParts = [];
   let xpGains = [],evGains=[],rewardWarnings=[],evolutionBalls=0;
   const bondNotes = [], honorNotes=[];
   const result = await writePkm(pkm => {
-    summaryParts = []; bondNotes.length = 0; honorNotes.length=0; placed = null; capturedName = null; capturedGender = null; gymBadgeAward = null; capturedDetail = null; xpGains=[]; evGains=[]; rewardWarnings=[]; evolutionBalls=0; captureInitPath=''; // writePkm 可能重算
+    summaryParts = []; bondNotes.length = 0; honorNotes.length=0; prizeAward = null; placed = null; capturedName = null; capturedGender = null; gymBadgeAward = null; capturedDetail = null; xpGains=[]; evGains=[]; rewardWarnings=[]; evolutionBalls=0; captureInitPath=''; // writePkm 可能重算
     const currentIds=pkm.party.slots.map(s=>hasMon(s)?String(s.uid||''):null);
     if(!Array.isArray(m.partyUids)||m.partyUids.some((id,i)=>id!==currentIds[i]))
       throw new Error('战斗期间队伍位置发生变化，为避免把体力、经验或道具写给错误伙伴，本场结果未结算；请恢复原队伍后重新对战。');
@@ -9104,6 +9134,8 @@ async function applyResult(m, payload) {
     } else if (cfgTeam[0]?.shiny && m.type === 'wild') { const n = zhSpecies(payload.enemyTeam?.[0]?.baseSpecies) || cfgTeam[0].species; if (!pkm.dex.shiny[n]) pkm.dex.shiny[n] = [eventId, placeText(pkm), dateText(pkm), false]; }
     // 首次赢得对应道馆徽章：徽章与 1000 声望同一事务写入，重赛不会重复发放。
     gymBadgeAward=grantGymBadgeReward(pkm,cfg,m.type,outcome);if(gymBadgeAward){summaryParts.push(`获得${gymBadgeAward}，声望+1000`);honorNotes.push(...awardBattleParticipantsFriendship(pkm,payload,3,`${gymBadgeAward}徽章`));}
+    // 对战奖金（{{user}} 特权）：与胜负、徽章同一事务写入金钱。
+    prizeAward=awardBattlePrize(pkm,cfg,m.type,outcome,payload,gymBadgeAward);if(prizeAward)summaryParts.push(`对手支付奖金 ${prizeAward.amount} 元`);
     // 5) 战绩
     pkm.battle.count += 1; if (won) pkm.battle.wins += 1;
     summaryParts.push(`${(outcome === 'escaped' && ESCAPE_REASON_ZH[payload.escapeReason]) || OUTCOME_ZH[outcome] || '结束'} · ${fmtText}${cfg.opponent ? ' · 对手：' + cfg.opponent : ''} · ${payload.turns || 0} 回合`);
@@ -9141,7 +9173,7 @@ async function applyResult(m, payload) {
     enemy: (payload.enemyTeam || []).map(p => ({ species: zhSpecies(p.baseSpecies || p.species), lv: p.level, hp: p.hp, maxHp: p.maxHp, fainted: !!p.fainted, status: K.STATUS_TO_ZH[p.status] || null })),
     capture: outcome === 'captured' && payload.capture ? { ball: K.BALL_ZH[payload.capture.ball] || '精灵球', species: capturedName, level: payload.capture.spec?.level, gender: capturedGender, placed, friendshipInit: captureInitPath || null } : null,
     stakes: cfg.stakes || null,
-    badgeAward: gymBadgeAward, reputationAward: gymBadgeAward ? 1000 : 0, evolutionBalls,
+    badgeAward: gymBadgeAward, reputationAward: gymBadgeAward ? 1000 : 0, prize: prizeAward ? { amount: prizeAward.amount, topLevel: prizeAward.level, rate: prizeAward.rate } : null, evolutionBalls,
   };
   const used = Object.entries(K.BALL_ZH).map(([id, zh]) => { const n = PKMHeldSync.consumedStock(m.balls,payload.ballStock,id); return n > 0 ? `${zh}×${n}` : null; }).filter(Boolean);
   const usedTrainerItems=Object.entries(TRAINER_ITEM_ZH_TO_ID).map(([zh,id])=>{const n=PKMHeldSync.consumedStock(m.battleItems,payload.itemStock,id);return n>0?`${zh}×${n}`:null;}).filter(Boolean);
@@ -9156,13 +9188,14 @@ async function applyResult(m, payload) {
     used.length||usedTrainerItems.length ? `消耗：${[...used,...usedTrainerItems].join('、')}` : '',
     evolutionBalls ? `脱壳忍者进化额外消耗：精灵球×${evolutionBalls}（脚本已扣除）。` : '',
     gymBadgeAward ? `道馆奖励（脚本已写入）：获得${gymBadgeAward}，声望 +1000；当前声望 ${readPkm().player.reputation}。` : '',
+    prizeAward ? `奖金（脚本已写入）：对手付给${userName()} ${prizeAward.amount} 元（对手最高 Lv${prizeAward.level}×${prizeAward.rate}）；当前金钱 ${readPkm().player.money} 元。这是对战后的寻常惯例：续写时让对方自然地把奖金递过来、一笔带过即可，不特意描写、不解释缘由，在场的人都视为理所当然；不要再写入 /pkm/player/money。` : (battlePrizeSkipReason(m.type,outcome) ? `奖金：本场没有（${battlePrizeSkipReason(m.type,outcome)}）。续写时不要描写付钱或收钱，也不要写入金钱变化。` : ''),
     bondNotes.length ? `战斗亲密值（脚本已加）：${bondNotes.join('，')}` : '',
     honorNotes.length ? `徽章奖励亲密值（脚本已加）：${honorNotes.join('，')}` : '',
     evGains.length ? `努力值（脚本已加）：${evGains.map(x=>`${x.name} ${x.changes.map(c=>`${K.STAT_ZH[c.stat]}+${c.gain}`).join('、')}（合计 ${x.total}/510）`).join('；')}` : '',
     xpGains.length ? `经验（脚本已加）：${xpGains.map(x=>`${x.name} +${x.exp}（${x.share||'出场'}），Lv${x.from}${x.to>x.from?'→Lv'+x.to:''}${x.evolutions?.length?'，进化为'+x.evolutions.map(e=>e.to).join('、'):''}${x.learnedMoves?.length?'，学会'+x.learnedMoves.join('、'):''}${x.pendingMoves?.length?'，待处理招式'+x.pendingMoves.join('、'):''}`).join('；')}` : '',
     rewardWarnings.length ? `结算提示：${rewardWarnings.join(' ')}` : '',
     line ? `对手的台词（供续写）：「${line}」` : '',
-    '（变量已写入：体力/状态、剩余PP、经验与等级、等级进化、升级学招/待替换招式、精灵球、收服入队（初始亲密值 40）、图鉴、战斗亲密值、努力值、首次赢得道馆徽章及对应1000声望。请按此结果续写战斗经过，不改写胜负，也不要重复写入这些变量。）'].filter(Boolean).join('\n');
+    '（变量已写入：体力/状态、剩余PP、经验与等级、等级进化、升级学招/待替换招式、精灵球、收服入队（初始亲密值 40）、图鉴、战斗亲密值、努力值、首次赢得道馆徽章及对应1000声望、对战奖金。请按此结果续写战斗经过，不改写胜负，也不要重复写入这些变量。）'].filter(Boolean).join('\n');
   const text = `<pkm_result>${JSON.stringify({...res, experience:xpGains,effort:evGains})}</pkm_result>\n${human}`;
   if(m.type==='wild'){
     const pendingCount=readPkm().wild.pendingResults?.length||0;
