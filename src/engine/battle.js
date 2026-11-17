@@ -576,6 +576,7 @@
       this.moveCount = 0;
       this.captureContext = opts.captureContext || {};
       this.log = [];
+      this.turnMarks = []; // 每回合在 log 中的起始下标（仅供战后生成“战斗经过”，不影响结算）
       this.winner = null; // 0: player | 1: enemy | 2: unresolved simultaneous defeat | null
       this.encounterType = opts.encounterType === 'wild' && teamB.length === 1 ? 'wild' : 'trainer';
       const ballIds=Object.keys(root.PKMCapture?.BALLS||{pokeball:1,greatball:1,ultraball:1,masterball:1,safariball:1,quickball:1,duskball:1,timerball:1,repeatball:1,netball:1,nestball:1,diveball:1,luxuryball:1,healball:1,premierball:1});
@@ -1236,6 +1237,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         a.action = { kind: 'pass' };
       }
       this.turnCount++;
+      this.turnMarks.push(start);
       // Switches precede moves. Do not substitute a switched-in mon for a queued actor.
       for (const a of actions) if (a.action.kind === 'switch' && this.cur(a.side, a.slot) === a.actor) {
         if (!this.doSwitch(a.side, a.action.index, { slot: a.slot })) this.say(`${a.actor.name} 无法交换，本次行动结束。`);
@@ -2374,6 +2376,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         playerTeam: this.teams[0].map(p => ({ species: p.speciesId, baseSpecies: p.originalSpeciesId, hp: p.hp, maxHp: p.maxHp, fainted: p.fainted, status: p.status, gender: p.gender, ability: p.ability, item: p.item, initialItem: p._initialHeldItem, consumedItems: [...p._consumedItems], itemTransferOccurred: !!p._itemTransferOccurred, mechanic: p.mechanic, isMega: p.isMega, terastallized: p.terastallized, teraType: p.teraType, dynamaxed: p.dynamaxed })),
         enemyTeam: this.teams[1].map(p => ({ species: p.speciesId, baseSpecies: p.originalSpeciesId, hp: p.hp, maxHp: p.maxHp, fainted: p.fainted, status: p.status, gender: p.gender, ability: p.ability, item: p.item, initialItem: p._initialHeldItem, consumedItems: [...p._consumedItems], itemTransferOccurred: !!p._itemTransferOccurred, mechanic: p.mechanic, isMega: p.isMega, terastallized: p.terastallized, teraType: p.teraType, dynamaxed: p.dynamaxed })),
         log: this.log.slice(),
+        turnMarks: (this.turnMarks || []).slice(),
       };
     }
   }

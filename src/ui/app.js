@@ -1734,6 +1734,9 @@ installSpriteRecovery(document);
     announcedBattle = battle;
     const payload = battle.result();
     payload.hostTag = hostTag;
+    // v1.3.74：把逐回合日志（与战斗画面显示的中文一致）交给角色卡，供正文详细描写战斗经过。
+    payload.log = (payload.log || []).map(line => translateText(line));
+    payload.turnMarks = Array.isArray(payload.turnMarks) ? payload.turnMarks : [];
     const indiv = src => ({ nature: src.nature || '', ivs: { ...src.ivs }, stats: { ...src.stats } });
     payload.playerTeam.forEach((p, i) => { const src = battle.teams[0][i]; if (src) { Object.assign(p, indiv(src)); p.level = src.level; p.hostSlot = src.hostSlot ?? null; p.name = src.name; p.moves = src.moves.map(m => ({ id: m.id, ppLeft: m.ppLeft, pp: m.pp })); p.participated = !!src._participated; } });
     payload.enemyTeam.forEach((p, i) => { const src = battle.teams[1][i]; if (src) { Object.assign(p, indiv(src)); p.level = src.level; p.name = src.name; p.shiny = !!src.shiny; p.gender = src.gender || null; } });

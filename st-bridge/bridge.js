@@ -1200,6 +1200,12 @@ function plotPosition(beforeId=Infinity){
 /* ======================================================================
  * 4. 生成前注入：日期匹配的世界书节点、变量摘要与游戏规则
  * ==================================================================== */
+// v1.3.75 跟随状态：玩家在精灵球面板里设置的“跟随”= 球外随行；其余都在精灵球里。失去战斗能力的随行宝可梦按常理收回球里休息（与右下角显示一致）。
+function followStateLine(pkm,mons){
+ const out=[],inBall=[],fainted=[];
+ for(const s of mons){const f=isFollowing(pkm,s.uid),h=curHp(s),down=s.status==='濒死'||h.hp===0;if(f&&!down)out.push(monName(s));else if(f)fainted.push(monName(s));else inBall.push(monName(s));}
+ return `跟随状态（玩家在精灵球面板设置，正文必须一致）：在身边跟随（球外）：${out.join('、')||'没有'}；在精灵球里：${[...inBall,...fainted].join('、')||'没有'}${fainted.length?`（${fainted.join('、')}设成跟随但已失去战斗能力，收回球里休息）`:''}。跟随的宝可梦在身边活动、有动作和反应；精灵球里的不会自己出现在画面里，需要时由训练家放出来（对战上场或玩家明确让它出来），事后收回。不要改写 pkm.party.following / follow。`;
+}
 function summaryText(pkm) {
   const pl = pkm.player, lines = [];
   const title = pl.title || K.TITLES.find(([n]) => (pl.reputation || 0) >= n)[1];
@@ -1216,6 +1222,7 @@ function summaryText(pkm) {
       + `｜${s.nature ? '性格' + (natureZh(s.nature) || s.nature) : ''}｜亲密度 ${friendship}/255｜努力值 已获得 ${effortEarned(s)}/510（单项上限 252、合计 510；HP ${Number(ev.hp)||0}/攻击 ${Number(ev.atk)||0}/防御 ${Number(ev.def)||0}/特攻 ${Number(ev.spa)||0}/特防 ${Number(ev.spd)||0}/速度 ${Number(ev.spe)||0}）｜叫声${cryText(s)}`;
   }).filter(Boolean);
   lines.push('队伍：' + (party.length ? '\n  ' + party.join('\n  ') : '（还没有宝可梦，不能发起对战）'));
+  {const mons=pkm.party.slots.filter(hasMon);if(mons.length)lines.push(followStateLine(pkm,mons));}
   if(pkm.integration?.pendingStarter)lines.push('皮卡丘目前仅预登记，尚未进入队伍或图鉴；玩家确认领取后才加入队伍。未领取前请勿把它当作可出战伙伴。');
   // v1.3.8：能战斗的只数（对战名额按这个算，不要默认写成 6 只）
   if (party.length) {
@@ -1275,7 +1282,7 @@ function bondRules(pkm, st) {
     `- 初始亲密值校准（只在入队当时可用一次）：战斗收服后若捕捉过程有明显正向互动（喂食安抚、救过它、并肩作战），按收服提示给出的 friendshipInit 路径写一次 {"op":"replace","path":"<该路径>","value":{"official":45~60}}；明显负向互动（重创、恐吓）写 {"official":20~35}；没有明显互动就不写（保持 40）。`,
     `- 宝可梦被打动、不经战斗主动跟随入队是低概率稀有事件：必须有大段剧情铺垫它为什么被 {{user}} 打动，同一回复内写整只宝可梦入队（species/lv/gender 按正文事实），并把该槽位 friendship 写成 {"official":100~130}（或写 friendshipInit，值 100~130）。每 30 回合至多一次，不得频繁。`,
     `- 战斗胜利时脚本给实际出战的宝可梦 +1（达到160后停止），未出战不加。首次获得道馆徽章时脚本给本场出战者 +3。获得联盟冠军将荣誉设为 {\"op\":\"replace\",\"path\":\"/pkm/player/honors/leagueChampion\",\"value\":true}；获得地区冠军则写 {\"op\":\"replace\",\"path\":\"/pkm/player/honors/regionalChampion\",\"value\":true}；桥接器按实际出战队伍分别奖励 +5/+10，两项同次获得则累加，不能手动改友情数值。`,
-    '- 努力值只能由脚本结算：击败宝可梦按种族产出（出场/经验分享规则）或使用六项增强剂各加 10，单项上限 252、合计上限 510。剧情生成不得手动改写 stats_meta.evs 或 stats_meta.ev_earned（后者是已获得额度，手动改写等于免费发努力值）。',
+    '- 努力值只能由脚本结算：击败宝可梦按种族产出（野外与训练家／NPC 战相同：队伍里的成员都获得，含后排没出场的）或使用六项增强剂各加 10，单项上限 252、合计上限 510。剧情生成不得手动改写 stats_meta.evs 或 stats_meta.ev_earned（后者是已获得额度，手动改写等于免费发努力值）。',
     '- 除上述规则外不得自动增加宝可梦亲密值：同行赶路、单句台词、跟随不算互动；明确负面事件可写负值 delta（-2~-5）；不得再创建信任/热情/默契字段。',
     '【宝可梦叫声】宝可梦（会说话的喵喵除外）只会喊自己的名字或名字的音节，队伍里的叫法见上面的“叫声”。不要把名字截成不存在的叫法（例如小火龙不叫“小火小火”，应是“小火龙～！”“小～火龙！”）。',
     '【能力与 PP】宝可梦的个体值、性格、能力值和招式剩余 PP 由脚本维护；只有实际完成宝可梦中心治疗后才将队伍每只 hp、status、pp replace 为 null（全部回满）；正文要明确说明治疗完成，路过、预约或治疗中不能回满。局部治疗只更新实际治疗对象。'].join('\n');
@@ -1346,11 +1353,79 @@ function dateDrivenPlotPrompt(messages,st,pkm) {
     const registered=pkm?.integration?.profile?.mode,world={...(pkm?.world||{}),mode:registered==='沙盒模式'?'沙盒模式':(pkm?.world?.mode||registered||'')};
     const plan=PKMPlotGuard.schedule(events(),states,st?.时间||pkm?.world?.time||'',world);
     let out=plotSchedulePrompt(plan,st||{地点:pkm?.world?.location});
+    if(out&&plan?.kind==='sandbox')out+='\n- 剧情类世界书条目（事件详情、阶段节点表、分阶段人设、剧情推进、主线任务、大会赛制）已由脚本关闭。地点档案和人物档案里提到的动画经历只是这个世界的背景资料，不是本局要发生的事；不要据此安排、重演或推进动画剧情，也不要让原作人物按动画日程出现。';
     const curMode=String(world.mode||states.at(-1)?.模式||'');
     if(out&&plan&&plan.kind!=='sandbox'&&plan.event?.id==='EP001'&&(plan.kind!=='active'||plan.node<=3)&&/同行/.test(curMode))out+='\n'+COMPANION_EP001_PROMPT;
     return out;
   } catch(e) { LOG('主线调度失败，继续正常生成',e?.message||e); return ''; }
 }
+// v1.3.74 沙盒模式：自动关闭剧情世界书条目。
+// ① 持久开关：当前聊天是沙盒模式时，把角色世界书里的剧情条目设为“禁用”（世界书界面里能看到），
+//    并记下由脚本关掉的条目；切到同行／小智模式的聊天时只恢复这些条目，不动玩家自己手动关掉的。
+// ② 生成过滤：每次生成扫描世界书前（WORLDINFO_ENTRIES_LOADED）再把剧情条目剔除一次，宿主不支持保存世界书时也生效。
+const SANDBOX_PLOT_COMMENT_RE=/^\s*(?:📜\s*事件详情|🗂\uFE0F?\s*阶段节点表|👥\s*分阶段人设|🎭\s*剧情推进|🎬\s*核心机制[·・]?\s*主线任务|⚖\uFE0F?\s*\S*赛制)/u;
+function isPlotWorldEntry(e){
+ const cm=String(e?.comment??e?.name??'');
+ const keys=[e?.key,e?.keys,e?.strategy?.keys].flatMap(k=>Array.isArray(k)?k:[]).map(k=>String(k?.source??k));
+ return SANDBOX_PLOT_COMMENT_RE.test(cm)||keys.some(k=>/^(?:EVT_|STAGE_\d)/.test(k));
+}
+function sandboxActive(){
+ try{
+  const pkm=readPkm(),registered=pkm?.integration?.profile?.mode;
+  const mode=registered==='沙盒模式'?'沙盒模式':String(pkm?.world?.mode||registered||'');
+  if(/沙盒/.test(mode))return true;
+  const c=chat();
+  for(let i=c.length-1;i>=0;i--){const m=c[i];if(!m||m.is_user||m.is_system)continue;const st=parseState(m.mes),v=String(st?.模式||'');if(v)return /沙盒/.test(v);}
+  return false;
+ }catch(_){return false;}
+}
+function filterSandboxLore(data){
+ try{
+  if(!data||!sandboxActive())return;
+  let n=0;
+  for(const k of ['globalLore','characterLore','chatLore','personaLore']){const arr=data[k];if(!Array.isArray(arr))continue;for(let i=arr.length-1;i>=0;i--)if(isPlotWorldEntry(arr[i])){arr.splice(i,1);n++;}}
+  if(n)LOG(`沙盒模式：本次生成跳过 ${n} 条剧情世界书条目`);
+ }catch(e){LOG('沙盒世界书过滤失败',e?.message||e);}
+}
+const SANDBOX_WI_KEY=book=>'pkmSandboxWI:'+book;
+let sandboxWiSig='',sandboxWiTimer=0,sandboxWiChain=Promise.resolve();
+function charBookName(){try{const c=ctx();return String(c?.characters?.[c?.characterId]?.data?.extensions?.world||'');}catch(_){return '';}}
+function scheduleSandboxWorldbookSync(){clearTimeout(sandboxWiTimer);sandboxWiTimer=setTimeout(()=>{sandboxWiChain=sandboxWiChain.then(syncSandboxWorldbook).catch(e=>LOG('沙盒世界书同步失败',e?.message||e));},400);}
+async function syncSandboxWorldbook(){
+ if(destroyed)return;
+ const c=ctx(),book=charBookName();if(!book)return;
+ const sandbox=sandboxActive(),sig=book+'|'+sandbox;if(sig===sandboxWiSig)return;
+ let recorded;try{recorded=new Set((JSON.parse(lsGet(SANDBOX_WI_KEY(book),'[]'))||[]).map(String));}catch(_){recorded=new Set();}
+ if(!sandbox&&!recorded.size){sandboxWiSig=sig;return;}
+ let changed=0,saved=false;
+ if(typeof c?.loadWorldInfo==='function'&&typeof c?.saveWorldInfo==='function'){
+  const data=await c.loadWorldInfo(book),entries=data?.entries;
+  if(!isObj(entries))return;
+  for(const [uid,e] of Object.entries(entries)){
+   if(!isObj(e))continue;
+   if(sandbox){if(isPlotWorldEntry(e)&&!e.disable){e.disable=true;recorded.add(String(uid));changed++;}}
+   else if(recorded.has(String(uid))&&e.disable){e.disable=false;changed++;}
+  }
+  if(changed){await c.saveWorldInfo(book,data,true);try{c.reloadWorldInfoEditor?.(book,false);}catch(_){}}
+  saved=true;
+ }else{
+  const th=W.TavernHelper||P.TavernHelper,upd=W.updateWorldbookWith||th?.updateWorldbookWith;
+  if(typeof upd==='function'){
+   await upd(book,list=>list.map(e=>{
+    const uid=String(e?.uid);
+    if(sandbox&&isPlotWorldEntry(e)&&e.enabled!==false){recorded.add(uid);changed++;return {...e,enabled:false};}
+    if(!sandbox&&recorded.has(uid)&&e.enabled===false){changed++;return {...e,enabled:true};}
+    return e;
+   }));
+   saved=true;
+  }
+ }
+ if(!saved){sandboxWiSig=sig;LOG('宿主没有提供世界书保存接口：沙盒模式只在生成时过滤剧情条目');return;}
+ lsSet(SANDBOX_WI_KEY(book),sandbox&&recorded.size?JSON.stringify([...recorded]):null);
+ sandboxWiSig=sig;
+ if(changed)toast(sandbox?`沙盒模式：已自动关闭 ${changed} 条剧情世界书条目（事件详情、阶段节点表、分阶段人设、剧情推进、主线任务、大会赛制）。切到同行／小智模式的聊天时会自动恢复。`:`已恢复此前因沙盒模式自动关闭的 ${changed} 条剧情世界书条目。`);
+}
+const IMMERSION_RULE='【沉浸感·正文不出现游戏术语】上面的等级、体力数值、PP、努力值、亲密度、附近宝可梦等级、对战记录里的回合编号，只供你掌握实情。正文（旁白与所有角色台词）要把它们翻译成这个世界里看得见、说得出的东西：不写也不让角色说出等级（“12级的皮卡丘”“附近有只5级的绿毛虫”）、经验值、体力数值或百分比、PP、能力值／个体值／努力值、能力等级、命中率、亲密度数值；对战不写“第一回合”“第二回合”“先手”“本回合”，不照搬“XX 使用了 YY！”“效果绝佳！”“XX 的防御提高了！”这类记录句式，按动作先后连贯地写训练家的指令、宝可梦的出招、命中闪避、伤势和反应；强弱用体格、动作老练程度、气势和角色的评价表现，体力用喘息、踉跄、还很有精神来表现。宝可梦、精灵球、徽章、道馆、招式名、属性、“三对三”等比赛规则是这个世界本来就有的词，照常使用。状态栏和格式块照常写数据。';
 function buildInjection() {
   const c = chat().slice(0, injectionCutoff === Infinity ? undefined : injectionCutoff + 1); if (!c.length) return '';
   const pkm = readPkmBefore(injectionCutoff);
@@ -1377,11 +1452,12 @@ function buildInjection() {
 
 
   const lastUser = [...c].reverse().find(m => m.is_user);
-  if (lastUser && /<pkm_result>/i.test(lastUser.mes || '')) parts.push('【对战结果】玩家的上一条消息带有 <pkm_result>：按结果续写战斗经过，不改写胜负。HP/状态、精灵球消耗、收服入队、图鉴登记已由脚本写入变量，不要重复写。');
+  if (lastUser && /<pkm_result>/i.test(lastUser.mes || '')) parts.push('【对战结果】玩家的上一条消息带有 <pkm_result>：按结果和其中的“战斗经过”具体描写这场对战（招式、效果、能力变化、换人与倒下的先后），不改写胜负，也不改动招式与结果；正文不写回合编号、等级与体力数值，不照搬记录句式。HP/状态、精灵球消耗、收服入队、图鉴登记已由脚本写入变量，不要重复写。');
   parts.push('【变量摘要（脚本生成，以此为准）】\n' + summaryText(pkm));
   parts.push(updateModeRule());
   parts.push('【正文与状态栏的记账规则】正文和实际存档必须一致，按【本轮变量更新方式】由负责的模型结算一次。只记明确发生且已确认的变化；使用道具要同时扣背包并更新对应 HP/status，脚本已经结算的项目不得重复。桥接会读取状态栏同步时间与地点；其他数据不能凭叙事假定已写入，若更新失败请核对存档。');
   parts.push(bondRules(pkm, st));
+  parts.push(IMMERSION_RULE);
   return subUser(parts.join('\n\n'));
 }
 let lastInjection = '';
@@ -1393,6 +1469,7 @@ function refreshInjection() {
     lastInjection = text;
     c.setExtensionPrompt(PROMPT_KEY, text, 1, 1, false, 0); // IN_CHAT, depth 1, system
   } catch (e) { LOG('注入失败', e); }
+  finally { scheduleSandboxWorldbookSync(); }
 }
 
 /* ======================================================================
@@ -8996,8 +9073,8 @@ function awardBattleEffort(pkm,payload,outcome,battleType,startingUids=null){
  for(const enemy of payload.enemyTeam||[]){const y=effortYieldFor(enemy);if(!y)continue;for(const k of K.STAT_KEYS)defeated[k]=(defeated[k]||0)+(Number(y[k])||0);}
  if(!K.STAT_KEYS.some(k=>defeated[k]>0))return[];
  const participated=new Set((payload.playerTeam||[]).filter(p=>p.participated!==false&&Number.isInteger(Number(p.hostSlot))).map(p=>Number(p.hostSlot))),recipients=new Set(participated);
- if(battleType==='wild'){(pkm.party.slots||[]).forEach((m,i)=>{if(hasMon(m))recipients.add(i);});}
- else if(['学习装置','经验分享','经验分享器'].some(n=>Number(pkm.player?.bag?.[n])>0)){(pkm.party.slots||[]).forEach((m,i)=>{if(hasMon(m))recipients.add(i);});}
+ // v1.3.74：训练家／NPC 战与野外一致——开战前就在队伍里的成员（含后排没出场的）都获得努力值，不需要学习装置。
+ (pkm.party.slots||[]).forEach((m,i)=>{if(hasMon(m))recipients.add(i);});
  const gains=[];for(const i of recipients){
   const mon=pkm.party.slots[i];
   // 升级进化可能先产生脱壳忍者；只奖励开战前已在队伍中的 UID。
@@ -9052,7 +9129,7 @@ async function finishWildBatch(){
   if(!items.length){toast('目前没有待提交的连续战斗记录。');return;}
   const ta=PD.getElementById('send_textarea');if(!ta){toast('找不到酒馆输入框；战斗变量已保存，暂时无法提交摘要。','warning');return;}
   const data={type:'wild-training-batch',count:items.length,battles:items};
-  const lines=items.map((x,i)=>`${i+1}. ${x.outcome==='victory'?'胜利':x.outcome==='captured'?'收服':x.outcome==='defeat'?'败北':'中止'}：野生${x.species} Lv${x.level}，${x.turns||0}回合${(x.exp||[]).length?'；经验/升级：'+x.exp.map(g=>`${g.name} +${g.exp}经验（${g.share||'出场'}）${g.to>g.from?'，Lv'+g.from+'→Lv'+g.to:''}${g.evolutions?.length?'，进化为'+g.evolutions.map(e=>e.to).join('、'):''}${g.learnedMoves?.length?'，学会'+g.learnedMoves.join('、'):''}${g.pendingMoves?.length?'，待处理招式'+g.pendingMoves.join('、'):''}`).join('、'):''}${(x.effort||[]).length?'；努力值：'+x.effort.map(g=>`${g.name} ${g.changes.map(c=>`${c.stat}+${c.gain}`).join('、')}`).join('；'):''}${x.evolutionBalls?'；脱壳忍者进化额外消耗：精灵球×'+x.evolutionBalls:''}${(x.warnings||[]).length?'；结算提示：'+x.warnings.join(' '):''}`).join('\n');
+  const lines=items.map((x,i)=>`${i+1}. ${x.outcome==='victory'?'胜利':x.outcome==='captured'?'收服':x.outcome==='defeat'?'败北':'中止'}：野生${x.species} Lv${x.level}，${x.turns||0}回合${(x.exp||[]).length?'；经验/升级：'+x.exp.map(g=>`${g.name} +${g.exp}经验（${g.share||'出场'}）${g.to>g.from?'，Lv'+g.from+'→Lv'+g.to:''}${g.evolutions?.length?'，进化为'+g.evolutions.map(e=>e.to).join('、'):''}${g.learnedMoves?.length?'，学会'+g.learnedMoves.join('、'):''}${g.pendingMoves?.length?'，待处理招式'+g.pendingMoves.join('、'):''}`).join('、'):''}${(x.effort||[]).length?'；努力值：'+x.effort.map(g=>`${g.name} ${g.changes.map(c=>`${c.stat}+${c.gain}`).join('、')}`).join('；'):''}${x.evolutionBalls?'；脱壳忍者进化额外消耗：精灵球×'+x.evolutionBalls:''}${(x.warnings||[]).length?'；结算提示：'+x.warnings.join(' '):''}${x.log?'\n   经过：'+x.log:''}`).join('\n');
   const text=`<pkm_result>${JSON.stringify(data)}</pkm_result>\n【战斗结果】连续野外训练汇总｜共 ${items.length} 场\n${lines}\n（各场战斗的 HP、状态、剩余 PP、经验、等级、亲密值和战绩均已即时写入变量；刷级结束不自动治疗，去宝可梦中心完成治疗后才会恢复 PP。请依据这份汇总简要描写训练过程并回到当前剧情，不要重新结算或改写胜负，也不要重复写入这些变量。）`;
   await writePkm(pkm=>{pkm.wild.pendingResults=[];});
   fillInput(text);toast(`已将 ${items.length} 场连续训练汇总到输入框；发送这一条即可回剧情。`);
@@ -9098,6 +9175,37 @@ function awardBattleParticipantsFriendship(pkm,payload,amount,reason,stopAtEvolu
 function awardRememberedBattleParticipantsFriendship(pkm,amount,reason,refsOverride){const refs=Array.isArray(refsOverride)?refsOverride:(Array.isArray(pkm.integration?.friendshipBattleParticipants)?pkm.integration.friendshipBattleParticipants:[]),notes=[],seen=new Set();for(const ref of refs){let mon=null;for(const m of [...(pkm.party?.slots||[]),...(pkm.party?.box||[])]){if(!hasMon(m))continue;if(ref.uid&&String(m.uid||'')===String(ref.uid)||!ref.uid&&Number.isInteger(Number(ref.slot))&&speciesId(m.species||m.name)===ref.species){mon=m;break;}}if(!mon||seen.has(mon.uid||mon))continue;seen.add(mon.uid||mon);ensureIndividual(mon);const before=friendshipValue(mon),after=friendshipClamp(before+amount);if(after<=before)continue;mon.friendship.official=after;notes.push(`${monName(mon)} +${after-before}（${reason}）`);}return notes;}
 function honorNamedInBody(body,key){const text=String(body||'');return key==='leagueChampion'?/(?:联盟冠军|联盟大赛冠军|宝可梦联盟冠军|石英大会冠军|白银大会冠军|铃兰大会冠军|橘子联盟胜利者杯|胜利者杯冠军|league champion|pokemon league champion)/i.test(text):/(?:地区冠军|关都冠军|城都冠军|丰缘冠军|神奥冠军|合众冠军|卡洛斯冠军|阿罗拉冠军|伽勒尔冠军|帕底亚冠军|regional champion)/i.test(text);}
 function honorPatchSetsTrue(ops,key){return ops.some(o=>{const g=o.segs||[],truth=o.value===true||o.value===1||String(o.value).toLowerCase()==='true';if(g[0]!=='pkm'||g[1]!=='player'||g[2]!=='honors')return false;if(g.length===4&&g[3]===key)return truth;if(g.length===3&&isObj(o.value))return o.value[key]===true;return false;});}
+// v1.3.74 战斗经过：对战网页回传逐回合日志（payload.log + turnMarks），整理成“第N回合：……”交给正文，
+// 让 AI 按实际招式、命中、效果、换人与倒下顺序描写，而不是只凭胜负一笔带过。过长时保留首尾回合、中间只留关键句。
+const NARRATIVE_KEY_RE=/使用了|倒下|失去了战斗能力|濒死|派出|收回|交换|就决定是你|回来吧|要害|效果绝佳|效果拔群|没有效果|效果不理想|超级进化|极巨化|太晶化|Ｚ招式|全力|投出|收服|逃走|逃跑|麻痹|睡着|中毒|灼伤|冻住|冰冻|混乱|畏缩|没有命中|没能命中|躲开|守住|替身|天气|下起|日照|沙暴|冰雹|获胜|胜利/;
+function battleNarrative(payload,limit=1800){
+ try{
+  const log=(Array.isArray(payload?.log)?payload.log:[]).map(x=>String(x??'').replace(/<[^>]*>/g,'').replace(/\s+/g,' ').trim().slice(0,160)).filter(Boolean);
+  if(!log.length)return [];
+  const marks=[...new Set((Array.isArray(payload?.turnMarks)?payload.turnMarks:[]).map(Number).filter(n=>Number.isInteger(n)&&n>=0&&n<log.length))].sort((x,y)=>x-y);
+  const groups=[];
+  if(!marks.length)groups.push({label:'经过',lines:log});
+  else{
+   if(marks[0]>0)groups.push({label:'开场',lines:log.slice(0,marks[0])});
+   marks.forEach((st,i)=>{const lines=log.slice(st,i+1<marks.length?marks[i+1]:log.length);if(lines.length)groups.push({label:`第${i+1}回合`,lines});});
+  }
+  const clean=l=>l.replace(/[！!。．.\s]+$/,'');
+  const end=t=>/…$/.test(t)?t:t+'。';
+  const full=g=>end(`${g.label}：${g.lines.map(clean).join('，')}`);
+  const brief=g=>{const ls=g.lines.filter(l=>NARRATIVE_KEY_RE.test(l));return end(`${g.label}：${(ls.length?ls:g.lines.slice(0,2)).map(clean).join('，')}`);};
+  const size=rows=>rows.reduce((n,r)=>n+r.length+1,0);
+  let rows=groups.map(full);if(size(rows)<=limit)return rows;
+  const keep=i=>i<2||i>=groups.length-2;
+  rows=groups.map((g,i)=>keep(i)?full(g):brief(g));if(size(rows)<=limit)return rows;
+  rows=groups.map(brief);if(size(rows)<=limit)return rows;
+  // 仍然太长：保留开头与结尾，中间合并为一句省略说明。
+  const head=[],tail=[];let used=0,a=0,z=groups.length-1;
+  while(a<=z){const r=rows[a];if(used+r.length+1>limit*0.55)break;head.push(r);used+=r.length+1;a++;}
+  while(z>=a){const r=rows[z];if(used+r.length+1>limit-40)break;tail.unshift(r);used+=r.length+1;z--;}
+  if(a<=z){const from=groups[a].label,to=groups[z].label;head.push(`（${from===to?from:from+'至'+to}略：双方继续交手，细节省略，只按前后回合与最终结果衔接。）`);}
+  return [...head,...tail];
+ }catch(e){LOG('战斗经过整理失败',e?.message||e);return [];}
+}
 async function applyResult(m, payload) {
   const reportedSlots=(payload.playerTeam||[]).map(p=>p.hostSlot),selected=m.selectedPlayerSlots;
   if(!m.started||!Array.isArray(selected)||selected.length!==reportedSlots.length||selected.some((slot,i)=>slot!==reportedSlots[i])||new Set(reportedSlots).size!==reportedSlots.length)
@@ -9197,7 +9305,7 @@ async function applyResult(m, payload) {
     if (cfg.id && !pkm.battle.done.includes(cfg.id)) { pkm.battle.done.push(cfg.id); if (pkm.battle.done.length > 200) pkm.battle.done.splice(0, pkm.battle.done.length - 200); }
     if(m.type==='wild'){
       if(!Array.isArray(pkm.wild.pendingResults))pkm.wild.pendingResults=[];
-      pkm.wild.pendingResults.push({species:zhSpecies(cfgTeam[0]?.species||cfgTeam[0]?.name||'未知'),level:Number(cfgTeam[0]?.level)||1,outcome,turns:payload.turns||0,exp:xpGains,effort:evGains,evolutionBalls,warnings:rewardWarnings,summary,at:Date.now()});
+      pkm.wild.pendingResults.push({species:zhSpecies(cfgTeam[0]?.species||cfgTeam[0]?.name||'未知'),level:Number(cfgTeam[0]?.level)||1,outcome,turns:payload.turns||0,exp:xpGains,effort:evGains,evolutionBalls,warnings:rewardWarnings,summary,log:battleNarrative(payload,360).join(' '),at:Date.now()});
       if(pkm.wild.pendingResults.length>100)pkm.wild.pendingResults.splice(0,pkm.wild.pendingResults.length-100);
     }
     const bs = pkm.integration.battles; bs[battleHash(m.key)] = { outcome, summary, at: Date.now() };
@@ -9226,6 +9334,7 @@ async function applyResult(m, payload) {
   const used = Object.entries(K.BALL_ZH).map(([id, zh]) => { const n = PKMHeldSync.consumedStock(m.balls,payload.ballStock,id); return n > 0 ? `${zh}×${n}` : null; }).filter(Boolean);
   const usedTrainerItems=Object.entries(TRAINER_ITEM_ZH_TO_ID).map(([zh,id])=>{const n=PKMHeldSync.consumedStock(m.battleItems,payload.itemStock,id);return n>0?`${zh}×${n}`:null;}).filter(Boolean);
   const line = outcome === 'defeat' ? cfg.lines?.player_lose : (outcome === 'victory' || outcome === 'captured') ? cfg.lines?.player_win : null;
+  const narrative = battleNarrative(payload, 1800);
   const human = [`【战斗结果】${(outcome === 'escaped' && ESCAPE_REASON_ZH[payload.escapeReason]) || OUTCOME_ZH[outcome] || '结束'}｜${fmt.wild ? `野外遭遇（${fmt.tag}）` : fmt.full ? `${K.BATTLE_LABEL?.[m.type] || '对战'}·两边全队（我方${res.player.length}只 vs 对方${res.enemy.length}只）` : `${K.TYPE_LABEL[m.type] || '对战'} ${fmt.name}`}｜${res.opponent || (m.type === 'wild' ? '野生宝可梦' : '对手')}｜${res.turns} 回合`,
     `判定：${verdict}。`,
     `${fmt.wild ? `我方（可轮换${res.player.length}只）` : fmt.full ? `我方（能战斗的${res.player.length}只都可轮换）` : `我方参赛（${res.player.length}只）`}：${res.player.map(p => `${p.name} Lv${p.lv} ${p.fainted ? '濒死' : `HP ${p.hp}/${p.maxHp}${p.status ? '·' + p.status : ''}`}${p.entered ? '' : '（没轮到出场）'}`).join('；')}`,
@@ -9243,7 +9352,8 @@ async function applyResult(m, payload) {
     xpGains.length ? `经验（脚本已加）：${xpGains.map(x=>`${x.name} +${x.exp}（${x.share||'出场'}），Lv${x.from}${x.to>x.from?'→Lv'+x.to:''}${x.evolutions?.length?'，进化为'+x.evolutions.map(e=>e.to).join('、'):''}${x.learnedMoves?.length?'，学会'+x.learnedMoves.join('、'):''}${x.pendingMoves?.length?'，待处理招式'+x.pendingMoves.join('、'):''}`).join('；')}` : '',
     rewardWarnings.length ? `结算提示：${rewardWarnings.join(' ')}` : '',
     line ? `对手的台词（供续写）：「${line}」` : '',
-    '（变量已写入：体力/状态、剩余PP、经验与等级、等级进化、升级学招/待替换招式、精灵球、收服入队（初始亲密值 40）、图鉴、战斗亲密值、努力值、首次赢得道馆徽章及对应1000声望、对战奖金。请按此结果续写战斗经过，不改写胜负，也不要重复写入这些变量。）'].filter(Boolean).join('\n');
+    narrative.length ? `战斗经过（对战系统的记录，续写时按这个先后顺序把交手写具体：谁用了什么招式、命中与效果、能力变化、换人与倒下；可以补充动作、表情、指令和台词，但不要改动招式、顺序与结果。“第N回合”只是记录标签，正文不要写“第几回合”，也不要照抄“XX 使用了 YY！”这类记录句式，要改写成连贯的动作描写；上面的等级、体力数值也只供参考，不写进正文）：\n${narrative.join('\n')}` : '',
+    '（变量已写入：体力/状态、剩余PP、经验与等级、等级进化、升级学招/待替换招式、精灵球、收服入队（初始亲密值 40）、图鉴、战斗亲密值、努力值、首次赢得道馆徽章及对应1000声望、对战奖金。请按上面的逐回合战斗经过把这场对战详细写出来，不改写胜负，也不要重复写入这些变量。）'].filter(Boolean).join('\n');
   const text = `<pkm_result>${JSON.stringify({...res, experience:xpGains,effort:evGains})}</pkm_result>\n${human}`;
   if(m.type==='wild'){
     const pendingCount=readPkm().wild.pendingResults?.length||0;
@@ -10232,12 +10342,13 @@ async function start() {
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
   on('MESSAGE_RECEIVED', onMessageReceived);
-  on('CHAT_CHANGED',()=>{generationSerial++;generationInFlight=false;generationBaseline=null;pendingGenerationMessage=null;onChatEvent(false);});
+  on('CHAT_CHANGED',()=>{sandboxWiSig='';generationSerial++;generationInFlight=false;generationBaseline=null;pendingGenerationMessage=null;onChatEvent(false);});
   for(const ev of ['MESSAGE_SWIPED','MESSAGE_EDITED'])on(ev,()=>onChatEvent(true));
   for(const ev of ['MESSAGE_DELETED','MESSAGE_UPDATED'])on(ev,()=>onChatEvent(false));
   on('MESSAGE_SENT',()=>{refreshInjection();refreshAll();});
   on('GENERATION_STARTED',onGenerationStarted);
   on('GENERATION_AFTER_COMMANDS',onGenerationAfterCommands);
+  on('WORLDINFO_ENTRIES_LOADED',filterSandboxLore);
   // Release the interaction lock if the host aborts or finishes without MESSAGE_RECEIVED.
   on('GENERATION_STOPPED',()=>{generationSerial++;generationInFlight=false;generationBaseline=null;pendingGenerationMessage=null;injectionCutoff=Infinity;refreshAll();});
   on('GENERATION_ENDED',()=>{const finishedSerial=generationSerial;setTimeout(()=>{
