@@ -46,6 +46,7 @@ const REPAIR_BUILD='20261116-bond-guard-hotfix2';
 // Battle-site handshake versions are tracked separately from the card-side repair build.
 const BATTLE_SITE_BUILD='20261116-ps-move-scripts-v1', BATTLE_RULES_BUILD='20261116-bond-npc-moves-team-v1';
 const BATTLE_RULES_PATCH='20261118-hit-lifecycle-v1';
+const FLINCH_PATCH='20261118-flinch-expiry-v1';
 const STORY_BUILD='20261118-adjusted-story-v2';
 if(K.VERSION!=='1.3.66-comprehensive-v6'||globalThis.PKMNormalAbility?.version!=='20261115-normal-ability-random-v2'||globalThis.PKMGender?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.worldbookStoryPolicy!=='queue-chain-fastforward-v1'||globalThis.PKMPlotGuard?.storyVersion!==STORY_BUILD||globalThis.PKMPatchGuard?.version!==REPAIR_BUILD||globalThis.PKMBondSync?.version!==REPAIR_BUILD||globalThis.PKMGearResolve?.version!==EXPECTED_BUILD||globalThis.PKMBattleGear?.fixVersion!==EXPECTED_BUILD)
   throw new Error('修复模块版本不完整：请先部署本包全部覆盖文件并刷新缓存。');
@@ -8795,7 +8796,7 @@ async function launchBattle(m) {
   const frame = PD.createElement('iframe');
   frame.setAttribute('allow', 'autoplay; fullscreen'); frame.setAttribute('allowfullscreen', ''); frame.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
   frame.style.background = '#070a14';
-  frame.src = W.PKM_BATTLE_EMBED_URL || `${BASE}index.html?embed=1&v=${BATTLE_RULES_PATCH}&ai=${AI_BUILD}`;
+  frame.src = W.PKM_BATTLE_EMBED_URL || `${BASE}index.html?embed=1&v=${BATTLE_RULES_PATCH}&ai=${AI_BUILD}&flinch=${FLINCH_PATCH}`;
   stage.replaceWith(frame);
   m.frame = frame;
   setBar(m.cfg.lines?.start ? '「' + m.cfg.lines.start + '」' : '正在连接对战系统……');
@@ -8830,7 +8831,7 @@ function onEngineMessage(d) {
   if (d.type === 'PKM_BATTLE_EXIT') { closeBattle();return; }
   if (d.type === 'PKM_BATTLE_READY') {
     const v=d.payload||{},expected='20261113-comprehensive-fix-v6';
-    if(v.aiVersion!==AI_BUILD||v.rulesPatchVersion!==BATTLE_RULES_PATCH||[v.version,v.engineVersion].some(x=>x!==BATTLE_SITE_BUILD)||[v.lifecycleVersion,v.selectionVersion].some(x=>x!==BATTLE_RULES_BUILD)||v.moveScriptsVersion!==BATTLE_SITE_BUILD||v.normalAbilityVersion!=='20261115-normal-ability-random-v2'||[v.gearVersion,v.gearDataVersion,v.genderVersion].some(x=>x!==expected)){
+    if(v.aiVersion!==AI_BUILD||v.flinchPatchVersion!==FLINCH_PATCH||v.rulesPatchVersion!==BATTLE_RULES_PATCH||[v.version,v.engineVersion].some(x=>x!==BATTLE_SITE_BUILD)||[v.lifecycleVersion,v.selectionVersion].some(x=>x!==BATTLE_RULES_BUILD)||v.moveScriptsVersion!==BATTLE_SITE_BUILD||v.normalAbilityVersion!=='20261115-normal-ability-random-v2'||[v.gearVersion,v.gearDataVersion,v.genderVersion].some(x=>x!==expected)){
       m.verified=false;m.sent=false;clearTimeout(m.timer);
       setBar('对战版本不匹配或网站未完整部署，已拒绝启动旧引擎。请一起上传全部覆盖文件、刷新缓存后重试；手机返回或电脑 Esc 可退出。');return;
     }
@@ -10343,7 +10344,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, storyVersion:STORY_BUILD, aiVersion:AI_BUILD, rulesPatchVersion:BATTLE_RULES_PATCH, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: REPAIR_BUILD, bondVersion:PKMBondSync.version, base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, storyVersion:STORY_BUILD, aiVersion:AI_BUILD, flinchPatchVersion:FLINCH_PATCH, rulesPatchVersion:BATTLE_RULES_PATCH, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: REPAIR_BUILD, bondVersion:PKMBondSync.version, base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }

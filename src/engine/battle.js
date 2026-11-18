@@ -1238,6 +1238,11 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       return [target];
     }
     turnDouble(playerActions) { return this._startTurn(playerActions || []); }
+    // Flinch has a one-turn lifetime even if no canMove check consumed it.
+    // Include benched/fainted members: a skipped action must never defer it.
+    _clearTurnFlinch() {
+      for (const team of this.teams) for (const p of team) if (p?.volatile) delete p.volatile.flinch;
+    }
     _startTurn(playerActions) {
       if (this.winner !== null || this.pendingSwitch !== null || this._turnState) return [];
       const start = this.log.length, count = this.double ? 2 : 1;
@@ -1245,6 +1250,9 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         const reason = L?.actionReason(this.cur(0, slot), playerActions[slot]);
         if (reason) { this.say(reason); return this.log.slice(start); }
       }
+      // Only a genuinely new round reaches here; a pending replacement resumes
+      // _continueTurn instead, retaining any still-pending same-turn flinch.
+      this._clearTurnFlinch();
       for (const side of [0, 1]) for (let slot = 0; slot < count; slot++) {
         const p = this.cur(side, slot); if (p) { p._enteredThisTurn = false; delete p.volatile.protect; delete p.volatile.endure; }
       }
@@ -2083,9 +2091,16 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         else if (this.confusionBlocked(target, user)) { /* blocked */ }
         else { target.volatile.confusion = 2 + Math.floor(this.rng() * 4); this.say(`${target.name} 混乱了！`); this.checkItemTrigger(target, 'confusion'); }
       }
-      if (eff.volatileStatus === 'flinch' && !target.fainted && target !== user) {
-        if (hasAbility(target, 'innerfocus')) this.say(`${target.name} 的精神力使其不会退缩！`);
-        else target.volatile.flinch = true;
+      if (eff.volatileStatus === 'flinch' && !target.fainted && target !== user && !target.dynamaxed) {
+        // Use the remaining action queue, not raw Speed or _actedTurn (which
+        // excludes actions stopped by sleep, paralysis, Disable, etc.). Direct
+        // useMove callers have no queue and retain the one-turn volatile API.
+        const state = this._turnState;
+        const pending = !state || state.movers.slice(state.index).some(m => m.actor === target && this.cur(m.side, m.slot) === target);
+        if (pending) {
+          if (hasAbility(target, 'innerfocus')) this.say(`${target.name} 的精神力使其不会退缩！`);
+          else target.volatile.flinch = true;
+        }
       }
       if (eff.volatileStatus === 'substitute' && target === user && !user.volatile.substitute) {
         const cost = Math.max(1, Math.floor(user.maxHp / 4));
@@ -2395,6 +2410,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       }
       if (this.weatherTurns > 0 && --this.weatherTurns === 0) { this.say('天气恢复了正常。'); this.weather = null; }
       for (const side of [0, 1]) for (let slot = 0; slot < (this.double ? 2 : 1); slot++) { const p = this.cur(side, slot); if (p?.dynamaxed && --p.dynamaxTurns <= 0) this.endDynamax(p); }
+      this._clearTurnFlinch();
     }
 
     updateWinner() {
@@ -2444,7 +2460,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     }
   }
 
-  const api = { aiVersion:'20261118-foulplay-browser-ai-v1', rulesPatchVersion:'20261118-hit-lifecycle-v1', effectiveBasePower, prepareMove, moveScripts: S, moveLifecycle: L, version:'20261116-ps-move-scripts-v1', setData, specialDamageInfo, FIXED_DAMAGE_IDS, VARIABLE_POWER_IDS, createPokemon, calcStats, effStat, estimateDamage, Battle, normId, STATUS_NAMES, abilityId, itemId, isGrounded, transformMove, makeZMove, makeMaxMove, stabMultiplier };
+  const api = { flinchPatchVersion:'20261118-flinch-expiry-v1', aiVersion:'20261118-foulplay-browser-ai-v1', rulesPatchVersion:'20261118-hit-lifecycle-v1', effectiveBasePower, prepareMove, moveScripts: S, moveLifecycle: L, version:'20261116-ps-move-scripts-v1', setData, specialDamageInfo, FIXED_DAMAGE_IDS, VARIABLE_POWER_IDS, createPokemon, calcStats, effStat, estimateDamage, Battle, normId, STATUS_NAMES, abilityId, itemId, isGrounded, transformMove, makeZMove, makeMaxMove, stabMultiplier };
   root.PKMBattle = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
