@@ -2,10 +2,13 @@
 if(window.parent!==window)document.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();window.parent.postMessage({type:'PKM_BATTLE_EXIT'},'*');}},true);
 import {localSprite,shinySprite,installSpriteRecovery} from '../../st-bridge/sprite-recovery.js?v=1.3.31';
 installSpriteRecovery(document);
+import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/browser-ai.mjs?v=20261118-foulplay-browser-ai-v1';
 /* Browser UI + SillyTavern host bridge (postMessage). Engine lives in PKMBattle. */
 (function () {
   'use strict';
   const $ = id => document.getElementById(id);
+  const browserAI = new BrowserBattleAI();
+  window.addEventListener('pagehide', () => browserAI.dispose(), {once:true});
   const BATTLE_MUSIC_TRACKS = [
     { name: '宝可梦无印战斗 BGM-2', url: 'https://archive.org/download/BGM-5/%E5%AE%9D%E5%8F%AF%E6%A2%A6%E6%97%A0%E5%8D%B0%E6%88%98%E6%96%97BGM-2.mp3' },
     { name: '宝可梦无印战斗 BGM-3', url: 'https://archive.org/download/BGM-5/%E5%AE%9D%E5%8F%AF%E6%A2%A6%E6%97%A0%E5%8D%B0%E6%88%98%E6%96%97BGM-3.mp3' },
@@ -118,7 +121,7 @@ installSpriteRecovery(document);
   if (EMBED) document.documentElement.classList.add('embed');
   let dataReady = false, pendingHostConfig = null, hostTag = null, hostMode = false;
   const APP_VERSION = '20261116-ps-move-scripts-v1';
-  const hostVersions = () => ({version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',moveScriptsVersion:window.PKMMoveScripts?.VERSION||'',lifecycleVersion:window.PKMMoveLifecycle?.version||'',selectionVersion:window.PKMTeamSelection?.version||'',normalAbilityVersion:window.PKMNormalAbility?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||'',genderVersion:window.PKMGender?.version||''});
+  const hostVersions = () => ({aiVersion:window.PKMBattle?.aiVersion===AI_BUILD?AI_BUILD:'',aiRuntime:'browser-worker-wasm',rulesPatchVersion:window.PKMBattle?.rulesPatchVersion||'',version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',moveScriptsVersion:window.PKMMoveScripts?.VERSION||'',lifecycleVersion:window.PKMMoveLifecycle?.version||'',selectionVersion:window.PKMTeamSelection?.version||'',normalAbilityVersion:window.PKMNormalAbility?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||'',genderVersion:window.PKMGender?.version||''});
   let formatTag = '', formatRule = ''; // v1.3.8：角色卡发来的赛制（例：3v3、3只 vs 1只），显示在行动菜单的标签上
   let typeLabel = ''; // v1.3.9：角色卡发来的对战类型（道馆战 / 训练家对战 / 劲敌对战 / 火箭队……），标签第一段
   // 宿主模式：球袋来自角色卡变量（MVU），只存在本页内存里，不读写本机存档。
@@ -1247,6 +1250,8 @@ installSpriteRecovery(document);
     const ref = battle, before = snapshotBattle(), logStart = battle.log.length;
     const img = $('e-sprite').querySelector(':scope > img'), player = $('p-sprite').querySelector(':scope > img');
     animating = true; commandMessage = '正在投出精灵球…'; renderCommands();
+    await browserAI.prepare(ref); // Does not receive the ball or player command.
+    if (battle !== ref) return;
     battle.turn({ kind: 'capture', ball });
     const attempt = battle.lastCapture;
     if (!attempt?.allowed) { animating = false; commandMessage = attempt?.reason || '暂时无法投球。'; render(); return; }
@@ -1742,28 +1747,33 @@ installSpriteRecovery(document);
     payload.enemyTeam.forEach((p, i) => { const src = battle.teams[1][i]; if (src) { Object.assign(p, indiv(src)); p.level = src.level; p.name = src.name; p.shiny = !!src.shiny; p.gender = src.gender || null; } });
     postHost('PKM_BATTLE_RESULT', payload);
   }
-  function after() { render(); announceResult(); }
-  function actDouble(actions) {
+  function after() { render(); announceResult(); if (battle && battle.winner === null) void browserAI.prepare(battle); }
+  async function actDouble(actions) {
     if (!battle || !battle.double || animating || battle.winner !== null || battle.pendingSwitch !== null) return;
     for (let slot = 0; slot < actions.length; slot++) {
       const reason = battle.actionReason(battle.cur(0, slot), actions[slot]);
       if (reason) { commandMessage = reason; renderCommands(); return; }
     }
     animating = true; commandMessage = ''; renderCommands();
-    const ref = battle, before = snapshotBattle(), logStart = battle.log.length, cap = theaterCapture();
+    const ref = battle, before = snapshotBattle(), logStart = battle.log.length;
+    await browserAI.prepare(ref);
+    if (battle !== ref) return;
+    const cap = theaterCapture();
     battle.turn({ kind: 'double', actions });
     const events = theaterArm(cap);
     selectedMechanic = null; doubleActionSlot = 0; doubleActions = [null, null]; pendingDoubleTarget = null;
     menuView = battle.pendingSwitch !== null ? 'switch' : 'fight'; after();
     requestAnimationFrame(() => unlockAfterAnimations(before, { kind: 'double', actions }, logStart, events));
   }
-  function act(a) {
+  async function act(a) {
     if (a?.kind === 'double') { actDouble(a.actions || []); return; }
     if (!battle || animating || battle.winner !== null || battle.pendingSwitch !== null) return;
     const reason = battle.actionReason(battle.cur(0), a);
     if (reason) { commandMessage = reason; renderCommands(); return; }
     animating = true; commandMessage = ''; renderCommands();
     const battleRef = battle;
+    await browserAI.prepare(battleRef); // No selected action is passed to AI.
+    if (battle !== battleRef) return;
     const before = snapshotBattle();
     const logStart = battle.log.length;
     let chosen = { kind: a.kind, ...(a.id ? { id: a.id } : {}) };
@@ -2077,6 +2087,9 @@ installSpriteRecovery(document);
       if (doubleMode && (playerTeam.filter(p => !p.fainted).length < 2 || enemyTeam.filter(p => !p.fainted).length < 2)) { alert('双打模式需要双方各至少两只宝可梦。'); return; }
       battle = new PKMBattle.Battle(playerTeam, enemyTeam, { double: doubleMode, difficulty, encounterType: isWild ? 'wild' : 'trainer', balls: worldStore.state.balls });
     }
+    browserAI.attach(battle, profileForBattle(cfg, difficulty, $('sel-enemy').value), {
+      onStatus: (info, profile) => { if (battle?.aiProfile === profile) showAIStatus($('ai-status'), info, profile); }
+    });
     // v1.3.9：敌方信息框的小标签：野生 / 对手名字（角色卡发来的），单机模式按野生 / 敌方
     const sideEl = $('e-side-label');
     if (sideEl) sideEl.textContent = String((cfg && cfg.rules?.sideLabel) || (battle.encounterType === 'wild' ? '野生' : '敌方')).slice(0, 6);

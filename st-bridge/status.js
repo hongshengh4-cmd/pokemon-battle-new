@@ -1,5 +1,6 @@
 import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.js?v=1.3.31';
 import {ppItemInfo} from './pp-items.mjs?v=20261115-pp-item-use-v1';
+import {installKantoHardware,HARDWARE_BUILD} from './kanto-hardware.js?v=20261118-kanto-hardware-v1';
 import './plot-guard.js?v=20261115-worldbook-date-event-ability-v3';
 if(globalThis.PKMPlotGuard?.version!=='20261113-comprehensive-fix-v6')throw new Error('剧情和计时模块版本不匹配，请完整部署并刷新缓存。');
 // External status runtime 20261030-all-requested-fixes-v8; original card UI retained.
@@ -405,13 +406,13 @@ if(globalThis.PKMPlotGuard?.version!=='20261113-comprehensive-fix-v6')throw new 
     const syncViewportHeight=()=>el.style.setProperty('--pkdex-view-height',(host.visualViewport?.height||host.innerHeight||800)+'px');syncViewportHeight();host.addEventListener('resize',syncViewportHeight);host.visualViewport?.addEventListener('resize',syncViewportHeight);
     let style = idoc.getElementById('pkdex-css'); if (!style) { style = idoc.createElement('style'); style.id = 'pkdex-css'; (idoc.head || idoc.documentElement).appendChild(style); } style.textContent = DEX_CSS;
     const UI = { tab: 'tr', filt: 'all', q: '', sel: null, pocket: null, bagScroll: {}, onlyF: true, folded: LS.getItem('pkdex_fold') === '1', shv: false };
-    let sig = null, mesid = null, timer, observer;
+    let sig = null, mesid = null, timer, observer, appearance;
     let fitQueued = 0;
     const fitNow = () => { try { const frame = win.frameElement; if (!frame || win.document.visibilityState === 'hidden') return; const h = Math.ceil(el.getBoundingClientRect().height + 28); if (h > 35 && Math.abs((parseFloat(frame.style.height) || 0) - h) > 8) frame.style.height = h + 'px'; } catch (_) {} };
     const fit = () => { if (fitQueued) return; fitQueued = win.requestAnimationFrame(() => { fitQueued = 0; fitNow(); }); };
     // Width-only relayout of the live map iframe; its document is never reloaded.
     try { win.addEventListener('resize', () => { const f = el.querySelector('.map-fr'); if (f && f.style.height !== MAP_H(win) + 'px') f.style.height = MAP_H(win) + 'px'; }); } catch (_) {}
-    const cleanup = () => { win.removeEventListener('message',relayNestedMapPoint); host.removeEventListener('resize',syncViewportHeight);host.visualViewport?.removeEventListener('resize',syncViewportHeight);win.clearInterval(timer); observer?.disconnect(); mounts.delete(el); };
+    const cleanup = () => { appearance?.dispose?.();appearance=null;win.removeEventListener('message',relayNestedMapPoint); host.removeEventListener('resize',syncViewportHeight);host.visualViewport?.removeEventListener('resize',syncViewportHeight);win.clearInterval(timer); observer?.disconnect(); mounts.delete(el); };
     imgFallback(el);
     const tick = () => {
       host.PKMKanto?.installBagDrag?.(win,el);
@@ -419,7 +420,7 @@ if(globalThis.PKMPlotGuard?.version!=='20261113-comprehensive-fix-v6')throw new 
       mesid = findMesId(win);
       let r; try { r = load(mesid); } catch (e) { log('读取失败', e); return; }
       if (r.sig === sig) return; sig = r.sig;
-      try { drawDex(el, r, UI); fit(); } catch (e) { log('图鉴绘制失败', e); el.innerHTML = '<div style="padding:8px;color:#c33;font:12px sans-serif">图鉴绘制失败：' + esc(e.message) + '</div>'; }
+      try { drawDex(el, r, UI); appearance=installKantoHardware({win,root:el,read:()=>host.PKMKanto?.read?.()}); fit(); } catch (e) { log('图鉴绘制失败', e); el.innerHTML = '<div style="padding:8px;color:#c33;font:12px sans-serif">图鉴绘制失败：' + esc(e.message) + '</div>'; }
     };
     mounts.set(el, { tick, cleanup });
     try { observer = new win.ResizeObserver(fit); observer.observe(el); } catch (_) {}
@@ -609,7 +610,7 @@ if(globalThis.PKMPlotGuard?.version!=='20261113-comprehensive-fix-v6')throw new 
     window.addEventListener('message', relayMapPoint);
     if (host !== window) host.addEventListener('message', relayMapPoint);
   } catch (_) {}
-  const api = { johtoMapVersion: '20261113-johto-map-1', genderVersion: '20261113-comprehensive-fix-v6', version: '1.3.25-map-shop-18', mountDex,
+  const api = { skinVersion:HARDWARE_BUILD, johtoMapVersion: '20261113-johto-map-1', genderVersion: '20261113-comprehensive-fix-v6', version: '1.3.25-map-shop-18', mountDex,
     dispose() { stopped = true; [...mounts.values()].forEach(m => m.cleanup()); if (host.PKMKantoLegacyStatus === api) delete host.PKMKantoLegacyStatus; }
   };
   host.PKMKantoLegacyStatus = api;

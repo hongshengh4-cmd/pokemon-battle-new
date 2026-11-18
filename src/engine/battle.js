@@ -52,7 +52,7 @@
     const out = {};
     for (const k of STAT_KEYS) {
       const base = species.baseStats[k], evQuarter=Math.floor(Math.max(0,Math.min(252,Number(evs[k])||0))/4);
-      if (k === 'hp') { out.hp = Math.floor(((2 * base + ivs[k] + evQuarter) * level) / 100) + level + 10; continue; }
+      if (k === 'hp') { out.hp = base === 1 ? 1 : Math.floor(((2 * base + ivs[k] + evQuarter) * level) / 100) + level + 10; continue; }
       let v = Math.floor(((2 * base + ivs[k] + evQuarter) * level) / 100) + 5;
       if (up === k) v = Math.floor(v * 1.1);
       if (down === k) v = Math.floor(v * 0.9);
@@ -100,7 +100,12 @@
     return p._battle && p._battle._moldTarget === p && BREAKABLE.has(id) ? '' : id;
   };
   const itemId = p => normId(p?.item || '');
+  // Keep raw held-item identity for theft/Knock Off. Passive effects must also
+  // obey Klutz, Embargo and Magic Room (PS Pokemon.ignoringItem / hasItem).
+  const activeItemId = p => p?.volatile?.embargo || p?._battle?.field?.magicRoom > 0 || abilityId(p) === 'klutz' ? '' : itemId(p);
   const hasAbility = (p, ...ids) => ids.includes(abilityId(p));
+  const sheerForceApplies = (p, move) => hasAbility(p, 'sheerforce') && !!(move?.secondary || move?.secondaries?.length);
+  const bypassesSubstitute = (p, move) => !!(move?.flags?.sound || move?.flags?.bypasssub || hasAbility(p, 'infiltrator'));
   const STAT_LABELS = { atk: '攻击', def: '防御', spa: '特攻', spd: '特防', spe: '速度', accuracy: '命中率', evasion: '闪避率' };
   const PINCH_ABILITIES = { Fire: 'blaze', Water: 'torrent', Grass: 'overgrow', Bug: 'swarm' };
   const S = SCRIPTS_API ? SCRIPTS_API.create({ hasAbility, abilityId, itemId, isGrounded: p => isGrounded(p), effStat: (p, k) => effStat(p, k),
@@ -225,7 +230,7 @@
     if (move.flags?.bite && hasAbility(attacker, 'strongjaw')) power *= 1.5;
     if (move.flags?.pulse && hasAbility(attacker, 'megalauncher')) power *= 1.5;
     if (move.recoil && hasAbility(attacker, 'reckless')) power *= 1.2;
-    if ((move.secondary || move.secondaries?.length) && hasAbility(attacker, 'sheerforce')) power *= 1.3;
+    if (sheerForceApplies(attacker, move)) power *= 1.3;
     if (move.type === 'Fire' && attacker.volatile?.flashfire && hasAbility(attacker, 'flashfire')) power *= 1.5;
     if (battle?.weather === 'sand' && ['Rock', 'Ground', 'Steel'].includes(move.type) && hasAbility(attacker, 'sandforce')) power *= 1.3;
     if (TYPE_ITEMS[itemId(attacker)] === move.type) power *= 1.2;
@@ -234,7 +239,7 @@
     return power;
   }
 
-  function defenderDamageMultiplier(attacker, defender, move, eff) {
+  function defenderDamageMultiplier(attacker, defender, move, eff, opts = {}) {
     let mult = 1;
     if (hasAbility(defender, 'thickfat') && ['Fire', 'Ice'].includes(move.type)) mult *= 0.5;
     if (hasAbility(defender, 'heatproof') && move.type === 'Fire') mult *= 0.5;
@@ -245,10 +250,10 @@
     if (hasAbility(defender, 'punkrock') && move.flags?.sound) mult *= 0.5;
     if (hasAbility(defender, 'fluffy')) { if (move.flags?.contact) mult *= 0.5; if (move.type === 'Fire') mult *= 2; }
     if (hasAbility(attacker, 'tintedlens') && eff > 0 && eff < 1) mult *= 2;
-    if (itemId(attacker) === 'lifeorb') mult *= 1.3;
+    if (activeItemId(attacker) === 'lifeorb') mult *= 1.3;
     if (itemId(attacker) === 'expertbelt' && eff > 1) mult *= 1.2;
     const battle = defender._battle;
-    if (battle && !hasAbility(attacker, 'infiltrator')) {
+    if (battle && !opts.crit && !hasAbility(attacker, 'infiltrator')) {
       const sc = battle.field?.sides?.[defender._side];
       if (sc) {
         if ((move.category === 'Physical' && sc.reflect > 0) || (move.category === 'Special' && sc.lightscreen > 0) || sc.auroraveil > 0) mult *= 0.5;
@@ -548,7 +553,7 @@
     if (move._spreadTargets > 1) mult *= 0.75;
     mult *= stabMultiplier(attacker, { ...move, type: effType }); // STAB (incl. Terastal rules; v1.3.54 输电/等离子浴)
     if (isPhys && attacker.status === 'brn' && !hasAbility(attacker, 'guts') && move.id !== 'facade') mult *= 0.5;
-    mult *= defenderDamageMultiplier(attacker, defender, move, eff);
+    mult *= defenderDamageMultiplier(attacker, defender, move, eff, opts);
     if (S && attacker._battle) mult *= S.damageMultiplier(attacker._battle, attacker, defender, move);
     if ((move._isZ || move._isMax) && defender.volatile?.protect) mult *= 0.25;
     dmg = Math.floor(dmg * mult);
@@ -593,6 +598,9 @@
         p._battle = this; p._side = side; p._enteredThisTurn = false; p._protectStreak = 0;
         // Participation is per battle, not per successfully executed move.
         p._participated = false;
+        // Public-only AI memory is scoped to this encounter, never the save.
+        p._aiPublicMoves = []; delete p._aiPublicLastMove; delete p._aiPublicAbility;
+        delete p._aiPublicItem; delete p._aiPublicItemKnown; delete p._aiPublicSnapshot; p._aiPublicProtectStreak = 0;
         delete p._initialStatusRejected;
         if (p.status && !p.fainted) {
           const reason = statusImmunityReason(p, p.status, this);
@@ -749,26 +757,29 @@
       this.applyEntryHazards(side, p, slot);
       if (p.hp <= 0 || p.fainted) return;
       this.applyEntryAbility(side, slot);
+      this.aiObserver?.see(p);
     }
     applyEntryAbility(side, slot = 0) {
       const p = this.cur(side, slot);
       if (!p || p.fainted || p.hp <= 0) return;
       const foes = this.activeMons(this.other(side)); const foe = foes[0]; let ab = abilityId(p);
-      if (ab === 'trace' && foe?.ability) { p.ability = abilityId(foe); ab = p.ability; this.say(`${p.name} 的追踪复制了对手的特性！`); }
+      if (ab === 'trace' && foe?.ability) { p.ability = abilityId(foe); ab = p.ability; p._aiPublicAbility = ab; foe._aiPublicAbility = ab; this.say(`${p.name} 的追踪复制了对手的特性！`); }
       const weatherAbility = { drought: 'sun', drizzle: 'rain', sandstream: 'sand', snowwarning: 'snow' }[ab];
-      if (weatherAbility) this.setWeather(weatherAbility, 5, p);
+      if (weatherAbility) { p._aiPublicAbility = ab; this.setWeather(weatherAbility, 5, p); }
       const terrainAbility = { electricsurge: 'electric', grassysurge: 'grassy', psychicsurge: 'psychic', mistysurge: 'misty' }[ab];
-      if (terrainAbility) this.setTerrain(terrainAbility, 5, p);
+      if (terrainAbility) { p._aiPublicAbility = ab; this.setTerrain(terrainAbility, 5, p); }
       if (ab === 'intimidate' && foes.length) {
+        p._aiPublicAbility = ab;
         this.say(`${p.name} 的威吓降低了对手的气势！`);
         foes.forEach(target => this.changeStages(target, { atk: -1 }, p));
       }
       if (ab === 'download' && foe && !foe.fainted) {
+        p._aiPublicAbility = ab;
         const key = effStat(foe, 'def') < effStat(foe, 'spd') ? 'atk' : 'spa';
         this.say(`${p.name} 的下载分析了对手！`);
         this.changeStages(p, { [key]: 1 }, p);
       }
-      if (ab === 'frisk' && foe?.item) this.say(`${p.name} 察觉到了对手携带的道具！`);
+      if (ab === 'frisk' && foe?.item) { p._aiPublicAbility = ab; foe._aiPublicItem = foe.item; foe._aiPublicItemKnown = true; this.say(`${p.name} 察觉到了对手携带的道具！`); }
       if (ab === 'anticipation' && foe && foe.moves.some(m => m.basePower && effectiveness(m.type, p.types) > 1)) this.say(`${p.name} 因危险而颤抖了（危险预知）！`);
     }
     megaEvolve(side, slot = 0) {
@@ -797,8 +808,11 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         p.speciesId = `${p.originalSpeciesId}gmax`; p.speciesName = form.name; if (!p.hasNickname) p.name = form.name;
         p.types = form.types.slice(); p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature });
       }
-      p.maxHp = (p.normalMaxHp || p.maxHp) * 2;
-      p.hp += p.normalMaxHp;
+      // Standard maximum Dynamax level: scale current and maximum HP equally.
+      // Shedinja is the explicit one-HP exception in PS conditions.ts.
+      const factor = p.originalSpeciesId === 'shedinja' ? 1 : 2;
+      p.maxHp = (p.normalMaxHp || p.maxHp) * factor;
+      p.hp = Math.min(p.maxHp, p.hp * factor);
       p.dynamaxed = true; p.dynamaxTurns = 3; this.mechanicUsed[side].dynamax = true;
       this.say(`🔴 ${p.name} ${p.dynamaxForm === 'gmax' ? '超极巨化' : '极巨化'}了！（3 回合）`);
       return true;
@@ -807,7 +821,8 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       if (!p?.dynamaxed) return;
       const normal = p.normalMaxHp || Math.floor(p.maxHp / 2);
       if (p._preDynamax) { const pre = p._preDynamax; p.speciesId = pre.speciesId; p.speciesName = pre.speciesName; if (!p.hasNickname) p.name = pre.name; p.types = pre.types.slice(); p.stats = pre.stats; }
-      p.maxHp = normal; p.hp = p.fainted ? 0 : Math.max(1, Math.floor(p.hp / 2));
+      const factor = p.maxHp / normal;
+      p.maxHp = normal; p.hp = p.fainted || p.hp <= 0 ? 0 : Math.max(1, Math.ceil(p.hp / factor));
       p.dynamaxed = false; p.dynamaxTurns = 0; p.normalMaxHp = null; p._preDynamax = null;
       if (!silent) this.say(`${p.name} 的极巨化结束了。`);
     }
@@ -826,7 +841,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       return false;
     }
     changeStages(p, boosts, source = p, opts = {}) {
-      if (!p || p.fainted || !boosts) return false;
+      if (!p || p.fainted || p.hp <= 0 || !boosts) return false;
       let changed = false, lowered = false;
       for (const [k, raw] of Object.entries(boosts)) {
         if (!(k in p.stages) || !raw) continue;
@@ -842,7 +857,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
             || (k === 'atk' && hasAbility(p, 'hypercutter'))
             || (k === 'def' && hasAbility(p, 'bigpecks'))
             || (k === 'accuracy' && hasAbility(p, 'keeneye'));
-          if (blocked) { this.say(`${p.name} 的特性阻止了${STAT_LABELS[k]}降低！`); continue; }
+          if (blocked) { p._aiPublicAbility = abilityId(p); this.say(`${p.name} 的特性阻止了${STAT_LABELS[k]}降低！`); continue; }
           if (hasAbility(p, 'mirrorarmor') && !opts.noMirror) {
             this.say(`${p.name} 的镜甲反弹了能力降低！`);
             this.changeStages(source, { [k]: amt }, p, { noMirror: true });
@@ -869,15 +884,15 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       return changed;
     }
     tryStatus(p, status, source = null, opts = {}) {
-      if (!p || p.fainted || p.status || !status) return false;
+      if (!p || p.fainted || p.hp <= 0 || p.status || !status) return false;
       if (p.volatile?.substitute && source && source !== p) { this.say(`${p.name} 的替身挡住了效果！`); return false; }
       const st = String(status || '').toLowerCase();
       if (source && source !== p && source._side !== p._side && (this.field.sides[p._side]?.safeguard || 0) > 0 && !hasAbility(source, 'infiltrator')) {
         if (opts.fromStatusMove) this.say(`${p.name} 被神秘守护保护着！`); return false;
       }
       const immunity = statusImmunityReason(p, st, this);
-      if (immunity === 'ability') { this.say(`${p.name} 的特性使其不会陷入该异常状态！`); return false; }
-      if (opts.fromStatusMove && source && source !== p && abilityId(p) === 'goodasgold') { this.say(`${p.name} 的黄金之躯挡下了变化招式！`); return false; }
+      if (immunity === 'ability') { p._aiPublicAbility = abilityId(p); this.say(`${p.name} 的特性使其不会陷入该异常状态！`); return false; }
+      if (opts.fromStatusMove && source && source !== p && abilityId(p) === 'goodasgold') { p._aiPublicAbility = abilityId(p); this.say(`${p.name} 的黄金之躯挡下了变化招式！`); return false; }
       if (immunity === 'type' || immunity === 'invalid') return false;
       if (immunity === 'misty') { this.say('薄雾场地保护着宝可梦！'); return false; }
       if (immunity === 'electric') { this.say('电气场地让宝可梦无法入睡！'); return false; }
@@ -892,9 +907,9 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       this.checkItemTrigger(p, 'status');
       return true;
     }
-    consumeItem(p) { const old = p.item; p.item = null; if (old) { p._lastConsumed = old; p._consumedItems.push(old); } return old; }
+    consumeItem(p) { const old = p.item; if (old) { p._aiPublicItem = null; p._aiPublicItemKnown = true; } p.item = null; if (old) { p._lastConsumed = old; p._consumedItems.push(old); } return old; }
     checkItemTrigger(p, event, ctx = {}) {
-      if (!p || p.fainted || !p.item) return;
+      if (!p || p.fainted || p.hp <= 0 || !p.item) return;
       // v1.3.55：查封 / 魔法空间 —— 道具（树果/装备自动触发）无效
       if (p.volatile?.embargo || this.field?.magicRoom) return;
       const item = itemId(p), healFrac = f => this.heal(p, Math.max(1, Math.floor(p.maxHp * f)), '道具生效');
@@ -921,35 +936,49 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         if (stat) { this.consumeItem(p); this.changeStages(p, { [stat]: 1 }, p); }
       }
     }
+    /** Damage ledger belongs to ONE move action, shared across all hits and
+     * spread targets. Life Orb / Shell Bell are not per-hit contact effects.
+     * Rules: PS data/items.ts + sim/battle-actions.ts, commit
+     * f827a1d41064e0dec4c19c6ea0394fcf0c23479c, MIT (see THIRD-PARTY-NOTICES).
+     */
+    _recordMoveDamage(attacker, target, move, damage) {
+      const scope = this._activeMoveScope;
+      if (scope?.user === attacker && target !== attacker && move?.category !== 'Status') {
+        scope.shared.hitForItems = true;
+        scope.shared.totalMoveDamage = (scope.shared.totalMoveDamage || 0) + damage;
+      }
+      return damage;
+    }
     applyMoveDamage(p, amount, attacker, move) {
-      let dmg = Math.max(0, amount);
-      // 替身先替本体承受伤害（声音类招式无视替身）
-      if (p.volatile?.substitute && !(move && move.flags?.sound)) {
-        const sub = p.volatile.substitute;
-        if (dmg >= sub) {
-          delete p.volatile.substitute;
-          this.say(`${p.name} 的替身被打倒了！`);
-          const extra = dmg - sub, before = p.hp;
-          p.hp = Math.max(0, p.hp - extra);
-          return sub + (before - p.hp);
-        }
-        p.volatile.substitute = sub - dmg; this.say(`${p.name} 的替身承受了伤害（替身剩余 ${p.volatile.substitute}）！`);
-        return dmg;
+      this._lastMoveDamage = { target: p, source: attacker, move, substitute: false };
+      let dmg = Number.isFinite(Number(amount)) ? Math.max(0, Math.floor(Number(amount))) : 0;
+      if (!p || p.fainted || p.hp <= 0 || dmg <= 0) return 0;
+      // Excess damage to a Substitute never spills into the owner's HP. Later
+      // hits of the same multihit move can hit its owner after it has broken.
+      if (p !== attacker && p.volatile?.substitute && !bypassesSubstitute(attacker, move)) {
+        this._lastMoveDamage.substitute = true;
+        const dealt = Math.min(dmg, p.volatile.substitute);
+        p.volatile.substitute -= dealt;
+        if (p.volatile.substitute <= 0) { delete p.volatile.substitute; this.say(`${p.name} 的替身被打倒了！`); }
+        else this.say(`${p.name} 的替身承受了伤害（替身剩余 ${p.volatile.substitute}）！`);
+        return this._recordMoveDamage(attacker, p, move, dealt);
       }
       if (S && move) dmg = S.damageCap(this, attacker, p, move, dmg);
       if (dmg > 0) p._hurtTurn = this.turnCount;
-      if (dmg >= p.hp && p.hp > 1) {
-        if (hasAbility(p, 'sturdy') && p.hp === p.maxHp) { dmg = p.hp - 1; this.say(`${p.name} 用结实撑住了攻击！`); }
+      if (dmg >= p.hp && p.hp > 0) {
+        // Endure lasts the whole turn, even when the next hit starts at 1 HP.
+        if (p.volatile?.endure) { dmg = p.hp - 1; this.say(`${p.name} 忍耐住了攻击！`); }
+        else if (hasAbility(p, 'sturdy') && p.hp === p.maxHp) { dmg = p.hp - 1; this.say(`${p.name} 用结实撑住了攻击！`); }
         else if (itemId(p) === 'focussash' && p.hp === p.maxHp) { dmg = p.hp - 1; this.consumeItem(p); this.say(`${p.name} 用气势披带撑住了攻击！`); }
         else if (itemId(p) === 'focusband' && this.rng() < 0.1) { dmg = p.hp - 1; this.say(`${p.name} 用气势头带撑住了攻击！`); }
-        else if (p.volatile?.endure) { dmg = p.hp - 1; delete p.volatile.endure; this.say(`${p.name} 忍耐住了攻击！`); }
       }
       const before = p.hp;
       p.hp = Math.max(0, p.hp - dmg);
-      return before - p.hp;
+      return this._recordMoveDamage(attacker, p, move, before - p.hp);
     }
     onDamagingHit(attacker, target, move, damage, crit, eff, beforeHp) {
       if (!target || target.fainted || damage <= 0) return;
+      if (this._lastMoveDamage?.target === target && this._lastMoveDamage?.source === attacker && this._lastMoveDamage?.move === move && this._lastMoveDamage.substitute) return;
       S?.onDamagingHit(this, attacker, target, move, damage);
       if (target.status === 'frz' && target.hp > 0 && ((move.type === 'Fire' && move.category !== 'Status') || move.thawsTarget)) { target.status = null; this.say(`${target.name} 的冰冻融化了！`); }
       // v1.3.54：记录最后一次受到的伤害（双倍奉还/镜面反射/金属爆炸/复仇用）
@@ -977,17 +1006,13 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       if (crit && hasAbility(target, 'angerpoint')) { target.stages.atk = 6; this.say(`${target.name} 的愤怒穴位被击中，攻击升到了最高！`); }
       if (hasAbility(target, 'cursedbody') && attacker && !attacker.fainted && this.rng() < 0.3) { attacker.volatile.disableMove = move.id; attacker.volatile.disableTurns = 4; this.say(`${attacker.name} 受到诅咒之躯影响，${move.name} 被定身了！`); }
       this.checkItemTrigger(target, 'hit', { move, eff, attacker });
-      if (move.flags?.contact && attacker && !attacker.fainted) {
+      if (move.flags?.contact && attacker && !attacker.fainted && attacker.hp > 0) {
         if (hasAbility(target, 'roughskin', 'ironbarbs')) this.applyDamage(attacker, Math.max(1, Math.floor(attacker.maxHp / 8)), `${attacker.name} 受到了粗糙皮肤的伤害！`);
-        if (itemId(target) === 'rockyhelmet') this.applyDamage(attacker, Math.max(1, Math.floor(attacker.maxHp / 6)), `${attacker.name} 受到了凸凸头盔的伤害！`);
-        const contactAbility = abilityId(target);
+        if (attacker.hp > 0 && itemId(target) === 'rockyhelmet') this.applyDamage(attacker, Math.max(1, Math.floor(attacker.maxHp / 6)), `${attacker.name} 受到了凸凸头盔的伤害！`);
+        const contactAbility = attacker.hp > 0 ? abilityId(target) : '';
         if (STATUS_BY_ABILITY[contactAbility] && this.rng() < 0.3) this.tryStatus(attacker, STATUS_BY_ABILITY[contactAbility], target, { fromStatusMove: false });
         else if (contactAbility === 'effectspore' && this.rng() < 0.3) this.tryStatus(attacker, ['par', 'psn', 'slp'][Math.floor(this.rng() * 3)], target, { fromStatusMove: false });
       }
-      if (attacker && !attacker.fainted && itemId(attacker) === 'lifeorb' && !(hasAbility(attacker, 'sheerforce') && move.secondary)) {
-        this.applyDamage(attacker, Math.max(1, Math.floor(attacker.maxHp / 10)), `${attacker.name} 被生命宝珠夺走了体力！`);
-      }
-      if (attacker && !attacker.fainted && itemId(attacker) === 'shellbell') this.heal(attacker, Math.max(1, Math.floor(damage / 8)), '贝壳之铃回复了体力');
     }
     movePriority(user, move, target) {
       let prio = move.priority || 0;
@@ -1016,6 +1041,8 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
 
     /* ---------- AI ---------- */
     aiAction(side, slot = 0, reserved = new Set()) {
+      // Prepared independently of playerActions; browser search never receives them.
+      if (side === 1 && this.aiController) return this.aiController.consume(slot, reserved);
       const me = this.cur(side, slot), foe = this.activeMons(this.other(side))[0];
       if (!me || me.fainted || !foe) return { kind: 'pass' };
       const forced = L?.forcedMove(me, MOVES);
@@ -1084,6 +1111,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     }
 
     bestSwitch(side) {
+      if (side === 1 && this.aiController) return this.aiController.replacement();
       const foe = this.activeMons(this.other(side))[0];
       let best = null;
       this.teams[side].forEach((p, i) => {
@@ -1108,6 +1136,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       if (!opts.forced && (this.field.pseudoWeather?.fairylock > 0)) { this.say('妖精之锁封住了场地，无法交换！'); return false; }
       if (!opts.forced && (old.volatile?.cannotEscape || old.volatile?.octolock) && !old.types.includes('Ghost') && itemId(old) !== 'shedshell') { this.say(`${old.name} 被盯住，无法逃走！`); return false; }
       if (!opts.forced && S) { const why = S.trapped(this, old); if (why) { this.say(why); return false; } }
+      this.aiObserver?.see(old); // Before private off-field regeneration/cure.
       this.clearInfatuationFrom(old);
       if (old.dynamaxed && !old.fainted) this.endDynamax(old);
       if (!old.fainted && hasAbility(old, 'regenerator')) this.heal(old, Math.floor(old.maxHp / 3), '再生力回复了体力');
@@ -1125,7 +1154,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       old._moveAgainst = null;
       old.stages = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, accuracy: 0, evasion: 0 };
       old.volatile = {};
-      old._protectStreak = 0;
+      old._protectStreak = 0; old._aiPublicProtectStreak = 0;
       old.choiceLockedMove = null;
       old._lastMoveId = null;
       this.setActive(side, slot, index);
@@ -1217,7 +1246,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         if (reason) { this.say(reason); return this.log.slice(start); }
       }
       for (const side of [0, 1]) for (let slot = 0; slot < count; slot++) {
-        const p = this.cur(side, slot); if (p) { p._enteredThisTurn = false; delete p.volatile.protect; }
+        const p = this.cur(side, slot); if (p) { p._enteredThisTurn = false; delete p.volatile.protect; delete p.volatile.endure; }
       }
       const reserved = new Set();
       const enemy = Array.from({ length: count }, (_, slot) => {
@@ -1292,7 +1321,6 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         }
         this._finishMoveScripts(user, m.base, shared);
         L?.finish(this, user, m.base, shared);
-        if (m.base.id === 'struggle' && !user.fainted && user.hp > 0 && this._struggled) this.applyDamage(user, Math.max(1, Math.floor(user.maxHp / 4)), `${user.name} 受到了反作用力伤害！`);
         if (m.base.basePower) delete user.volatile.helpinghand;
         this._struggled = false;
         if (this._boom === user && !user.fainted && user.hp > 0) { user.hp = 0; this.say(`${user.name} 倒下了！`); }
@@ -1348,7 +1376,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         if (p.volatile.confusion <= 0) { delete p.volatile.confusion; this.say(`${p.name} 的混乱解除了。`); }
         else if (this.rng() < 0.33) {
           const dmg = Math.max(1, Math.floor((((2 * p.level / 5 + 2) * 40 * effStat(p, 'atk') / effStat(p, 'def')) / 50) + 2));
-          this.applyDamage(p, dmg, `${p.name} 攻击了自己！`);
+          this.applyDamage(p, dmg, `${p.name} 攻击了自己！`, { direct: true });
           return false;
         }
       }
@@ -1377,17 +1405,34 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     }
     useMove(side, user, target, baseMove, opts = {}) {
       const own = !opts._shared, shared = opts._shared || {};
-      const prevMold = this._moldTarget;
+      const prevMold = this._moldTarget, prevScope = this._activeMoveScope;
+      this._activeMoveScope = { user, shared };
       if (target && target !== user && (baseMove?.ignoreAbility || hasAbility(user, ...MOLD_ABILITIES))) this._moldTarget = target;
       try { return this._useMove(side, user, target, baseMove, { ...opts, _shared: shared }); }
-      finally { this._moldTarget = prevMold; if (own) { this._finishMoveScripts(user, baseMove, shared); L?.finish(this, user, baseMove, shared); } }
+      finally { this._moldTarget = prevMold; this._activeMoveScope = prevScope; if (own) { this._finishMoveScripts(user, baseMove, shared); L?.finish(this, user, baseMove, shared); } }
     }
     /** After all targets: crash / recoil scripts and the "last move failed" flag (Stomping Tantrum). */
     _finishMoveScripts(user, base, shared) {
       if (!shared || shared._finScripts || !user) return;
       shared._finScripts = true;
       if (!shared.started) return;
-      S?.afterMove(this, user, shared.move || base, shared);
+      const move = shared.move || base;
+      // Ordinary recoil uses actual total damage and happens before held-item
+      // AfterMoveSecondarySelf; zero HP is not allowed to heal back to life.
+      if (shared.totalMoveDamage > 0 && move.recoil && user.hp > 0 && !user.fainted && !hasAbility(user, 'rockhead'))
+        this.applyDamage(user, Math.max(1, Math.round(shared.totalMoveDamage * move.recoil[0] / move.recoil[1])), `${user.name} 受到了反作用力伤害！`);
+      if (move.id === 'struggle' && shared.hitForItems && user.hp > 0 && !user.fainted)
+        this.applyDamage(user, Math.max(1, Math.round((user.normalMaxHp || user.maxHp) / 4)), `${user.name} 受到了反作用力伤害！`, { direct: true });
+      S?.afterMove(this, user, move, shared);
+      if (shared.hitForItems && !move.flags?.futuremove && !sheerForceApplies(user, move) && user.hp > 0 && !user.fainted) {
+        const item = activeItemId(user);
+        if (item === 'lifeorb') { const lost = this.applyDamage(user, Math.max(1, Math.floor((user.normalMaxHp || user.maxHp) / 10)), `${user.name} 被生命宝珠夺走了体力！`); if (lost > 0) { user._aiPublicItem = item; user._aiPublicItemKnown = true; } }
+        else if (item === 'shellbell' && shared.totalMoveDamage > 0) { const healed = this.heal(user, Math.max(1, Math.floor(shared.totalMoveDamage / 8)), '贝壳之铃回复了体力'); if (healed > 0) { user._aiPublicItem = item; user._aiPublicItemKnown = true; } }
+      }
+      // Resolve pivots only after recoil/items, for both player and AI. This
+      // prevents a fainted U-turn user switching and Regenerator healing first.
+      if (shared.selfSwitch && user.hp > 0 && !user.fainted && this.winner === null) this.requestSelfSwitch(user, shared.selfSwitch);
+      if (shared.forceSwitch && shared.forceSwitch.target.hp > 0 && !shared.forceSwitch.target.fainted && this.winner === null && this.outcome !== 'escaped') this.forceTargetOut(shared.forceSwitch.target, user, shared.forceSwitch.move);
       const lines = this.log.slice(shared.logStart ?? this.log.length);
       user._lastMoveFailed = !!shared.scriptFailed || (!!shared.reachedTarget && !shared.anyHit) || lines.some(l => typeof l === 'string' && l.includes('但是失败了'));
     }
@@ -1424,7 +1469,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         if (shared) { shared.started = true; shared.move = move; shared.wantsZ = wantsZ; }
       }
       if (firstAction && baseMove._isRecharge) { this.anim('recharge', this._animPos(user)); L?.before(this, user, target, move, shared); return; }
-      const protectMove = ['protect', 'maxguard'].includes(move.volatileStatus);
+      const protectMove = ['protect', 'maxguard', 'endure'].includes(move.volatileStatus);
       if (firstAction && !protectMove) user._protectStreak = 0;
       if (firstAction) {
         const blocked = this.moveBlocked(user, ppSource);
@@ -1447,6 +1492,15 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         if (move._scriptNote) this.say(move._scriptNote);
         this._prevMoveRecord = this._lastMoveRecord; this._lastMoveRecord = { id: baseMove.id, turn: this.turnCount };
         (user.volatile.usedMoves ||= {})[baseMove.id] = true; user._actedTurn = this.turnCount;
+        // Only a publicly executed learned command is remembered; called/random
+        // moves do not falsely reveal an extra learned moveslot. No pending action.
+        const publicId = ppSource.id || baseMove.id;
+        const publicMoves = (user._aiPublicMoves ||= []);
+        let publicMove = publicMoves.find(m => m.id === publicId);
+        if (!publicMove) publicMoves.push(publicMove = { id: publicId, used: 0 });
+        if (!baseMove._continuation && publicId !== 'struggle') publicMove.used++;
+        user._aiPublicLastMove = baseMove.id;
+        user._aiPublicProtectStreak = protectMove ? (user._aiPublicProtectStreak || 0) + 1 : 0;
         const moveEv = this.anim('move', { ...this._animPos(user), moveId: move.id, baseId: baseMove.id, category: move.category, moveType: move.type,
           moveTarget: move.target, z: !!move._isZ, max: !!move._isMax, targets: target ? [this._animPos(target)] : [] });
         if (shared && moveEv) shared._animEv = moveEv;
@@ -1508,6 +1562,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     if (interaction && interaction.kind === 'immune' && move.type === 'Ground' && ignoresImmunity(move, 'Ground')
       && ['漂浮', '食土'].includes(interaction.label)) interaction = null;
       if (interaction) {
+        realTarget._aiPublicAbility = abilityId(realTarget);
         this.say(`${realTarget.name} 的${interaction.label}使招式没有效果！`);
         if (interaction.kind === 'heal') this.heal(realTarget, Math.floor(realTarget.maxHp / 4), '特性回复了体力');
         if (interaction.kind === 'boost') this.changeStages(realTarget, interaction.boosts, realTarget);
@@ -1554,7 +1609,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         if (!target || target === user || target.fainted || target.volatile?.curse) { this.say('但是失败了！'); return; }
         const cost = Math.max(1, Math.floor(user.maxHp / 2));
         if (user.hp <= cost) { this.say('体力不足以施展诅咒；但是失败了！'); return; }
-        this.applyDamage(user, cost, `${user.name} 消耗一半最大 HP 施展诅咒！`);
+        this.applyDamage(user, cost, `${user.name} 消耗一半最大 HP 施展诅咒！`, { direct: true });
         target.volatile.curse = true;
         this.say(`${target.name} 被下了诅咒！每回合结束时会损失最大 HP 的四分之一。`);
         return;
@@ -1570,12 +1625,13 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       let anyHit = false;
       let lastDealt = 0;
       for (let h = 0; h < hits; h++) {
-        if (realTarget.fainted || realTarget.hp <= 0) break;
+        if (realTarget.fainted || realTarget.hp <= 0 || user.fainted || user.hp <= 0) break;
         if (h > 0 && multiAccuracy && this.rng() * 100 > acc) { this.say(`后续攻击没有命中 ${realTarget.name}！`); break; }
         const hitMove = ['triplekick', 'tripleaxel'].includes(move.id) ? { ...move, basePower: move.basePower * (h + 1) } : move;
-        let connected = true;
+        let connected = true, hitSubstitute = false;
         if (move.basePower) {
-          let critStage = move.critRatio || 0;
+          // PS critRatio starts at 1 (ordinary); engine table starts at 0.
+          let critStage = Math.max(0, (move.critRatio || 1) - 1);
           critStage += user.volatile.critBoost || 0;
           if (hasAbility(user, 'superluck')) critStage += 1;
           if (['scopelens', 'razorclaw'].includes(itemId(user))) critStage += 1;
@@ -1587,12 +1643,11 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
             const beforeHp = realTarget.hp;
             let dmg = est.damage;
             if (crit) dmg = Math.floor(dmg * (hasAbility(user, 'sniper') ? 2.25 : 1.5));
-            const dealt = this.applyMoveDamage(realTarget, dmg, user, move); lastDealt = dealt;
+            const dealt = this.applyMoveDamage(realTarget, dmg, user, move); lastDealt = dealt; hitSubstitute = !!this._lastMoveDamage?.substitute;
             if (crit) this.say('击中了要害！');
             if (est.eff > 1) this.say('效果绝佳！'); else if (est.eff < 1 && est.eff > 0) this.say('效果不理想……');
             if (dealt > 0) this.onDamagingHit(user, realTarget, move, dealt, crit, est.eff, beforeHp);
-            if (move.drain && !user.fainted) this.heal(user, Math.max(1, Math.floor(dealt * move.drain[0] / move.drain[1])), '吸取了体力');
-            if (move.recoil && !user.fainted && !hasAbility(user, 'rockhead')) this.applyDamage(user, Math.max(1, Math.floor(dealt * move.recoil[0] / move.recoil[1])), `${user.name} 受到了反作用力伤害！`);
+            if (move.drain && !user.fainted && user.hp > 0) this.heal(user, Math.max(1, Math.ceil(dealt * move.drain[0] / move.drain[1])), '吸取了体力');
           }
         } else if (realTarget !== user && specialDamageInfo(user, realTarget, move)) {
           // v1.3.5：固定伤害 / 特殊威力 / 一击必杀
@@ -1608,7 +1663,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
             if (sp.kind === 'ohko') dmg = realTarget.hp;
             else if (sp.kind === 'fixed') dmg = sp.damage;
             else { const est = estimateDamage(user, realTarget, { ...move, basePower: sp.basePower, type: sp.type || move.type }, 0.85 + this.rng() * 0.15); dmg = est.damage; eff = est.eff; }
-            const dealt = this.applyMoveDamage(realTarget, dmg, user, move); lastDealt = dealt;
+            const dealt = this.applyMoveDamage(realTarget, dmg, user, move); lastDealt = dealt; hitSubstitute = !!this._lastMoveDamage?.substitute;
             if (sp.kind === 'ohko' && realTarget.hp <= 0) this.say('一击必杀！');
             if (eff > 1) this.say('效果绝佳！'); else if (eff < 1 && eff > 0) this.say('效果不理想……');
             if (dealt > 0) this.onDamagingHit(user, realTarget, move, dealt, false, eff, beforeHp);
@@ -1616,25 +1671,25 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         } else anyHit = true;
         if (connected) landedHits++;
         // Guaranteed move effects (on target / self)
-        if (connected && !realTarget.fainted) this.applyEffects(user, realTarget, move, move, opts);
-        if (connected && S) S.onHit(this, user, realTarget, move, { damage: lastDealt, ko: realTarget.hp <= 0 || realTarget.fainted });
+        if (connected && !hitSubstitute && !realTarget.fainted) this.applyEffects(user, realTarget, move, move, opts);
+        if (connected && S) S.onHit(this, user, realTarget, move, { damage: lastDealt, substitute: hitSubstitute, ko: realTarget.hp <= 0 || realTarget.fainted });
         // Showdown rolls every entry of `secondaries` independently (Fire Fang: burn 10% and flinch 10%).
         const secList = move.secondaries?.length ? move.secondaries : (move.secondary ? [move.secondary] : []);
-        const sheer = hasAbility(user, 'sheerforce') && secList.length > 0;
+        const sheer = sheerForceApplies(user, move);
         if (connected && !sheer) for (const sec of secList) {
-          if (realTarget.fainted && !sec.self) continue;
+          if ((hitSubstitute || realTarget.fainted || realTarget.hp <= 0) && !sec.self) continue;
           if (hasAbility(realTarget, 'shielddust') && !sec.self) continue;
           let chance = sec.chance ?? 100;
           if (hasAbility(user, 'serenegrace')) chance *= 2;
           if (this.field.sides[user._side]?.rainbow > 0) chance *= 2;
           if (this.rng() * 100 < chance) { this.applyEffects(user, sec.self && !sec.boosts && !sec.status && !sec.volatileStatus ? user : realTarget, move, sec, opts); S?.onSecondary(this, user, realTarget, move); }
         }
-        if (move.self && firstAction && !user.fainted) this.applyEffects(user, user, move, move.self, opts);
-        if (user.fainted) break;
+        if (move.self && firstAction && !sheer && !user.fainted && user.hp > 0) this.applyEffects(user, user, move, move.self, opts);
+        if (user.fainted || user.hp <= 0) break;
       }
       if (hits > 1 && landedHits) this.say(`击中了 ${landedHits} 次！`);
       if (shared && anyHit) shared.anyHit = true;
-      const lastTarget = !shared || opts._doubleIndex >= (opts._doubleCount || 1) - 1;
+      const lastTarget = !shared || (opts._doubleIndex ?? 0) >= (opts._doubleCount || 1) - 1;
       const moveHit = shared ? !!shared.anyHit : anyHit;
       if (lastTarget && moveHit && move._isMax && !user.fainted) this.applyMaxMoveEffect(user, realTarget, move);
       if (lastTarget && moveHit && ['rapidspin', 'mortalspin'].includes(move.id) && !user.fainted) {
@@ -1646,9 +1701,9 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
       }
       if (firstAction) { if (user.volatile?.destinybond && baseMove.id !== 'destinybond') delete user.volatile.destinybond; user._lastMoveId = baseMove.id; user._lastMoveType = baseMove.type; this._lastExecutedMove = baseMove.id; }
       // 自我替换：伏特替换 / 急速折返 / 快速折返 / 抛下狠话 / 接力棒 …
-      if (lastTarget && moveHit && move.selfSwitch && !user.fainted && user.hp > 0 && this.winner === null) this.requestSelfSwitch(user, move);
+      if (lastTarget && moveHit && move.selfSwitch && !user.fainted && user.hp > 0 && this.winner === null) shared.selfSwitch = move;
       // 强制替换：吼叫 / 吹飞 / 龙尾 / 巴投
-      if (lastTarget && moveHit && move.forceSwitch && !realTarget.fainted && realTarget.hp > 0 && this.winner === null && this.outcome !== 'escaped') this.forceTargetOut(realTarget, user, move);
+      if (lastTarget && moveHit && move.forceSwitch && !realTarget.fainted && realTarget.hp > 0 && this.winner === null && this.outcome !== 'escaped') shared.forceSwitch = { target: realTarget, move };
       if (lastTarget) this.checkItemTrigger(user, 'pp');
     }
 
@@ -2115,20 +2170,27 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     }
 
     heal(p, amount, why = '') {
-      if (amount <= 0 || p.fainted) return;
+      if (!p || amount <= 0 || p.fainted || p.hp <= 0) return 0;
       const real = Math.min(amount, p.maxHp - p.hp);
       p.hp += real;
       if (real > 0) this.say(`${p.name} ${why || '回复了体力'}（+${real}）。`);
+      return real;
     }
-    applyDamage(p, amount, why = '') {
-      p.hp = Math.max(0, p.hp - amount);
-      if (why) this.say(why);
+    // Indirect damage uses Magic Guard's Damage hook. Direct HP costs,
+    // confusion, Struggle and Perish Song deliberately bypass that hook.
+    applyDamage(p, amount, why = '', opts = {}) {
+      if (!p || p.fainted || p.hp <= 0 || !Number.isFinite(Number(amount)) || amount <= 0) return 0;
+      if (!opts.direct && hasAbility(p, 'magicguard')) return 0;
+      const before = p.hp;
+      p.hp = Math.max(0, p.hp - Math.max(1, Math.floor(Number(amount))));
+      if (why && p.hp < before) this.say(why);
+      return before - p.hp;
     }
     checkFaints({ deferReplacement = false } = {}) {
       const count = this.double ? 2 : 1;
       for (const side of [0, 1]) for (let slot = 0; slot < count; slot++) {
         const p = this.cur(side, slot);
-        if (p && !p.fainted && p.hp <= 0) { p.fainted = true; this.say(`${p.name} 失去了战斗能力！`); this.clearInfatuationFrom(p); (this._faintTurn ||= [null, null])[side] = this.turnCount; }
+        if (p && !p.fainted && p.hp <= 0) { this.aiObserver?.see(p); p.fainted = true; this.say(`${p.name} 失去了战斗能力！`); this.clearInfatuationFrom(p); (this._faintTurn ||= [null, null])[side] = this.turnCount; }
       }
       if (deferReplacement) return;
       // Marking and replacement are separate: previously marked fainted slots remain eligible.
@@ -2278,7 +2340,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         if (p.status && ab === 'shedskin' && this.rng() < 0.3) { p.status = null; this.say(`${p.name} 蜕皮治愈了异常状态！`); }
         if (p.status && ab === 'hydration' && this.weather === 'rain') { p.status = null; this.say(`${p.name} 的湿润之躯治愈了异常状态！`); }
         if (!p.fainted && ab === 'speedboost' && !p._enteredThisTurn) this.changeStages(p, { spe: 1 }, p);
-        if (!p.fainted && itemId(p) === 'leftovers') this.heal(p, Math.floor(p.maxHp / 16), '剩饭回复了体力');
+        if (!p.fainted && itemId(p) === 'leftovers') { const healed = this.heal(p, Math.floor(p.maxHp / 16), '剩饭回复了体力'); if (healed > 0) { p._aiPublicItem = 'leftovers'; p._aiPublicItemKnown = true; } }
         if (!p.fainted && itemId(p) === 'blacksludge') {
           if (p.types.includes('Poison')) this.heal(p, Math.floor(p.maxHp / 16), '黑色污泥回复了体力');
           else this.applyDamage(p, Math.max(1, Math.floor(p.maxHp / 8)), `${p.name} 受到了黑色污泥的伤害！`);
@@ -2289,12 +2351,12 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
         // —— v1.3.54：持续类效果 ——
         if (!p.fainted && p.volatile?.leechseed) {
           const src = p.volatile.leechseed;
-          if (!src.fainted && src.hp > 0) { const d2 = Math.max(1, Math.floor(p.maxHp / 8)); this.applyDamage(p, d2, `${p.name} 的体力被寄生种子吸走了！`); if (!p.fainted) this.heal(src, d2, ''); }
+          if (!src.fainted && src.hp > 0) { const d2 = Math.max(1, Math.floor(p.maxHp / 8)); const taken = this.applyDamage(p, d2, `${p.name} 的体力被寄生种子吸走了！`); this.heal(src, taken, ''); }
         }
         if (!p.fainted && p.volatile?.nightmare && p.status === 'slp') this.applyDamage(p, Math.max(1, Math.floor(p.maxHp / 4)), `${p.name} 被恶梦折磨！`);
         if (!p.fainted && p.volatile?.octolock) { this.applyDamage(p, Math.max(1, Math.floor(p.maxHp / 8)), `${p.name} 被蛸固锁住！`); if (!p.fainted) this.changeStages(p, { def: -1, spe: -1 }, p.volatile.octolock); }
         if (p.volatile?.perishcount != null) {
-          if (--p.volatile.perishcount <= 0) { this.applyDamage(p, p.hp, `${p.name} 因灭亡之歌倒下了！`); delete p.volatile.perishcount; }
+          if (--p.volatile.perishcount <= 0) { this.applyDamage(p, p.hp, `${p.name} 因灭亡之歌倒下了！`, { direct: true }); delete p.volatile.perishcount; }
           else this.say(`${p.name} 的灭亡倒计时：${p.volatile.perishcount}！`);
         }
         if (p.volatile?.lockon && --p.volatile.lockon.turns <= 0) delete p.volatile.lockon;
@@ -2360,6 +2422,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     }
     result() {
       return {
+        ...(this.aiInfo ? { ai: { ...this.aiInfo, profile: this.aiProfile } } : {}),
         winner: this.winner === null ? null : (this.winner === 0 ? 'player' : this.winner === 1 ? 'enemy' : 'draw'),
         outcome: this.outcome || (this.winner === null ? null : this.winner === 0 ? 'victory' : 'defeat'),
         escapeReason: this.escapeReason || null,
@@ -2381,7 +2444,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     }
   }
 
-  const api = { effectiveBasePower, prepareMove, moveScripts: S, moveLifecycle: L, version:'20261116-ps-move-scripts-v1', setData, specialDamageInfo, FIXED_DAMAGE_IDS, VARIABLE_POWER_IDS, createPokemon, calcStats, effStat, estimateDamage, Battle, normId, STATUS_NAMES, abilityId, itemId, isGrounded, transformMove, makeZMove, makeMaxMove, stabMultiplier };
+  const api = { aiVersion:'20261118-foulplay-browser-ai-v1', rulesPatchVersion:'20261118-hit-lifecycle-v1', effectiveBasePower, prepareMove, moveScripts: S, moveLifecycle: L, version:'20261116-ps-move-scripts-v1', setData, specialDamageInfo, FIXED_DAMAGE_IDS, VARIABLE_POWER_IDS, createPokemon, calcStats, effStat, estimateDamage, Battle, normId, STATUS_NAMES, abilityId, itemId, isGrounded, transformMove, makeZMove, makeMaxMove, stabMultiplier };
   root.PKMBattle = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

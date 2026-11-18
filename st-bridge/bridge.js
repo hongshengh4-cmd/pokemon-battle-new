@@ -1,3 +1,4 @@
+import {resolveTrainerAI,STORY_AI_PROMPT,AI_BUILD} from '../src/ai/profile.mjs?v=20261118-foulplay-browser-ai-v1';
 import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './sprite-recovery.js?v=1.3.31';
 import * as K from './kanto-data.js?v=20261117-chain-timeline-v1';
 import './gender.js?v=20261115-gender-bond-hotfix1';
@@ -44,6 +45,7 @@ const EXPECTED_BUILD='20261113-comprehensive-fix-v6';
 const REPAIR_BUILD='20261116-bond-guard-hotfix2';
 // Battle-site handshake versions are tracked separately from the card-side repair build.
 const BATTLE_SITE_BUILD='20261116-ps-move-scripts-v1', BATTLE_RULES_BUILD='20261116-bond-npc-moves-team-v1';
+const BATTLE_RULES_PATCH='20261118-hit-lifecycle-v1';
 if(K.VERSION!=='1.3.66-comprehensive-v6'||globalThis.PKMNormalAbility?.version!=='20261115-normal-ability-random-v2'||globalThis.PKMGender?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.worldbookStoryPolicy!=='queue-chain-fastforward-v1'||globalThis.PKMPatchGuard?.version!==REPAIR_BUILD||globalThis.PKMBondSync?.version!==REPAIR_BUILD||globalThis.PKMGearResolve?.version!==EXPECTED_BUILD||globalThis.PKMBattleGear?.fixVersion!==EXPECTED_BUILD)
   throw new Error('修复模块版本不完整：请先部署本包全部覆盖文件并刷新缓存。');
 const VERSION = K.VERSION;
@@ -1434,7 +1436,7 @@ function buildInjection() {
   const st = latestState(injectionCutoff)?.state;
   const plotPrompt=dateDrivenPlotPrompt(c,st,pkm);
   if (c.length <= 1) return plotPrompt&&pkm.integration?.profile?subUser(plotPrompt):''; // 初始登记时只注入已确认日期对应的场景
-  const parts = ['【关都之旅·存档与玩法摘要】'];
+  const parts = ['【关都之旅·存档与玩法摘要】', STORY_AI_PROMPT];
   parts.push(`当前：模式 ${st?.模式 || pkm.world.mode || '—'}｜时间 ${st?.时间 || pkm.world.time || '—'}｜地点 ${st?.地点 || pkm.world.location || '—'}`);
   if(plotPrompt)parts.push(plotPrompt);
   {const roster=companionRosterPrompt(pkm,st,injectionCutoff);if(roster)parts.push(roster);}
@@ -8455,7 +8457,7 @@ function engineConfig(spec, pkm, tag) {
   if (doubleMode || singleMode) rules.battleMode = doubleMode ? 'double' : 'single';
   if (fmt.firstFaintLoses) rules.firstFaintLoses = true;
   if (doubleMode) rules.rule = `${rules.rule}；双打：双方各2只同时出场，双方分别为每只出战宝可梦选择行动。`;
-  const out = { rules,
+  const out = { rules, aiProfile:resolveTrainerAI({...cfg,type,opponent:cfg.opponent||tx.opp},pkm),
     encounter: { type: fmt.wild ? 'wild' : 'trainer' }, difficulty: cfg.difficulty || K.DIFFICULTY_BY_TYPE[type] || 'normal',
     p1: { entrants: [{ name: 'host-player', party }] }, p2: { entrants: [{ name: 'host-enemy', party: enemy }] },
     host: { tag, identityKey:String(spec.key||cfg.id||tag), balls, battleItems:battleItemStock(pkm), intro: `${tx.intro}${doubleMode ? ' 双打规则：双方各2只同时出场。' : ''}`, captureContext }, ui: spec.ui || null };
@@ -8791,7 +8793,7 @@ async function launchBattle(m) {
   const frame = PD.createElement('iframe');
   frame.setAttribute('allow', 'autoplay; fullscreen'); frame.setAttribute('allowfullscreen', ''); frame.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
   frame.style.background = '#070a14';
-  frame.src = W.PKM_BATTLE_EMBED_URL || `${BASE}index.html?embed=1&v=${REPAIR_BUILD}`;
+  frame.src = W.PKM_BATTLE_EMBED_URL || `${BASE}index.html?embed=1&v=${BATTLE_RULES_PATCH}&ai=${AI_BUILD}`;
   stage.replaceWith(frame);
   m.frame = frame;
   setBar(m.cfg.lines?.start ? '「' + m.cfg.lines.start + '」' : '正在连接对战系统……');
@@ -8826,7 +8828,7 @@ function onEngineMessage(d) {
   if (d.type === 'PKM_BATTLE_EXIT') { closeBattle();return; }
   if (d.type === 'PKM_BATTLE_READY') {
     const v=d.payload||{},expected='20261113-comprehensive-fix-v6';
-    if([v.version,v.engineVersion].some(x=>x!==BATTLE_SITE_BUILD)||[v.lifecycleVersion,v.selectionVersion].some(x=>x!==BATTLE_RULES_BUILD)||v.moveScriptsVersion!==BATTLE_SITE_BUILD||v.normalAbilityVersion!=='20261115-normal-ability-random-v2'||[v.gearVersion,v.gearDataVersion,v.genderVersion].some(x=>x!==expected)){
+    if(v.aiVersion!==AI_BUILD||v.rulesPatchVersion!==BATTLE_RULES_PATCH||[v.version,v.engineVersion].some(x=>x!==BATTLE_SITE_BUILD)||[v.lifecycleVersion,v.selectionVersion].some(x=>x!==BATTLE_RULES_BUILD)||v.moveScriptsVersion!==BATTLE_SITE_BUILD||v.normalAbilityVersion!=='20261115-normal-ability-random-v2'||[v.gearVersion,v.gearDataVersion,v.genderVersion].some(x=>x!==expected)){
       m.verified=false;m.sent=false;clearTimeout(m.timer);
       setBar('对战版本不匹配或网站未完整部署，已拒绝启动旧引擎。请一起上传全部覆盖文件、刷新缓存后重试；手机返回或电脑 Esc 可退出。');return;
     }
@@ -10339,7 +10341,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: REPAIR_BUILD, bondVersion:PKMBondSync.version, base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, aiVersion:AI_BUILD, rulesPatchVersion:BATTLE_RULES_PATCH, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: REPAIR_BUILD, bondVersion:PKMBondSync.version, base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }

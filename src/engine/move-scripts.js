@@ -374,6 +374,9 @@
       const id = move._baseId || move.id;
       if (move._isZ || move._isMax) return;
       if (!target) return;
+      const afterSub = ['ceaselessedge', 'stoneaxe', 'icespinner', 'steelroller', 'burnup', 'doubleshock'];
+      if (info.substitute && !afterSub.includes(id)) return;
+      if (['ceaselessedge', 'stoneaxe'].includes(id) && hasAbility(user, 'sheerforce') && (move.secondary || move.secondaries?.length)) return;
       switch (id) {
         case 'knockoff':
           if (alive(user) && canLoseItem(b, target)) { const it = itemId(target); target.item = null; target._itemTransferOccurred = true; target._knockedOff = it; b.say(`${user.name} 拍落了 ${target.name} 的${itemName(it)}！`); }
