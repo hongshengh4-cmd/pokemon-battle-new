@@ -59,7 +59,7 @@
         const start=dates[0]||null, end=dates.length>1?dates[1]:null;
         const block=(content.split(/\n- 节点[:：]\s*\n/)[1]||'').split(/\n\s*介入点[：:]|\n- 对战机会|\n- 收尾|\n- 涉及角色|\n<\/Plot_Event>/)[0];
         const nodes=block?block.split(/\n(?=\s{2}\d+\.\s)/).map(t=>t.trim()).filter(Boolean):[];
-        // SP03 is a player-confirmed flexible preparation window, not a May 11 launch mandate.
+        // SP03 is a flexible preparation window; its uploaded start/end dates do not force a first-day launch.
         const flexibleStart=eventId==='SP03' && !!end;
         const lastStart=flexibleStart?(end.hasTime?end.minute:end.day*1440+1439):(start?(start.hasTime?start.minute:start.day*1440+1439):Infinity);
         const finish=end?(end.hasTime?end.minute:end.day*1440+1439):Infinity;
@@ -125,6 +125,13 @@
     const plan=schedule(book,states,timeText,world);
     return plan&&plan.kind!=='finished'&&plan.kind!=='sandbox'?plan:null;
   }
+  // The old EP013 bundled its farewell into node 4. A recorded whole-event
+  // completion remains complete after the five-node text revision; interpret only,
+  // never rewrite chat messages, timestamps or saved progress.
+  function progressNode(event,node,status){
+    const n=Number(node);
+    return event?.id==='EP013'&&event.nodes?.length===5&&n===4&&status==='完成'?5:n;
+  }
   function position(book,states,world={},timeText='',opts={}){
     const list=book?.list||[];if(!list.length)return null;
     const index=Object.fromEntries(list.map((e,i)=>[e.id,i]));
@@ -133,7 +140,7 @@
       if(!st)continue; latest=st;
       const g=String(st.剧情||''),m=g.match(PLOT_RE);
       if(m&&index[m[1]]!==undefined){
-        const skip=m[3]==='跳过',cur={id:m[1],node:skip?list[index[m[1]]].nodes.length:Number(m[2]),status:skip?'完成':m[3],bodyPresent:skip?true:st.__plotBodyPresent};
+        const skip=m[3]==='跳过',cur={id:m[1],node:skip?list[index[m[1]]].nodes.length:progressNode(list[index[m[1]]],m[2],m[3]),status:skip?'完成':m[3],bodyPresent:skip?true:st.__plotBodyPresent};
         if(last&&!sequenceConflict){
           const a=index[last.id],b=index[cur.id],total=list[a].nodes.length;
           if(last.status==='跳过')sequenceConflict=`旧记录把 ${last.id} 标为跳过，不能视为已发生。`;
@@ -152,7 +159,7 @@
     }
     // A legacy snapshot is only used if the selected chat contains no explicit plot progress.
     if(!last&&world.event&&index[world.event]!==undefined){
-      last={id:world.event,node:Number(world.node)||1,status:world.nodeStatus||'进行中'};
+      last={id:world.event,node:progressNode(list[index[world.event]],Number(world.node)||1,world.nodeStatus||'进行中'),status:world.nodeStatus||'进行中'};
       // The world snapshot is the save's authoritative record. Use it as the anchor
       // without requiring the visible chat to contain the full history from EP001;
       // old/compressed chats legitimately start mid-story.
@@ -223,98 +230,101 @@
   }
   // Only directly stated, unambiguous cross-day facts are machine checked.
   // Other prose chronology remains a prompt constraint and cannot be semantically proven by this module.
-  // Dates below follow the compressed 1997–1998 chain timeline (tools/timeline/plan.cjs).
+  // Dates below follow the user-confirmed 2026-11-18 adjusted story timeline.
+  // EP013 now has five nodes: the next-morning departure is node 5, not node 4.
+  // These are earliest planned-day hints only; late scenes still follow actual narrative cross-days.
   const NODE_OPEN={
     EP005:{4:"1997年 5月28日 00:00"},
-    EP033:{4:"1997年 7月26日 00:00"},
-    EP084:{2:"1997年 10月31日 00:00"},
-    EP109:{2:"1997年 11月29日 00:00"},
-    EP112:{2:"1997年 12月2日 10:00"},
-    EP113:{1:"1997年 12月2日 10:00"},
-    EP128:{2:"1997年 12月17日 00:00"},
-    EP165:{2:"1998年 1月25日 00:00"},
-    EP199:{2:"1998年 2月28日 00:00"},
-    EP273:{2:"1998年 5月24日 00:00"},
-    EP275:{2:"1998年 5月29日 00:00"},
-    MOV04:{3:"1998年 3月8日 00:00"}
+    EP013:{5:"1997年 6月12日 00:00"},
+    EP033:{4:"1997年 7月22日 00:00"},
+    EP084:{2:"1997年 10月21日 00:00"},
+    EP109:{2:"1997年 11月19日 00:00"},
+    EP112:{2:"1997年 11月22日 10:00"},
+    EP113:{1:"1997年 11月22日 10:00"},
+    EP128:{2:"1997年 12月6日 00:00"},
+    EP165:{2:"1998年 1月11日 00:00"},
+    EP199:{2:"1998年 2月13日 00:00"},
+    EP273:{2:"1998年 5月6日 00:00"},
+    EP275:{2:"1998年 5月11日 00:00"},
+    MOV04:{3:"1998年 2月21日 00:00"}
   };
   const NODE_FINISH={
     EP002:{4:"1997年 5月23日 00:00"},
     EP003:{2:"1997年 5月24日 00:00"},
     EP004:{4:"1997年 5月26日 00:00"},
-    EP011:{2:"1997年 6月10日 00:00"},
-    EP013:{4:"1997年 6月14日 00:00"},
-    EP014:{2:"1997年 6月16日 00:00"},
-    EP020:{2:"1997年 6月28日 00:00",4:"1997年 6月30日 00:00"},
-    EP023:{3:"1997年 7月6日 00:00"},
-    EP033:{3:"1997年 7月26日 00:00"},
-    SP02:{3:"1997年 8月9日 00:00"},
-    EP050:{2:"1997年 9月2日 00:00"},
-    EP075:{2:"1997年 10月20日 00:00"},
-    EP077:{4:"1997年 10月22日 00:00"},
-    EP079:{3:"1997年 10月25日 00:00"},
-    EP084:{1:"1997年 10月31日 00:00"},
-    EP096:{1:"1997年 11月13日 00:00"},
-    EP097:{1:"1997年 11月14日 00:00"},
-    EP099:{2:"1997年 11月16日 00:00"},
-    EP101:{2:"1997年 11月18日 00:00"},
-    EP102:{1:"1997年 11月19日 00:00"},
-    EP104:{2:"1997年 11月22日 00:00"},
-    EP105:{2:"1997年 11月23日 00:00"},
-    EP106:{2:"1997年 11月24日 00:00"},
-    EP112:{1:"1997年 12月2日 10:00"},
-    EP117:{2:"1997年 12月6日 00:00"},
-    EP123:{1:"1997年 12月12日 00:00"},
-    EP124:{1:"1997年 12月13日 00:00"},
-    EP125:{1:"1997年 12月14日 00:00"},
-    EP126:{1:"1997年 12月15日 00:00"},
-    EP127:{1:"1997年 12月16日 00:00"},
-    EP130:{1:"1997年 12月19日 00:00"},
-    EP135:{1:"1997年 12月24日 00:00"},
-    EP136:{1:"1997年 12月25日 00:00"},
-    EP137:{1:"1997年 12月26日 00:00"},
-    EP140:{1:"1997年 12月29日 00:00"},
-    EP151:{1:"1998年 1月9日 00:00"},
-    EP153:{1:"1998年 1月11日 00:00"},
-    EP154:{1:"1998年 1月12日 00:00"},
-    EP156:{1:"1998年 1月16日 00:00"},
-    EP160:{1:"1998年 1月20日 00:00"},
-    EP167:{1:"1998年 1月27日 00:00"},
-    EP172:{2:"1998年 2月1日 00:00"},
-    EP176:{1:"1998年 2月5日 00:00"},
-    EP177:{2:"1998年 2月6日 00:00"},
-    EP179:{1:"1998年 2月8日 00:00"},
-    EP187:{1:"1998年 2月16日 00:00"},
-    EP194:{2:"1998年 2月23日 00:00"},
-    EP199:{1:"1998年 2月28日 00:00"},
-    EP205:{1:"1998年 3月7日 00:00"},
-    EP212:{1:"1998年 3月16日 00:00"},
-    EP213:{1:"1998年 3月17日 00:00"},
-    EP216:{1:"1998年 3月20日 00:00"},
-    EP217:{1:"1998年 3月21日 00:00"},
-    EP218:{1:"1998年 3月22日 00:00"},
-    EP219:{1:"1998年 3月23日 00:00"},
-    EP220:{1:"1998年 3月24日 00:00"},
-    EP222:{1:"1998年 3月26日 00:00"},
-    EP223:{2:"1998年 3月27日 00:00"},
-    EP225:{1:"1998年 3月29日 00:00"},
-    EP226:{1:"1998年 3月30日 00:00"},
-    EP229:{1:"1998年 4月2日 00:00"},
-    EP230:{1:"1998年 4月3日 00:00"},
-    EP231:{1:"1998年 4月4日 00:00"},
-    EP246:{1:"1998年 4月19日 00:00"},
-    EP252:{2:"1998年 4月25日 00:00"},
-    EP258:{2:"1998年 5月3日 00:00"},
-    EP259:{1:"1998年 5月4日 00:00"},
-    EP264:{1:"1998年 5月9日 00:00"},
-    EP267:{1:"1998年 5月19日 00:00"},
-    EP268:{1:"1998年 5月20日 00:00"},
-    EP269:{1:"1998年 5月21日 00:00"},
-    EP270:{1:"1998年 5月22日 00:00"},
-    EP273:{1:"1998年 5月24日 00:00"},
-    EP274:{2:"1998年 5月26日 00:00"},
-    MOV04:{2:"1998年 3月8日 00:00"},
-    MOV05:{5:"1998年 5月1日 00:00"}
+    EP011:{2:"1997年 6月8日 00:00"},
+    EP013:{5:"1997年 6月12日 00:00"},
+    EP014:{2:"1997年 6月14日 00:00"},
+    EP020:{2:"1997年 6月26日 00:00",4:"1997年 6月28日 00:00"},
+    EP023:{3:"1997年 7月3日 00:00"},
+    EP033:{3:"1997年 7月22日 00:00"},
+    SP02:{3:"1997年 8月4日 00:00"},
+    EP050:{2:"1997年 8月27日 00:00"},
+    EP075:{2:"1997年 10月8日 00:00"},
+    EP077:{4:"1997年 10月10日 00:00"},
+    EP079:{3:"1997年 10月13日 00:00"},
+    EP084:{1:"1997年 10月21日 00:00"},
+    EP096:{1:"1997年 11月3日 00:00"},
+    EP097:{1:"1997年 11月4日 00:00"},
+    EP099:{2:"1997年 11月6日 00:00"},
+    EP101:{2:"1997年 11月8日 00:00"},
+    EP102:{1:"1997年 11月9日 00:00"},
+    EP104:{2:"1997年 11月12日 00:00"},
+    EP105:{2:"1997年 11月13日 00:00"},
+    EP106:{2:"1997年 11月14日 00:00"},
+    EP112:{1:"1997年 11月22日 10:00"},
+    EP117:{2:"1997年 11月25日 00:00"},
+    EP123:{1:"1997年 12月1日 00:00"},
+    EP124:{1:"1997年 12月2日 00:00"},
+    EP125:{1:"1997年 12月3日 00:00"},
+    EP126:{1:"1997年 12月4日 00:00"},
+    EP127:{1:"1997年 12月5日 00:00"},
+    EP130:{1:"1997年 12月8日 00:00"},
+    EP135:{1:"1997年 12月12日 00:00"},
+    EP136:{1:"1997年 12月13日 00:00"},
+    EP137:{1:"1997年 12月14日 00:00"},
+    EP140:{1:"1997年 12月17日 00:00"},
+    EP151:{1:"1997年 12月26日 00:00"},
+    EP153:{1:"1997年 12月28日 00:00"},
+    EP154:{1:"1997年 12月29日 00:00"},
+    EP156:{1:"1998年 1月2日 00:00"},
+    EP160:{1:"1998年 1月6日 00:00"},
+    EP167:{1:"1998年 1月13日 00:00"},
+    EP172:{2:"1998年 1月18日 00:00"},
+    EP176:{1:"1998年 1月22日 00:00"},
+    EP177:{2:"1998年 1月23日 00:00"},
+    EP179:{1:"1998年 1月25日 00:00"},
+    EP187:{1:"1998年 2月1日 00:00"},
+    EP194:{2:"1998年 2月8日 00:00"},
+    EP199:{1:"1998年 2月13日 00:00"},
+    EP205:{1:"1998年 2月20日 00:00"},
+    EP212:{1:"1998年 3月1日 00:00"},
+    EP213:{1:"1998年 3月2日 00:00"},
+    EP216:{1:"1998年 3月5日 00:00"},
+    EP217:{1:"1998年 3月6日 00:00"},
+    EP218:{1:"1998年 3月7日 00:00"},
+    EP219:{1:"1998年 3月8日 00:00"},
+    EP220:{1:"1998年 3月9日 00:00"},
+    EP222:{1:"1998年 3月10日 00:00"},
+    EP223:{2:"1998年 3月11日 00:00"},
+    EP225:{1:"1998年 3月13日 00:00"},
+    EP226:{1:"1998年 3月14日 00:00"},
+    EP229:{1:"1998年 3月17日 00:00"},
+    EP230:{1:"1998年 3月18日 00:00"},
+    EP231:{1:"1998年 3月19日 00:00"},
+    EP246:{1:"1998年 4月2日 00:00"},
+    EP252:{2:"1998年 4月8日 00:00"},
+    EP258:{2:"1998年 4月15日 00:00"},
+    EP259:{1:"1998年 4月16日 00:00"},
+    EP264:{1:"1998年 4月21日 00:00"},
+    EP267:{1:"1998年 5月1日 00:00"},
+    EP268:{1:"1998年 5月2日 00:00"},
+    EP269:{1:"1998年 5月3日 00:00"},
+    EP270:{1:"1998年 5月4日 00:00"},
+    EP273:{1:"1998年 5月6日 00:00"},
+    EP274:{2:"1998年 5月8日 00:00"},
+    MOV04:{2:"1998年 2月21日 00:00"},
+    MOV05:{5:"1998年 4月13日 00:00"}
   };
   function nodeMinimum(table,event,node){const v=table[event]?.[node];return v?date(v):null;}
   function onsetFailure(event,previous,nextState,end){
@@ -354,7 +364,7 @@
         previousTime=t;continue;
       }
       if(!m||indexes[m[1]]===undefined)return '旧记录的剧情状态缺失、格式不明或事件不在当前世界书；无法核对节点顺序。';
-      const id=m[1],i=indexes[id],e=list[i],skip=m[3]==='跳过',node=skip?e.nodes.length:Number(m[2]),status=skip?'完成':m[3];
+      const id=m[1],i=indexes[id],e=list[i],skip=m[3]==='跳过',node=skip?e.nodes.length:progressNode(e,m[2],m[3]),status=skip?'完成':m[3];
       const wrongStage=stageFailure(st,e);if(wrongStage)return '旧记录的'+wrongStage;
       if(!seenPlot){
         // An old or compressed chat may legitimately start mid-story. The first visible
@@ -404,6 +414,6 @@
   function validate(book,pos,previousState,nextState,world={}){
     return {ok:true,policy:'queue-chain-fastforward-v1'};
   }
-  const api={version:'20261113-comprehensive-fix-v6',worldbookStoryPolicy:'queue-chain-fastforward-v1',BASE_YEAR,PLOT_RE,FREE_RE,CALENDAR,leap,date,legacyMinute,repelDeadline,makeEvents,schedule,isSandbox,dateActivation,position,validate,NODE_OPEN,NODE_FINISH};root.PKMPlotGuard=api;
+  const api={version:'20261113-comprehensive-fix-v6',storyVersion:'20261118-adjusted-story-v2',worldbookStoryPolicy:'queue-chain-fastforward-v1',BASE_YEAR,PLOT_RE,FREE_RE,CALENDAR,leap,date,legacyMinute,repelDeadline,makeEvents,schedule,isSandbox,dateActivation,position,validate,NODE_OPEN,NODE_FINISH};root.PKMPlotGuard=api;
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

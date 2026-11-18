@@ -3,7 +3,7 @@ import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './spr
 import * as K from './kanto-data.js?v=20261117-chain-timeline-v1';
 import './gender.js?v=20261115-gender-bond-hotfix1';
 import './battle-mechanics.js?v=20261113-comprehensive-fix-v6';
-import './plot-guard.js?v=20261117-chain-timeline-v1';
+import './plot-guard.js?v=20261118-adjusted-story-v2';
 import './patch-guard.js?v=20261116-bond-guard-hotfix2';
 import './bond-sync.js?v=20261116-bond-guard-hotfix2';
 import '../src/engine/gear-resolve.js?v=20261113-comprehensive-fix-v6';
@@ -46,7 +46,8 @@ const REPAIR_BUILD='20261116-bond-guard-hotfix2';
 // Battle-site handshake versions are tracked separately from the card-side repair build.
 const BATTLE_SITE_BUILD='20261116-ps-move-scripts-v1', BATTLE_RULES_BUILD='20261116-bond-npc-moves-team-v1';
 const BATTLE_RULES_PATCH='20261118-hit-lifecycle-v1';
-if(K.VERSION!=='1.3.66-comprehensive-v6'||globalThis.PKMNormalAbility?.version!=='20261115-normal-ability-random-v2'||globalThis.PKMGender?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.worldbookStoryPolicy!=='queue-chain-fastforward-v1'||globalThis.PKMPatchGuard?.version!==REPAIR_BUILD||globalThis.PKMBondSync?.version!==REPAIR_BUILD||globalThis.PKMGearResolve?.version!==EXPECTED_BUILD||globalThis.PKMBattleGear?.fixVersion!==EXPECTED_BUILD)
+const STORY_BUILD='20261118-adjusted-story-v2';
+if(K.VERSION!=='1.3.66-comprehensive-v6'||globalThis.PKMNormalAbility?.version!=='20261115-normal-ability-random-v2'||globalThis.PKMGender?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.worldbookStoryPolicy!=='queue-chain-fastforward-v1'||globalThis.PKMPlotGuard?.storyVersion!==STORY_BUILD||globalThis.PKMPatchGuard?.version!==REPAIR_BUILD||globalThis.PKMBondSync?.version!==REPAIR_BUILD||globalThis.PKMGearResolve?.version!==EXPECTED_BUILD||globalThis.PKMBattleGear?.fixVersion!==EXPECTED_BUILD)
   throw new Error('修复模块版本不完整：请先部署本包全部覆盖文件并刷新缓存。');
 const VERSION = K.VERSION;
 const W = window;
@@ -1160,9 +1161,9 @@ let eventCache = null;
 let onlineEntries = null, onlineMeta = null;
 // Standalone-card builds deliberately read their revised card book; deployed builds only
 // accept the matching revised online book and otherwise fall back to the revised card.
-const worldReady = W.PKM_BUNDLED_PLOT ? Promise.resolve() : fetch(BASE + 'st-bridge/kanto-world.json?v=20261113-comprehensive-fix-v6')
+const worldReady = W.PKM_BUNDLED_PLOT ? Promise.resolve() : fetch(BASE + 'st-bridge/kanto-world.json?v='+STORY_BUILD)
   .then(r => (r.ok ? r.json() : null)).then(j => {
-    if(j?.version==='20261113-comprehensive-fix-v6'&&Array.isArray(j.entries)&&j.entries.length){
+    if(j?.version===STORY_BUILD&&Array.isArray(j.entries)&&j.entries.length){
       onlineEntries=j.entries;onlineMeta={version:j.version,count:j.entries.length};eventCache=null;refreshInjection();
       LOG('世界书事件数据已加载 '+j.entries.length+' 条（主线按事件链推进，未到时间自动快进；不做剧情阻断）');
     } else LOG('线上世界书版本未匹配，回退卡内日期事件数据；剧情调度仅按日期注入场景，不阻断生成。');
@@ -1302,7 +1303,8 @@ function plotSchedulePrompt(plan,st){
   if(plan.kind==='finished')return `【主线调度】本卡配置的主线事件已全部完成（最后一件：${plan.previous?plotTitle(plan.previous):'—'}）。之后按玩家选择自由冒险，不再自动快进。`;
   const e=plan.event,src=e.sourceComment||('📜事件详情·'+e.id),when=e.dateLabel.replace(/（[^）]*）\s*$/,'');
   const head=[`【主线调度·待推进事件】${plotTitle(e)}｜阶段：${e.stage||'—'}｜预定：${when}｜地点：${plan.location||'见条目'}`,
-    `当前游戏时间：${plan.clock||'（状态栏未写时间）'}${here?`｜玩家所在：${here}`:''}${plan.previous?`｜上一件已结束：${plotTitle(plan.previous)}`:''}`];
+    `当前游戏时间：${plan.clock||'（状态栏未写时间）'}${here?`｜玩家所在：${here}`:''}${plan.previous?`｜上一件已结束：${plotTitle(plan.previous)}`:''}`,
+    '日程承接：同日事件也按世界书阶段表的顺序逐件推进；未注明时分不补造固定分钟。预定开始不是完结期限；“次日／第二天／两天之后”按正文实际经过承接，不能为赶下一集提前完成、删去过夜或倒退时间。'];
   const agency='玩家行动优先：玩家正在对战、购物、治疗、交谈或明确说要做别的事时，先如实写完玩家的行动，不打断、不强拉、不代替玩家行动或发言；玩家明确表示要放弃这件事时，本轮剧情行写“'+e.id+'｜节点'+plan.node+'｜跳过”，下一件事件随即成为队首，被放弃的经过不补写。';
   const pace=companionMode?'节点按编号推进，每轮通常完成一个、最多两个；玩家行动若已经达成节点目的即可完成。同行模式禁止幕后补演或让原作人物脱离 {{user}} 单独推进节点；节点必须等 {{user}} 到场后演，细则见下方“主线强制会合”。':'节点按编号推进，每轮通常完成一个节点、最多两个；玩家的行动若已经达成某节点的目的，就算该节点完成。玩家不在场时，可用明确标注的【幕后／玩家角色尚不知情】场景演出，或把玩家合理带入；角色不知道尚未发生或没被告知的事。';
   if(plan.kind==='active'){
@@ -10341,7 +10343,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, aiVersion:AI_BUILD, rulesPatchVersion:BATTLE_RULES_PATCH, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: REPAIR_BUILD, bondVersion:PKMBondSync.version, base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, storyVersion:STORY_BUILD, aiVersion:AI_BUILD, rulesPatchVersion:BATTLE_RULES_PATCH, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: REPAIR_BUILD, bondVersion:PKMBondSync.version, base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
