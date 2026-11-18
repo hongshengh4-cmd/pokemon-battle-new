@@ -1,0 +1,343 @@
+{
+  "build": "20261118-status-crown-v8.1",
+  "repository": "hongshengh4-cmd/pokemon-battle-new",
+  "branch": "main",
+  "auditedHead": "b26d97deac41ce92114df6a60b9c343d791b869b",
+  "publishDirectory": "/",
+  "deployment": "merge overlay into existing repository root; never replace the repository or remove assets",
+  "cardPolicy": "no character-card JSON generated or modified; original root ID, remote imports and regex mount entry unchanged",
+  "nativeInputsVerified": 1047,
+  "sourceCounts": [
+    {
+      "source": "st-bridge/bridge.js",
+      "output": "st-bridge/bridge.js",
+      "nativeFunctions": 413,
+      "repositoryFunctions": 413,
+      "missingNames": []
+    },
+    {
+      "source": "st-bridge/status.js",
+      "output": "st-bridge/regional-status-core.js",
+      "nativeFunctions": 42,
+      "repositoryFunctions": 42,
+      "missingNames": []
+    },
+    {
+      "source": "st-bridge/kanto-hardware.js",
+      "output": "st-bridge/kanto-hardware.js",
+      "nativeFunctions": 9,
+      "repositoryFunctions": 9,
+      "missingNames": []
+    }
+  ],
+  "strictPatches": 33,
+  "statusOnly": true,
+  "extraRegionalFrames": 0,
+  "extraOuterPage": false,
+  "patches": [
+    {
+      "label": "bridge: owned regional dex uses native confirmation and write chain",
+      "matches": 1
+    },
+    {
+      "label": "bridge: two regional inventory icons",
+      "matches": 1
+    },
+    {
+      "label": "bridge: constrained nonconsuming real-MVU regional selection API",
+      "matches": 1
+    },
+    {
+      "label": "bridge: refresh repository status after native writes",
+      "matches": 1
+    },
+    {
+      "label": "bridge: resolve actual message through repository status iframe ancestors",
+      "matches": 1
+    },
+    {
+      "label": "bridge: compose nested iframe drag coordinates to the real Tavern document",
+      "matches": 1
+    },
+    {
+      "label": "status: cache-key revised regional hardware module",
+      "matches": 1
+    },
+    {
+      "label": "status: original regex root retained; native regions rendered in the same document",
+      "matches": 1
+    },
+    {
+      "label": "status: use actual reachable Tavern host",
+      "matches": 1
+    },
+    {
+      "label": "status: keep real host across helper and message iframe realms",
+      "matches": 1
+    },
+    {
+      "label": "status: native sprite recovery in actual owned status document",
+      "matches": 1
+    },
+    {
+      "label": "status: regional dex goes in native important-items pocket",
+      "matches": 1
+    },
+    {
+      "label": "status: two owned regional inventory icons",
+      "matches": 1
+    },
+    {
+      "label": "status: preserve native historical-message snapshot selection through nested frames",
+      "matches": 1
+    },
+    {
+      "label": "status: connected nested repository frame liveness",
+      "matches": 1
+    },
+    {
+      "label": "status: approved regional initial pages",
+      "matches": 1
+    },
+    {
+      "label": "status: display-only regional catalogs, shared native state unchanged",
+      "matches": 1
+    },
+    {
+      "label": "status: complete 151 Kanto and 100 Johto tiles",
+      "matches": 1
+    },
+    {
+      "label": "status: regional initial selection",
+      "matches": 1
+    },
+    {
+      "label": "status: correct regional catalog heading",
+      "matches": 1
+    },
+    {
+      "label": "status: approved folding shell decorates actual native panes",
+      "matches": 1
+    },
+    {
+      "label": "status: native detail pane targets after upper-screen relocation",
+      "matches": 2
+    },
+    {
+      "label": "status: native back-scroll target after upper-screen relocation",
+      "matches": 1
+    },
+    {
+      "label": "status: native open-scroll target after upper-screen relocation",
+      "matches": 1
+    },
+    {
+      "label": "status: route unchanged complete native detail DOM into upper screen",
+      "matches": 1
+    },
+    {
+      "label": "status: explicit repository compatibility marker",
+      "matches": 1
+    },
+    {
+      "label": "hardware: preserve native case and label actual region",
+      "matches": 1
+    },
+    {
+      "label": "hardware: show only the matching eight regional badges",
+      "matches": 1
+    },
+    {
+      "label": "hardware: shared-document status part has no duplicate ID",
+      "matches": 1
+    },
+    {
+      "label": "hardware: shared-document trainer part has no duplicate ID",
+      "matches": 1
+    },
+    {
+      "label": "hardware: status lookup scoped to its native root",
+      "matches": 1
+    },
+    {
+      "label": "hardware: trainer lookup scoped to its native root",
+      "matches": 1
+    },
+    {
+      "label": "hardware: unique appearance style IDs in the message document",
+      "matches": 1
+    }
+  ],
+  "files": [
+    {
+      "path": "index.html",
+      "bytes": 14314,
+      "sha256": "5670d8afa18cd2a81c297257d2b8b23017300c6cabfd6357dc16506d6860e60c"
+    },
+    {
+      "path": "src/ai/battle-view.mjs",
+      "bytes": 8458,
+      "sha256": "01186eb3c7c60f69543a4f8436c4f660d6eabd43aa04a4b41c0974cc268101d5"
+    },
+    {
+      "path": "src/ai/browser-ai.mjs",
+      "bytes": 7403,
+      "sha256": "5070b6475e7ee5c5edf91c9c5ccdbda3db587c3000aaa740601d99c7cf7816a5"
+    },
+    {
+      "path": "src/ai/compatibility.mjs",
+      "bytes": 13967,
+      "sha256": "409395c876267d3ddc919a518b8a1c6f5206af40f734c377b4ccadc6b7b8cb3b"
+    },
+    {
+      "path": "src/ai/foulplay-policy.mjs",
+      "bytes": 1497,
+      "sha256": "54c8eea7d25598b6911c7f8ff14286aa4e1ab06d955eb09353f7132110662450"
+    },
+    {
+      "path": "src/ai/licenses/browser-helpers-MIT.txt",
+      "bytes": 1099,
+      "sha256": "59f526355eabeb277e4e3cffb484d4d037910f7e4f1d00437a2870cbf19b4661"
+    },
+    {
+      "path": "src/ai/licenses/FoulPlay-GPL-3.0.txt",
+      "bytes": 35149,
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    },
+    {
+      "path": "src/ai/licenses/poke-engine-MIT.txt",
+      "bytes": 1066,
+      "sha256": "38ce7f13fdac0ed9fa428649747dacc7e1fc0f4e4842239e4e0c53cefc450b4d"
+    },
+    {
+      "path": "src/ai/licenses/Rust-dependencies.txt",
+      "bytes": 728063,
+      "sha256": "ee2694d42c2b4d962dfa3fb4afaf9abd7092c7fa0080a5410765684c281ea3fa"
+    },
+    {
+      "path": "src/ai/model.mjs",
+      "bytes": 9681,
+      "sha256": "69a622619d595af18c1ad41d92bd3b343b23edfb43622937054c79729f47a3f7"
+    },
+    {
+      "path": "src/ai/profile.mjs",
+      "bytes": 4941,
+      "sha256": "cab15e3852a935926ec9b3958befbbe0d219b1f00ad27a316b2c680e7e30473d"
+    },
+    {
+      "path": "src/ai/search-worker.mjs",
+      "bytes": 6166,
+      "sha256": "d33bd533f796ff661f5d4584c82c299a19d502bd7b9d8f52a6f92729033b82f0"
+    },
+    {
+      "path": "src/ai/wasm/poke-search_bg.wasm",
+      "bytes": 684360,
+      "sha256": "196e8a8c2151b24f92b36d71c47994c26872c48e5e81b959e956749d8d3a9c30"
+    },
+    {
+      "path": "src/ai/wasm/poke-search.mjs",
+      "bytes": 9441,
+      "sha256": "8df410a85d88740509eafcd762727eddbb4643f136dc7b91a43798992a175277"
+    },
+    {
+      "path": "src/engine/battle.js",
+      "bytes": 180402,
+      "sha256": "f34d783eeab935d1343252360447e41657158108ad77f63d2380ae339ff5e12d"
+    },
+    {
+      "path": "src/engine/move-scripts.js",
+      "bytes": 39674,
+      "sha256": "5c7dd38fd546d94f5871158295ef7e93f57d6ebc556369a7bb7edb4c880db071"
+    },
+    {
+      "path": "src/ui/app.js",
+      "bytes": 167398,
+      "sha256": "3bc1353519ea97bcc7b0883b6e53b8272e951e361b80ab27f287992f7444aeb6"
+    },
+    {
+      "path": "st-bridge/bridge.js",
+      "bytes": 2183590,
+      "sha256": "4294a5063ec2dd6b06b9bcafb7288c1fe02820de283c6ecccd1c99c483fc0796"
+    },
+    {
+      "path": "st-bridge/kanto-hardware.js",
+      "bytes": 70177,
+      "sha256": "6452069b13d9683e3f1597c831df7bacf3fb1600850aac249100157039a533b0"
+    },
+    {
+      "path": "st-bridge/kanto-world.json",
+      "bytes": 3789576,
+      "sha256": "aa11285e00e68a14ef2daf4228bfedfadd74d302c3fce1f74d2cdb072d013480"
+    },
+    {
+      "path": "st-bridge/plot-guard.js",
+      "bytes": 27988,
+      "sha256": "83b2e36a51c74ac46441394a6fd7de2ec6d00da5fe03e5240ba1aeb42ee10dbe"
+    },
+    {
+      "path": "st-bridge/regional-assets.js",
+      "bytes": 1028,
+      "sha256": "ddb4dbc49ce6833b50d7ba4c331b7c3078eced7d79eb5c2f0a05346ca3da31ba"
+    },
+    {
+      "path": "st-bridge/regional-bootstrap.js",
+      "bytes": 513,
+      "sha256": "27f98e039885e8acec377ee86b339cd29ed7eb444bfacda67a9ce0e0e9018292"
+    },
+    {
+      "path": "st-bridge/regional-manager.js",
+      "bytes": 10454,
+      "sha256": "e431e5a8ed2fad7d9dac2a2486ed9ec5396d20c461f8a2d67e7868c193cb56ff"
+    },
+    {
+      "path": "st-bridge/regional-presentation.js",
+      "bytes": 8449,
+      "sha256": "e310ec37650769da1da844f031656ad303bc88e2c72dfc0d61278be18c57e07f"
+    },
+    {
+      "path": "st-bridge/regional-status-core.js",
+      "bytes": 1050798,
+      "sha256": "39e754fc45e1ed3e00997969b5b84e1e91b946c3e29595dbeed094e8e82a8637"
+    },
+    {
+      "path": "st-bridge/regional/icons.json",
+      "bytes": 1529,
+      "sha256": "ceb706e343a766288a68f772a77779891451f796734ac82439c254530d16402f"
+    },
+    {
+      "path": "st-bridge/regional/modal.css",
+      "bytes": 1198,
+      "sha256": "77ecb80d901a37e1fae8fc3f555e60c770daa6036e7d8eec4825d356d54f8d40"
+    },
+    {
+      "path": "st-bridge/regional/presentation.css",
+      "bytes": 15072,
+      "sha256": "1ca8320690ee4f92f51947fa38829a1c73fdcaf28c3f49e9de6802319b5a0e80"
+    },
+    {
+      "path": "st-bridge/regional/shell.css",
+      "bytes": 22593,
+      "sha256": "dd79163f83ef621602a9b67d80a0f935991c07430317248c48b4756d0558f05b"
+    },
+    {
+      "path": "st-bridge/regional/shell.html",
+      "bytes": 4934,
+      "sha256": "765e69dd44f493ac6172d0ae136a67eb2b22e61e79eceebde333c72de11a2a7e"
+    },
+    {
+      "path": "st-bridge/regional/version.json",
+      "bytes": 798,
+      "sha256": "13dc0f8ca2dd323cc7923e1b4d7fde9eb99ad0831b0321f480787a07e7125c50"
+    },
+    {
+      "path": "st-bridge/status.js",
+      "bytes": 660,
+      "sha256": "28e7d2100286af794f0edfb718c8b0aa06fac6188f57d12ccfdd54a965d4cc1a"
+    },
+    {
+      "path": "st-bridge/THIRD-PARTY-NOTICES",
+      "bytes": 4311,
+      "sha256": "384c9cdcad3302493414e61cdd036efd305de95d42404e7e8cdcda991517664c"
+    }
+  ]
+}

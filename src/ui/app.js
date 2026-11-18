@@ -6,6 +6,105 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
 /* Browser UI + SillyTavern host bridge (postMessage). Engine lives in PKMBattle. */
 (function () {
   'use strict';
+  /* @battle-touch-scroll-begin */
+  // The host can rotate the entire iframe by 90 degrees. Some mobile engines then
+  // hand native scrolling to the wrong screen axis. Touch client coordinates are
+  // already in this document's LOCAL axes: never rotate or swap them a second time.
+  function installBattleTouchScroll(doc, win) {
+    const version = '20261118-mobile-scroll-v1';
+    const selector = '#log, .command-panel, .mi-body';
+    const listeners = [];
+    let gesture = null, momentum = 0, lastDrag = null;
+    const now = () => win.performance.now();
+    const stopMomentum = () => { if (momentum) win.cancelAnimationFrame(momentum); momentum = 0; };
+    const clampTop = (el, top) => Math.max(0, Math.min(Math.max(0, el.scrollHeight - el.clientHeight), top));
+    const findScroller = target => {
+      let node = target?.nodeType === 1 ? target : target?.parentElement;
+      if (!node?.closest || node.closest('input, select, textarea, [contenteditable="true"]')) return null;
+      node = node.closest(selector);
+      while (node) {
+        if (node.scrollHeight > node.clientHeight + 1 && /^(auto|scroll)$/.test(win.getComputedStyle(node).overflowY)) return node;
+        node = node.parentElement?.closest(selector);
+      }
+      return null;
+    };
+    const rememberDrag = el => { lastDrag = { el, until: now() + 500 }; };
+    function start(e) {
+      stopMomentum(); gesture = null; lastDrag = null;
+      if (e.touches.length !== 1) return; // Let browser pinch/zoom and multi-touch work normally.
+      const el = findScroller(e.target), t = e.touches[0];
+      if (!el) return;
+      gesture = { el, id: t.identifier, x: t.clientX, y: t.clientY,
+        lastY: t.clientY, time: now(), velocity: 0, dragged: false };
+    }
+    function move(e) {
+      const g = gesture;
+      if (!g) return;
+      if (e.touches.length !== 1 || !g.el.isConnected) { gesture = null; return; }
+      const t = Array.from(e.touches).find(t => t.identifier === g.id);
+      if (!t) { gesture = null; return; }
+      if (!g.dragged) {
+        const dx = Math.abs(t.clientX - g.x), dy = Math.abs(t.clientY - g.y);
+        if (Math.max(dx, dy) < 8) return; // A stationary tap still reaches the original button handler.
+        if (dy <= dx) { gesture = null; return; }
+        g.dragged = true;
+      }
+      // Cancel only a real one-finger vertical drag in one of these scroll boxes.
+      // Never block touches globally, wheel/keyboard scrolling, inputs, or ordinary taps.
+      if (!e.cancelable) { rememberDrag(g.el); gesture = null; return; }
+      e.preventDefault();
+      const stamp = now(), before = g.el.scrollTop;
+      g.el.scrollTop = clampTop(g.el, before + g.lastY - t.clientY);
+      const elapsed = Math.max(8, stamp - g.time);
+      g.velocity = .25 * g.velocity + .75 * (g.el.scrollTop - before) / elapsed;
+      g.lastY = t.clientY; g.time = stamp;
+      rememberDrag(g.el);
+    }
+    function coast(el, velocity) {
+      if (Math.abs(velocity) < .04 || win.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+      let previous = now(), started = previous;
+      const step = stamp => {
+        momentum = 0;
+        if (!el.isConnected || doc.visibilityState === 'hidden' || stamp - started > 900) return;
+        const dt = Math.max(1, Math.min(40, stamp - previous)), before = el.scrollTop;
+        el.scrollTop = clampTop(el, before + velocity * dt);
+        velocity *= Math.exp(-dt / 180); previous = stamp;
+        if (Math.abs(el.scrollTop - before) < .1 || Math.abs(velocity) < .02) return;
+        momentum = win.requestAnimationFrame(step);
+      };
+      momentum = win.requestAnimationFrame(step);
+    }
+    function end(e) {
+      const g = gesture;
+      if (!g || Array.from(e.touches).some(t => t.identifier === g.id)) return;
+      gesture = null;
+      if (!g.dragged) return;
+      if (e.cancelable) e.preventDefault();
+      rememberDrag(g.el);
+      if (now() - g.time < 80) coast(g.el, g.velocity);
+    }
+    function cancel() { gesture = null; stopMomentum(); }
+    function click(e) {
+      if (!lastDrag || now() > lastDrag.until || e.detail === 0) return;
+      if (lastDrag.el.contains(e.target)) {
+        e.preventDefault(); e.stopImmediatePropagation(); lastDrag = null;
+      }
+    }
+    const on = (target, type, fn, options) => {
+      target.addEventListener(type, fn, options); listeners.push(() => target.removeEventListener(type, fn, options));
+    };
+    on(doc, 'touchstart', start, { capture: true, passive: true });
+    on(doc, 'touchmove', move, { capture: true, passive: false });
+    on(doc, 'touchend', end, { capture: true, passive: false });
+    on(doc, 'touchcancel', cancel, { capture: true, passive: true });
+    on(doc, 'click', click, true);
+    on(win, 'blur', cancel);
+    on(doc, 'visibilitychange', () => { if (doc.visibilityState === 'hidden') cancel(); });
+    return { version, destroy() { cancel(); lastDrag = null; listeners.splice(0).forEach(off => off()); } };
+  }
+  /* @battle-touch-scroll-end */
+  const battleTouchScroll = installBattleTouchScroll(document, window);
+  window.addEventListener('pagehide', e => { if (!e.persisted) battleTouchScroll.destroy(); });
   const $ = id => document.getElementById(id);
   const browserAI = new BrowserBattleAI();
   window.addEventListener('pagehide', () => browserAI.dispose(), {once:true});
@@ -121,7 +220,7 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
   if (EMBED) document.documentElement.classList.add('embed');
   let dataReady = false, pendingHostConfig = null, hostTag = null, hostMode = false;
   const APP_VERSION = '20261116-ps-move-scripts-v1';
-  const hostVersions = () => ({aiVersion:window.PKMBattle?.aiVersion===AI_BUILD?AI_BUILD:'',aiRuntime:'browser-worker-wasm',flinchPatchVersion:window.PKMBattle?.flinchPatchVersion||'',rulesPatchVersion:window.PKMBattle?.rulesPatchVersion||'',version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',moveScriptsVersion:window.PKMMoveScripts?.VERSION||'',lifecycleVersion:window.PKMMoveLifecycle?.version||'',selectionVersion:window.PKMTeamSelection?.version||'',normalAbilityVersion:window.PKMNormalAbility?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||'',genderVersion:window.PKMGender?.version||''});
+  const hostVersions = () => ({aiVersion:window.PKMBattle?.aiVersion===AI_BUILD?AI_BUILD:'',aiRuntime:'browser-worker-wasm',mobileScrollVersion:battleTouchScroll.version===getComputedStyle(document.documentElement).getPropertyValue('--pkm-mobile-scroll-version').trim()?battleTouchScroll.version:'',flinchPatchVersion:window.PKMBattle?.flinchPatchVersion||'',rulesPatchVersion:window.PKMBattle?.rulesPatchVersion||'',version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',moveScriptsVersion:window.PKMMoveScripts?.VERSION||'',lifecycleVersion:window.PKMMoveLifecycle?.version||'',selectionVersion:window.PKMTeamSelection?.version||'',normalAbilityVersion:window.PKMNormalAbility?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||'',genderVersion:window.PKMGender?.version||''});
   let formatTag = '', formatRule = ''; // v1.3.8：角色卡发来的赛制（例：3v3、3只 vs 1只），显示在行动菜单的标签上
   let typeLabel = ''; // v1.3.9：角色卡发来的对战类型（道馆战 / 训练家对战 / 劲敌对战 / 火箭队……），标签第一段
   // 宿主模式：球袋来自角色卡变量（MVU），只存在本页内存里，不读写本机存档。
@@ -1493,7 +1592,7 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
     const logWasAtBottom = log.scrollHeight - log.clientHeight - log.scrollTop <= 28;
     const logScrollTop = log.scrollTop;
     log.textContent = (theaterState ? battle.log.slice(0, theaterState.logLimit) : battle.log).map(translateText).join('\n');
-    if (logWasAtBottom || theaterState) log.scrollTop = log.scrollHeight;
+    if (logWasAtBottom) log.scrollTop = log.scrollHeight;
     else log.scrollTop = Math.min(logScrollTop, Math.max(0, log.scrollHeight - log.clientHeight));
   }
   function render() {

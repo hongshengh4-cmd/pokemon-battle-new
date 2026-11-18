@@ -1,0 +1,22 @@
+{
+  "build": "20261118-status-crown-v8.1",
+  "delivery": "repository-root-overlay-status-bar-only",
+  "mounting": "same original pkdex-v121-root and message document as upstream Kanto; no outer page or regional iframe",
+  "entry": "st-bridge/status.js",
+  "foldControl": "native top-center protrusion; no external title or text toggle",
+  "compatibleOriginalRoot": "pkdex-v121-root",
+  "compatibleSkinVersion": "20261118-kanto-hardware-v1",
+  "regions": {
+    "kanto": [
+      1,
+      151
+    ],
+    "johto": [
+      152,
+      251
+    ]
+  },
+  "savePolicy": "real host MVU; explicit owned-item use; no automatic grants",
+  "battle": "original repository index.html and module worker/WASM; not embedded in card",
+  "correspondingSource": "双地区图鉴V8.1-顶部开合完整对应源码.zip"
+}

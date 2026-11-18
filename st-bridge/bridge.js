@@ -47,6 +47,7 @@ const REPAIR_BUILD='20261116-bond-guard-hotfix2';
 const BATTLE_SITE_BUILD='20261116-ps-move-scripts-v1', BATTLE_RULES_BUILD='20261116-bond-npc-moves-team-v1';
 const BATTLE_RULES_PATCH='20261118-hit-lifecycle-v1';
 const FLINCH_PATCH='20261118-flinch-expiry-v1';
+const MOBILE_SCROLL_PATCH='20261118-mobile-scroll-v1';
 const STORY_BUILD='20261118-adjusted-story-v2';
 if(K.VERSION!=='1.3.66-comprehensive-v6'||globalThis.PKMNormalAbility?.version!=='20261115-normal-ability-random-v2'||globalThis.PKMGender?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.version!==EXPECTED_BUILD||globalThis.PKMPlotGuard?.worldbookStoryPolicy!=='queue-chain-fastforward-v1'||globalThis.PKMPlotGuard?.storyVersion!==STORY_BUILD||globalThis.PKMPatchGuard?.version!==REPAIR_BUILD||globalThis.PKMBondSync?.version!==REPAIR_BUILD||globalThis.PKMGearResolve?.version!==EXPECTED_BUILD||globalThis.PKMBattleGear?.fixVersion!==EXPECTED_BUILD)
   throw new Error('修复模块版本不完整：请先部署本包全部覆盖文件并刷新缓存。');
@@ -225,6 +226,7 @@ function spriteUrl(name,{anim=false,shiny=false}={}) {
 
 const spriteImg = (name, opts = {}, cls = 'pk-spr') => { const u = spriteUrl(name, opts); return u ? `<img class="${cls}" src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer" > ` : `<span class="${cls} pk-spr-ph">?</span>`; };
 function itemIcon(name) {
+  const regional=P.PKMRegionalDex?.itemImage(name);if(regional)return regional;
   const localCatalogIcons={ '自行车':'bicycle', '香水（30mL）':'sachet' };
   const slug = localCatalogIcons[name] || ppItemInfo(name)?.sprite || K.ITEM_ICONS[name];
   const emoji = (K.ITEM_EMOJI.find(([re]) => re.test(name)) || [null, '🎒'])[1];
@@ -3068,7 +3070,7 @@ function mountDex(win, root) {
 function fitFrame(m) {
   try { const f = m.win.frameElement; if (!f) return; const h = Math.ceil(m.win.document.documentElement.scrollHeight); if (h > 30 && Math.abs((parseFloat(f.style.height) || 0) - h) > 2) f.style.height = h + 'px'; } catch (_) {}
 }
-function mesOfFrame(win) { try { const mes = win.frameElement?.closest('.mes'); const id = Number(mes?.getAttribute('mesid')); return Number.isInteger(id) ? id : -1; } catch (_) { return -1; } }
+function mesOfFrame(win) { try { for(let i=0;win&&i<12;i++){const f=win.frameElement;if(!f)break;const mes=f.closest('.mes');if(mes){const id=Number(mes.getAttribute('mesid'));return Number.isInteger(id)?id:-1;}win=f.ownerDocument.defaultView;}return -1;} catch (_) { return -1; } }
 const FISHING_CSS = `
 .pkdex-fishing{margin:0!important;padding:4px!important;border-radius:8px!important;box-shadow:none!important}.pkdex-fishing .pkdex-top,.pkdex-fishing .pkdex-tabs{display:none!important}.pkdex-fishing .pkdex-screen{padding:0!important;border:0!important;border-radius:5px!important;min-height:0!important;background:transparent!important;overflow:hidden!important}
 .pkm-fishing{position:relative;width:100%;height:clamp(380px,76vh,740px);min-height:380px;overflow:hidden;background:#17354a;color:#e5eddf;font:13px/1.4 system-ui,"PingFang SC","Microsoft YaHei",sans-serif;isolation:isolate;border:2px solid #31475a;box-shadow:inset 0 0 0 1px #c3d0bd}.pkm-fishing *{box-sizing:border-box}.pkm-fishing button,.pkm-fishing select{font:inherit}.pkm-fishing button{cursor:pointer;-webkit-tap-highlight-color:transparent}.pkm-fishing button:focus-visible,.pkm-fishing select:focus-visible{outline:2px solid #f4d17b;outline-offset:2px}.pkm-fishing .scene{position:absolute;inset:0;min-height:0;height:100%;width:100%;border:0;border-radius:0;outline:0;box-shadow:none;background:#317c98;isolation:isolate}.pkm-fishing canvas{position:absolute;inset:0;width:100%;height:100%;display:block;image-rendering:pixelated;image-rendering:crisp-edges}.pkm-fishing .scene-top{position:absolute;z-index:2;left:10px;right:10px;top:9px;display:flex;align-items:flex-start;gap:8px;justify-content:space-between;pointer-events:none}.pkm-fishing .scene-top>*{pointer-events:auto}.pkm-fishing .place-name{color:#f9fff0;font-size:12px;font-weight:800;text-shadow:2px 2px #243f4c}.pkm-fishing .place-name small{display:block;font-size:7px;letter-spacing:.8px;opacity:.85;margin-top:2px}.pkm-fishing .weather{font-size:9px;border:1px solid #fff8;background:#20384da8;padding:5px 7px;border-radius:3px;color:#f4edcf;backdrop-filter:blur(6px)}.pkm-fishing .scene-bottom{position:absolute;z-index:2;left:10px;bottom:9px;color:#edfff6;pointer-events:none}.pkm-fishing .scene-bottom small{font-size:7px;letter-spacing:.8px;opacity:.78}.pkm-fishing .scene-bottom strong{display:block;font-size:9px;font-weight:500;margin-top:2px;text-shadow:1px 1px #17313a}.pkm-fishing .water-tag{display:none}.pkm-fishing .exit{border:1px solid #d7e1ce;background:#1d394b;color:#eef1d9;border-radius:3px;padding:5px 7px;font-size:9px;font-weight:700;white-space:nowrap}.pkm-fishing .bite{position:absolute;left:50%;top:31%;transform:translate(-50%,-50%) scale(.86);opacity:0;transition:.18s;pointer-events:none;z-index:3;text-align:center}.pkm-fishing .bite.show{opacity:1;transform:translate(-50%,-50%) scale(1)}.pkm-fishing .bite b{display:block;color:#fff9df;background:#ee805a;font-size:clamp(18px,2.6vw,27px);border:2px solid #fff4;border-radius:5px;padding:8px 16px;box-shadow:0 8px 28px #183e3c55;white-space:nowrap}.pkm-fishing .bite small{display:inline-block;margin-top:6px;color:#fff;font-size:10px;text-shadow:0 2px 8px #123}.pkm-fishing .landing{display:none;position:absolute;z-index:3;left:50%;top:52%;transform:translate(-50%,-50%);min-width:170px;text-align:center;color:#fff;padding:12px;background:#17344bd9;border:2px solid #d7e5ca;box-shadow:0 5px 0 #0f2332}.pkm-fishing .landing.show{display:block}.pkm-fishing .landing img{display:block;width:88px;height:88px;margin:0 auto 4px;object-fit:contain;image-rendering:pixelated}.pkm-fishing .landing b{font-size:13px}
@@ -8796,7 +8798,7 @@ async function launchBattle(m) {
   const frame = PD.createElement('iframe');
   frame.setAttribute('allow', 'autoplay; fullscreen'); frame.setAttribute('allowfullscreen', ''); frame.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
   frame.style.background = '#070a14';
-  frame.src = W.PKM_BATTLE_EMBED_URL || `${BASE}index.html?embed=1&v=${BATTLE_RULES_PATCH}&ai=${AI_BUILD}&flinch=${FLINCH_PATCH}`;
+  frame.src = W.PKM_BATTLE_EMBED_URL || `${BASE}index.html?embed=1&v=${BATTLE_RULES_PATCH}&ai=${AI_BUILD}&flinch=${FLINCH_PATCH}&scroll=${MOBILE_SCROLL_PATCH}`;
   stage.replaceWith(frame);
   m.frame = frame;
   setBar(m.cfg.lines?.start ? '「' + m.cfg.lines.start + '」' : '正在连接对战系统……');
@@ -8831,7 +8833,7 @@ function onEngineMessage(d) {
   if (d.type === 'PKM_BATTLE_EXIT') { closeBattle();return; }
   if (d.type === 'PKM_BATTLE_READY') {
     const v=d.payload||{},expected='20261113-comprehensive-fix-v6';
-    if(v.aiVersion!==AI_BUILD||v.flinchPatchVersion!==FLINCH_PATCH||v.rulesPatchVersion!==BATTLE_RULES_PATCH||[v.version,v.engineVersion].some(x=>x!==BATTLE_SITE_BUILD)||[v.lifecycleVersion,v.selectionVersion].some(x=>x!==BATTLE_RULES_BUILD)||v.moveScriptsVersion!==BATTLE_SITE_BUILD||v.normalAbilityVersion!=='20261115-normal-ability-random-v2'||[v.gearVersion,v.gearDataVersion,v.genderVersion].some(x=>x!==expected)){
+    if(v.aiVersion!==AI_BUILD||v.mobileScrollVersion!==MOBILE_SCROLL_PATCH||v.flinchPatchVersion!==FLINCH_PATCH||v.rulesPatchVersion!==BATTLE_RULES_PATCH||[v.version,v.engineVersion].some(x=>x!==BATTLE_SITE_BUILD)||[v.lifecycleVersion,v.selectionVersion].some(x=>x!==BATTLE_RULES_BUILD)||v.moveScriptsVersion!==BATTLE_SITE_BUILD||v.normalAbilityVersion!=='20261115-normal-ability-random-v2'||[v.gearVersion,v.gearDataVersion,v.genderVersion].some(x=>x!==expected)){
       m.verified=false;m.sent=false;clearTimeout(m.timer);
       setBar('对战版本不匹配或网站未完整部署，已拒绝启动旧引擎。请一起上传全部覆盖文件、刷新缓存后重试；手机返回或电脑 Esc 可退出。');return;
     }
@@ -9418,6 +9420,7 @@ function renderStarterClaim(){
 }
 function refreshAll() {
   if (destroyed) return;
+  P.PKMRegionalDex?.refresh?.();
   clearTimeout(refreshTimer);
   refreshTimer = setTimeout(() => {
     try { renderBall(); containFloatingUi(); } catch (e) { LOG('精灵球渲染失败', e); }
@@ -10125,6 +10128,7 @@ function showPPItemTargetMenu(item='PP回复药',targetUid=null){
  });
 }
 function showItemUseMenu(name,mount){
+ if(P.PKMRegionalDex?.isDex(name)){P.PKMRegionalDex.open(name);return;}
  const item=String(name||'').trim(),pkm=readPkm(),evolutionUse=hasItemEvolution(item)&&!heldItemId(item),dualPurpose=hasItemEvolution(item)&&!!heldItemId(item);
  if(isPPItem(item)){showPPItemTargetMenu(item);return;}
  if(item.startsWith('学习机·')){toast('学习机可重复使用；在队伍栏打开宝可梦资料并调整招式即可选择已购买的招式。','info');return;}
@@ -10194,7 +10198,7 @@ function installBagDrag(win,root){
  const controller=new win.AbortController();root.__pkmCareBinding={owner:instance,controller};cleanups.push(()=>controller.abort());
  const bind=(type,fn,options={})=>root.addEventListener(type,fn,{...options,signal:controller.signal});let active=null;
  const stop=()=>{if(active?.timer)win.clearTimeout(active.timer);if(active?.item)active.item.style.outline='';active=null;PD.getElementById('pkm-item-drag')?.remove();PD.querySelectorAll('.pkm-drop-ready').forEach(n=>n.classList.remove('pkm-drop-ready'));};
- const frameRect=()=>{try{const r=win.frameElement?.getBoundingClientRect();if(r)return{left:r.left,top:r.top,width:r.width,height:r.height};}catch(_){}return{left:0,top:0,width:Number(win.innerWidth)||1,height:Number(win.innerHeight)||1};};
+ const frameRect=()=>{try{let current=win,x=0,y=0,w=Number(win.innerWidth)||1,h=Number(win.innerHeight)||1;for(let i=0;current!==P&&i<12;i++){const f=current.frameElement;if(!f)break;const r=f.getBoundingClientRect(),sx=r.width/(Number(current.innerWidth)||r.width||1),sy=r.height/(Number(current.innerHeight)||r.height||1);x=r.left+x*sx;y=r.top+y*sy;w*=sx;h*=sy;current=f.ownerDocument.defaultView;}if(current===P)return{left:x,top:y,width:w,height:h};}catch(_){}return{left:0,top:0,width:Number(win.innerWidth)||1,height:Number(win.innerHeight)||1};};
  const toParentPoint=(e,a)=>{const r=frameRect(),sx=r.width>0&&Number(win.innerWidth)>0?r.width/Number(win.innerWidth):1,sy=r.height>0&&Number(win.innerHeight)>0?r.height/Number(win.innerHeight):1;return{x:r.left+e.clientX*sx,y:r.top+e.clientY*sy};};
  // iframe 内的 pointerup 不会冒泡到父文档；跨出 iframe 后改由父文档接管移动与松手。
  if(!PD.__pkmDragEscape){PD.__pkmDragEscape=true;const esc=()=>{PD.getElementById('pkm-item-drag')?.remove();PD.querySelectorAll('.pkm-drop-ready').forEach(n=>n.classList.remove('pkm-drop-ready'));};PD.addEventListener('pointerup',esc,true);PD.addEventListener('pointercancel',esc,true);}
@@ -10344,7 +10348,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, storyVersion:STORY_BUILD, aiVersion:AI_BUILD, flinchPatchVersion:FLINCH_PATCH, rulesPatchVersion:BATTLE_RULES_PATCH, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: REPAIR_BUILD, bondVersion:PKMBondSync.version, base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, storyVersion:STORY_BUILD, aiVersion:AI_BUILD, mobileScrollVersion:MOBILE_SCROLL_PATCH, flinchPatchVersion:FLINCH_PATCH, rulesPatchVersion:BATTLE_RULES_PATCH, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: REPAIR_BUILD, bondVersion:PKMBondSync.version, base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, regionalBuild: "20261118-status-crown-v8.1", useRegionalDex: name => { name=String(name||" ").trim();const region=({"关都图鉴":"kanto","城都图鉴":"johto"})[name];if(!region)return Promise.reject(new Error("不是地区图鉴道具"));return writePkm(pkm=>{if(!(Number(pkm.player?.bag?.[name])>0))throw new Error("尚未获得"+name);pkm.integration=pkm.integration&&typeof pkm.integration==="object"&&!Array.isArray(pkm.integration)?pkm.integration:{};pkm.integration.activeRegionalDex=region;}); }, purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
