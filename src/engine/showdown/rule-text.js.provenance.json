@@ -1,0 +1,58 @@
+{
+  "commit": "5b88c476113d51a939bddbcd00b5cd182a5d8058",
+  "inputs": {
+    "data/text/moves.ts": "811028921074d1fd8ea8798bc0f0e29602a59f639e58bdf53b0eedf3fdcf54e5",
+    "data/text/zh-cn/moves.ts": "e9932dd4074fae6fe497a98ac21058e5710d7a2db72148bd6cb96f36062657a8",
+    "data/text/abilities.ts": "f6f2a0d4fc8be06cc6051d39e11f5f0a3d3d9d11020d5855b09c9b2f34a00568",
+    "data/text/zh-cn/abilities.ts": "99439625293621d9e3ad3c85626b57b00150de149720f79518c0227d44e1dcf7",
+    "data/text/items.ts": "344f23db9773f17c7bae6bdec848f27134047661d0f991c9a25763d7161d144c",
+    "data/text/zh-cn/items.ts": "f0088c7f085129817d08462eabb57af6b79159b84c2a8caae46ef813c37fbb91"
+  },
+  "authoredChineseClarifications": {
+    "moves": [
+      "rest",
+      "sleeptalk",
+      "hyperbeam",
+      "gigaimpact",
+      "octolock",
+      "purify",
+      "takeheart",
+      "psychoshift",
+      "revivalblessing",
+      "substitute",
+      "wish",
+      "toxic",
+      "protect",
+      "endure",
+      "yawn",
+      "struggle",
+      "transform",
+      "mimic",
+      "sketch",
+      "naturepower",
+      "roar",
+      "whirlwind",
+      "teleport"
+    ],
+    "abilities": [
+      "leafguard",
+      "poisonheal",
+      "naturalcure",
+      "sweetveil",
+      "waterbubble",
+      "thermalexchange",
+      "owntempo",
+      "innerfocus",
+      "illusion"
+    ],
+    "items": [
+      "mentalherb",
+      "lumberry",
+      "chestoberry"
+    ]
+  },
+  "output": {
+    "bytes": 486188,
+    "sha256": "ca960e5afa898b4513f503090678ca1b09d24ded21d6e918591a9966488a9e69"
+  }
+}

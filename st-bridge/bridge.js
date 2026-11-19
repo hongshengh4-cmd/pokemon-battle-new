@@ -45,7 +45,11 @@ const EXPECTED_BUILD='20261113-comprehensive-fix-v6';
 const REPAIR_BUILD='20261116-bond-guard-hotfix2';
 // Battle-site handshake versions are tracked separately from the card-side repair build.
 const BATTLE_SITE_BUILD='20261116-ps-move-scripts-v1', BATTLE_RULES_BUILD='20261116-bond-npc-moves-team-v1';
-const BATTLE_RULES_PATCH='20261118-hit-lifecycle-v1';
+const BATTLE_RULES_PATCH='20261119-showdown-rules-v1';
+const SHOWDOWN_COMMIT='5b88c476113d51a939bddbcd00b5cd182a5d8058';
+// The unchanged uploaded card requires PKMKanto.rulesPatchVersion's exact old
+// token in its loader. That export is a compatibility token ONLY. The actual
+// battleRulesVersion and READY gate below require the new adapter + pinned SHA.
 const FLINCH_PATCH='20261118-flinch-expiry-v1';
 const MOBILE_SCROLL_PATCH='20261118-mobile-scroll-v1';
 const STORY_BUILD='20261118-adjusted-story-v2';
@@ -345,6 +349,9 @@ function ensureIndividual(mon, rand = Math.random) {
   else if (!nz && (!mon.nature || ZH)) { mon.nature = rollNature(rand); ch = true; }
   if(mon.friendshipInit!=null&&mon.friendshipInit!==''){const raw=Number(isObj(mon.friendshipInit)?(mon.friendshipInit.official??mon.friendshipInit.value):mon.friendshipInit);const fv=friendshipValue(mon);const fresh=fv===0||fv===FRIENDSHIP_CATCH_BASE||fv===FRIENDSHIP_STARTER_BASE||!Number.isFinite(Number(mon.friendship?.official));if(Number.isFinite(raw)&&fresh){if(!isObj(mon.friendship))mon.friendship={};mon.friendship.official=friendshipClamp(Math.min(raw,FRIENDSHIP_INIT_MAX));}delete mon.friendshipInit;ch=true;}
   if(ensureFriendship(mon))ch=true;
+  // Optional modern sleep counter. Old saves with no counter stay untouched;
+  // cured/fainted Pokémon must never carry a stale counter into a later sleep.
+  if(Object.hasOwn(mon,'sleepTurns')){const n=Number(mon.sleepTurns),asleep=['睡眠','slp','sleep','asleep'].includes(String(mon.status||'').toLowerCase());if(!asleep||!Number.isInteger(n)||n<=0){delete mon.sleepTurns;ch=true;}else if(n>4||mon.sleepTurns!==n){mon.sleepTurns=Math.min(4,n);ch=true;}}
   if (mon.pp !== undefined && mon.pp !== null && !isObj(mon.pp)) { mon.pp = null; ch = true; }
   if (isObj(mon.pp)) for (const [move,left] of Object.entries(mon.pp)) { const n=Number(left),max=maxPP(move); if(left==null||left===''||!Number.isFinite(n)){delete mon.pp[move];ch=true;} else if(max!=null){const fixed=Math.max(0,Math.min(max,Math.floor(n)));if(fixed!==n){mon.pp[move]=fixed;ch=true;}} }
   if (mon.hp == null && mon.pp) { mon.pp = null; ch = true; } // hp=null 表示刚治疗过（满体力），招式点数也一起回满
@@ -411,12 +418,30 @@ function normalizeMoveState(mon){
  return changed;
 }
 const maxPP = name => { const n=Number(STATS?.m?.[moveIdOf(name)]); return Number.isFinite(n)&&n>0?n:null; };
+/* @showdown-move-result-begin: narrow persistent Sketch + remaining PP boundary */
+function updatePermanentSketchMoves(mon,result,startingMoves){
+ if(!Array.isArray(startingMoves)||JSON.stringify(mon.moves)!==JSON.stringify(startingMoves)||!Array.isArray(result?.permanentMoveChanges))return 0;
+ const next=mon.moves.slice(),seen=new Set();let count=0;
+ for(const c of result.permanentMoveChanges){
+  const i=c?.slot,to=String(c?.to||'');
+  if(!Number.isInteger(i)||i<0||i>=next.length||i>=4||seen.has(i)||c.from!=='sketch'||moveIdOf(startingMoves[i])!=='sketch'||!to||to==='sketch'||moveIdOf(to)!==to||result.moves?.[i]?.id!==to)continue;
+  if(!(maxPP(to)>0)||!Number.isFinite(Number(result.moves[i].ppLeft)))continue;
+  next[i]=zhMove(to);seen.add(i);count++;
+ }
+ if(!count)return 0;
+ mon.moves=next;
+ if(isObj(mon.pp)){const pp={...mon.pp};for(const name of Object.keys(pp))if(!next.includes(name))delete pp[name];mon.pp=Object.keys(pp).length?pp:null;}
+ return count;
+}
 function updateRemainingMovePP(mon,battleMoves){
  if(!Array.isArray(battleMoves)||!battleMoves.length)return 0;
  const names=(mon.moves||[]).filter(Boolean),next=isObj(mon.pp)?{...mon.pp}:{};let mapped=0;
  for(let i=0;i<names.length;i++){
   const name=names[i],id=moveIdOf(name);let mv=id?battleMoves.find(x=>String(x?.id||'').toLowerCase()===id.toLowerCase()):null;
-  if((!mv||mv.ppLeft==null||!Number.isFinite(Number(mv.ppLeft)))&&battleMoves.length===names.length)mv=battleMoves[i];
+  // Index fallback is only for old payloads with NO move IDs or an unknown
+  // saved name. A recognized mismatch may be a changed move set: never write
+  // a copied/temporary move's PP over a different known saved move.
+  if((!mv||mv.ppLeft==null||!Number.isFinite(Number(mv.ppLeft)))&&battleMoves.length===names.length&&(!id||!battleMoves.some(x=>String(x?.id||'').trim())))mv=battleMoves[i];
   if(!mv||mv.ppLeft==null||!Number.isFinite(Number(mv.ppLeft)))continue;
   const base=maxPP(name),rawMax=Number(mv.pp),max=Number.isFinite(rawMax)&&rawMax>0?rawMax:base;
   if(max==null||max<=0)continue;
@@ -427,6 +452,7 @@ function updateRemainingMovePP(mon,battleMoves){
  if(mapped)mon.pp=Object.keys(next).length?next:null;
  return mapped;
 }
+/* @showdown-move-result-end */
 function ppText(s, name) {
   const max = maxPP(name); if (!max) return '';
   const left = s.hp != null && isObj(s.pp) && s.pp[name] != null && s.pp[name] !== '' && Number.isFinite(Number(s.pp[name])) ? Math.max(0, Math.min(max, Number(s.pp[name]))) : max;
@@ -8289,22 +8315,29 @@ function onHostMessage(e) {
   }
   if (modal && e.source === modal.frame?.contentWindow) onEngineMessage(d);
 }
-function playerEntries(pkm) {
-  const slots = pkm.party.slots.map((s, i) => ({ s, i })).filter(x => hasMon(x.s) && x.s.status !== '濒死' && (x.s.hp == null || (x.s.hp !== '' && Number.isFinite(Number(x.s.hp)) && Number(x.s.hp) > 0)));
-  slots.sort((a, b) => (b.s.isLead ? 1 : 0) - (a.s.isLead ? 1 : 0));
-  return slots.map(({ s, i }) => {
+function playerEntries(pkm, { includeFainted = false } = {}) {
+  // Availability/format callers still count living members only. Engine input
+  // may also retain a fainted owned bench when the whole roster fits the cap,
+  // otherwise Revival Blessing could never reach a pre-battle fainted member.
+  const slots = pkm.party.slots.map((s, i) => ({ s, i, down: s?.status === '濒死' || (s?.hp != null && s.hp !== '' && Number.isFinite(Number(s.hp)) && Number(s.hp) <= 0) }))
+    .filter(x => hasMon(x.s) && (x.down ? includeFainted : (x.s.hp == null || (x.s.hp !== '' && Number.isFinite(Number(x.s.hp)) && Number(x.s.hp) > 0))));
+  slots.sort((a, b) => Number(a.down) - Number(b.down) || (b.s.isLead ? 1 : 0) - (a.s.isLead ? 1 : 0));
+  return slots.map(({ s, i, down }) => {
     const e = { species: s.species || s.name, level: Number(s.lv) || 5, moves: (s.moves || []).filter(Boolean), hostSlot: i };
     if (s.nickname) e.nickname = s.nickname;
+    e.happiness = friendshipValue(s); // Return/Frustration use the existing official friendship, read-only.
     if (s.nature) e.nature = s.nature; if (s.ability) e.ability = s.ability;
     Object.assign(e, PKMGearResolve.resolve(s, speciesId(s.species || s.name), e.moves, {
       resolveItem: heldItemId, resolveMove: moveIdOf, resolveSpecies: speciesId
     }));
     if (s.gender) e.gender = s.gender; if (s.shiny) e.shiny = true;
     if (s.hp != null && s.maxHp) { e.hp = Number(s.hp); e.maxHp = Number(s.maxHp); }
-    if (s.status && s.status !== '濒死') e.status = s.status;
+    if (down) e.hp = 0; // A legacy fainted label wins even if numeric HP is absent/stale.
+    if (s.status && !down) e.status = s.status;
+    if(!down&&Number.isInteger(s.sleepTurns)&&s.sleepTurns>0)e.sleepTurns=Math.min(4,s.sleepTurns);
     const iv = s.stats_meta?.ivs; if (iv && K.STAT_KEYS.every(k => ivOk(iv[k]))) e.ivs = { ...iv };const ev=s.stats_meta?.evs;if(isObj(ev))e.evs={...ev};
     // v1.3.4：招式剩余 PP 跨战斗继承（hp 为 null = 刚治疗过，全满）
-    if (s.hp != null && isObj(s.pp)) { const pp = {}; for (const m of e.moves) { const n=Number(s.pp[m]),max=maxPP(m); if(s.pp[m]!=null&&s.pp[m]!==''&&Number.isFinite(n)){const left=max==null?Math.max(0,Math.floor(n)):Math.max(0,Math.min(max,Math.floor(n)));if(max==null||left<max)pp[m]=left;} } if (Object.keys(pp).length) e.pp = pp; }
+    if ((s.hp != null || down) && isObj(s.pp)) { const pp = {}; for (const m of e.moves) { const n=Number(s.pp[m]),max=maxPP(m); if(s.pp[m]!=null&&s.pp[m]!==''&&Number.isFinite(n)){const left=max==null?Math.max(0,Math.floor(n)):Math.max(0,Math.min(max,Math.floor(n)));if(max==null||left<max)pp[m]=left;} } if (Object.keys(pp).length) e.pp = pp; }
     return e;
   });
 }
@@ -8381,9 +8414,11 @@ function battleFormat(cfg, healthy, opts = {}) {
   return { type, wild: false, npc, full: false, name, playerMax: f.p, enemyMax: f.e, player, enemy, source, rule,
     tag: name + (short ? `（${short}）` : ''), label: name + (short ? ` · ${short}，照常开战` : '') };
 }
-// Send all healthy candidates, preserving the original hostSlot. The battle app
-// chooses/validates the ordered roster *before* emitting BATTLE_STARTED.
-function pickPlayers(entries, max) { return entries.slice(0, 6); }
+// If the entire owned roster fits the cap, retain its fainted bench for revival.
+// An over-cap NvN roster still selects ONLY living registered entrants: do not
+// append excluded fainted members after selection or silently exceed the cap.
+// All paths preserve hostSlot; the app validates before emitting BATTLE_STARTED.
+function pickPlayers(entries, max) { return (entries.length <= max ? entries : entries.filter(e => e.hp !== 0)).slice(0, 6); }
 // 对手的简称（对战画面的标签 / 信息框用）：“华蓝道馆馆主 小霞” → “小霞”；太长就不写名字
 function shortOpponent(cfg) {
   const raw = String(cfg?.opponent || '').replace(/[（(][^）)]*[）)]/g, ' ').trim();
@@ -8407,8 +8442,8 @@ function battleTexts(cfg, fmt, pN, eN) {
 }
 function engineConfig(spec, pkm, tag) {
   const cfg = spec.cfg || {};
-  const entries = playerEntries(pkm);
-  const fmt = battleFormat(cfg, entries.length, { full: !!spec.full }), type = fmt.type;
+  const entries = playerEntries(pkm, { includeFainted: true });
+  const fmt = battleFormat(cfg, entries.filter(e => e.hp !== 0).length, { full: !!spec.full }), type = fmt.type;
   const modeHints = [cfg.battleMode, cfg.battleFormat, cfg.mode, cfg.formatType, cfg.format, cfg.rules?.battleMode, cfg.rules?.battleFormat, cfg.rules?.formatMode, cfg.rules?.format, cfg.rules?.mode].filter(Boolean).map(v => String(v).trim().toLowerCase());
   const explicitDouble = cfg.double === true || cfg.doubles === true || cfg.rules?.double === true || cfg.rules?.doubles === true || modeHints.some(v => /^(double|doubles|doublebattle|double-battle|双打)$/.test(v));
   const explicitSingle = cfg.single === true || cfg.rules?.single === true || cfg.double === false || cfg.doubles === false || cfg.rules?.double === false || cfg.rules?.doubles === false || modeHints.some(v => /^(single|singles|singlebattle|single-battle|单打)$/.test(v));
@@ -8430,7 +8465,8 @@ function engineConfig(spec, pkm, tag) {
       Object.assign(e, PKMGearResolve.resolve(t, speciesId(e.species), e.moves, {
         resolveItem: heldItemId, resolveMove: moveIdOf, resolveSpecies: speciesId
       }));
-      for (const k of ['nickname','hp','maxHp','status','pp','evs']) if (t[k] !== undefined) e[k] = clone(t[k]);
+      for (const k of ['nickname','hp','maxHp','status','sleepTurns','pp','evs','happiness']) if (t[k] !== undefined) e[k] = clone(t[k]);
+      if(e.happiness==null&&t.friendship?.official!=null)e.happiness=t.friendship.official;
     }
     const r = rng(hash(String(spec.key || cfg.id || '') + '#' + i + '#' + e.species));
     const abilitySeed = ['battle-ability-v1', String(spec.key || cfg.id || ''), i, speciesId(e.species)].join('#');
@@ -8452,7 +8488,7 @@ function engineConfig(spec, pkm, tag) {
     return e;
   });
   const party = pickPlayers(entries, fmt.playerMax);
-  const tx = battleTexts(cfg, fmt, Math.min(party.length,fmt.playerMax), enemy.length);
+  const tx = battleTexts(cfg, fmt, Math.min(party.filter(e => e.hp !== 0).length,fmt.playerMax), enemy.length);
   const balls = Object.fromEntries(Object.entries(K.BALL_ZH).map(([id, zh]) => [id, Math.max(0, Math.floor(Number(pkm.player.bag[zh]) || 0))]));
   const captureLocation=String(pkm.world?.location||cfg.location||''),captureTime=String(pkm.world?.time||'');
   const hourMatch=captureTime.match(/(?:^|\s)(\d{1,2})[:：]\d{2}/),hour=hourMatch?Number(hourMatch[1]):null;
@@ -8793,7 +8829,8 @@ async function launchBattle(m) {
   if (!engine.p1.entrants[0].party.length) { toast('队伍里的宝可梦都失去了战斗能力，先去宝可梦中心治疗吧。', 'warning'); closeBattle(true); return; }
   const heldSnapshots=Object.fromEntries(engine.p1.entrants[0].party.map(e=>[e.hostSlot,PKMHeldSync.snapshot(pkm.party.slots[e.hostSlot],e,heldItemId)]));
   const partyUids=pkm.party.slots.map(s=>hasMon(s)?String(s.uid||''):null);
-  Object.assign(m, { tag, engine, balls, heldSnapshots, partyUids, battleItems:engine.host?.battleItems||{}, type, fmt });
+  const moveSnapshots=Object.fromEntries(engine.p1.entrants[0].party.map(e=>[e.hostSlot,clone(pkm.party.slots[e.hostSlot].moves)]));
+  Object.assign(m, { tag, engine, balls, heldSnapshots, partyUids, moveSnapshots, battleItems:engine.host?.battleItems||{}, type, fmt });
   const stage = m.el.querySelector('.stage');
   const frame = PD.createElement('iframe');
   frame.setAttribute('allow', 'autoplay; fullscreen'); frame.setAttribute('allowfullscreen', ''); frame.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
@@ -8833,7 +8870,7 @@ function onEngineMessage(d) {
   if (d.type === 'PKM_BATTLE_EXIT') { closeBattle();return; }
   if (d.type === 'PKM_BATTLE_READY') {
     const v=d.payload||{},expected='20261113-comprehensive-fix-v6';
-    if(v.aiVersion!==AI_BUILD||v.mobileScrollVersion!==MOBILE_SCROLL_PATCH||v.flinchPatchVersion!==FLINCH_PATCH||v.rulesPatchVersion!==BATTLE_RULES_PATCH||[v.version,v.engineVersion].some(x=>x!==BATTLE_SITE_BUILD)||[v.lifecycleVersion,v.selectionVersion].some(x=>x!==BATTLE_RULES_BUILD)||v.moveScriptsVersion!==BATTLE_SITE_BUILD||v.normalAbilityVersion!=='20261115-normal-ability-random-v2'||[v.gearVersion,v.gearDataVersion,v.genderVersion].some(x=>x!==expected)){
+    if(v.aiVersion!==AI_BUILD||v.mobileScrollVersion!==MOBILE_SCROLL_PATCH||v.flinchPatchVersion!==FLINCH_PATCH||v.rulesPatchVersion!==BATTLE_RULES_PATCH||v.showdownCommit!==SHOWDOWN_COMMIT||v.showdownReady!==true||[v.version,v.engineVersion].some(x=>x!==BATTLE_SITE_BUILD)||[v.lifecycleVersion,v.selectionVersion].some(x=>x!==BATTLE_RULES_BUILD)||v.moveScriptsVersion!==BATTLE_SITE_BUILD||v.normalAbilityVersion!=='20261115-normal-ability-random-v2'||[v.gearVersion,v.gearDataVersion,v.genderVersion].some(x=>x!==expected)){
       m.verified=false;m.sent=false;clearTimeout(m.timer);
       setBar('对战版本不匹配或网站未完整部署，已拒绝启动旧引擎。请一起上传全部覆盖文件、刷新缓存后重试；手机返回或电脑 Esc 可退出。');return;
     }
@@ -8883,6 +8920,7 @@ function monFromCapture(cap, enemy, cfgEnemy, pkm) {
     friendship: { official: FRIENDSHIP_CATCH_BASE },
   });
   if (spec.ivs && K.STAT_KEYS.every(k => ivOk(spec.ivs[k]))) mon.stats_meta.ivs = { ...spec.ivs };
+  if(cap.statusAtCapture==='slp'&&Number.isInteger(cap.sleepTurnsAtCapture)&&cap.sleepTurnsAtCapture>0)mon.sleepTurns=Math.min(4,cap.sleepTurnsAtCapture);
   ensureIndividual(mon); // 资质按个体值推算；缺项补齐
   return mon;
 }
@@ -9250,11 +9288,15 @@ async function applyResult(m, payload) {
       if(p.fainted===true)s.hp=0;else if(p.hp!=null&&Number.isFinite(Number(p.hp)))s.hp=Math.max(0,Number(p.hp));
       if(Number.isFinite(Number(p.maxHp))&&Number(p.maxHp)>0)s.maxHp=Number(p.maxHp);
       if(p.fainted===true)s.status='濒死';else if(p.status!==undefined)s.status=K.STATUS_TO_ZH[p.status]||null;
+      if(!p.fainted&&p.status==='slp'&&Number.isInteger(p.sleepTurns)&&p.sleepTurns>0)s.sleepTurns=Math.min(4,p.sleepTurns);else if(p.status!==undefined)delete s.sleepTurns;
       // Battle engine returns null when a one-use held item (e.g. berry/focus sash) was consumed.
       // Keep the saved item unless the engine explicitly consumed a supported item.
       syncHeldItemConsumption(s,p,m.heldSnapshots?.[p.hostSlot]);
       if(p.participated!==false)setHpRegenBaseline(pkm,s);
-      // PP 每场即时写回；中文 ID 未加载时由 helper 按顺序兜底，缺失字段不会清空旧 PP。
+      // Only the original Sketch slot may learn a permanent move. A changed
+      // outside-battle move set is never overwritten by a delayed result.
+      updatePermanentSketchMoves(s,p,m.moveSnapshots?.[p.hostSlot]);
+      // PP 每场即时写回；旧结果无 ID 时按顺序兜底，已知不同招式不能互相覆盖。
       updateRemainingMovePP(s,p.moves);
 
     }
@@ -10348,7 +10390,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, storyVersion:STORY_BUILD, aiVersion:AI_BUILD, mobileScrollVersion:MOBILE_SCROLL_PATCH, flinchPatchVersion:FLINCH_PATCH, rulesPatchVersion:BATTLE_RULES_PATCH, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: REPAIR_BUILD, bondVersion:PKMBondSync.version, base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, regionalBuild: "20261118-status-restore-v8.1", useRegionalDex: name => { name=String(name||" ").trim();const region=({"关都图鉴":"kanto","城都图鉴":"johto"})[name];if(!region)return Promise.reject(new Error("不是地区图鉴道具"));return writePkm(pkm=>{if(!(Number(pkm.player?.bag?.[name])>0))throw new Error("尚未获得"+name);pkm.integration=pkm.integration&&typeof pkm.integration==="object"&&!Array.isArray(pkm.integration)?pkm.integration:{};pkm.integration.activeRegionalDex=region;}); }, purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, storyVersion:STORY_BUILD, aiVersion:AI_BUILD, mobileScrollVersion:MOBILE_SCROLL_PATCH, flinchPatchVersion:FLINCH_PATCH, rulesPatchVersion:'20261118-hit-lifecycle-v1', battleRulesVersion:BATTLE_RULES_PATCH, showdownCommit:SHOWDOWN_COMMIT, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: REPAIR_BUILD, bondVersion:PKMBondSync.version, base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, regionalBuild: "20261118-status-restore-v8.1", useRegionalDex: name => { name=String(name||" ").trim();const region=({"关都图鉴":"kanto","城都图鉴":"johto"})[name];if(!region)return Promise.reject(new Error("不是地区图鉴道具"));return writePkm(pkm=>{if(!(Number(pkm.player?.bag?.[name])>0))throw new Error("尚未获得"+name);pkm.integration=pkm.integration&&typeof pkm.integration==="object"&&!Array.isArray(pkm.integration)?pkm.integration:{};pkm.integration.activeRegionalDex=region;}); }, purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }

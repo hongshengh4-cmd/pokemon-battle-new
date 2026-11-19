@@ -6,11 +6,20 @@ export function seeded(seed){let x=seed>>>0;return()=>{x=(Math.imul(x,1664525)+1
 export function hash(text){let h=2166136261;for(const c of String(text)){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0}
 export const actionKey=a=>a.kind==='move'?`move:${a.index}${a.struggle?':struggle':''}${a.mechanic?':'+a.mechanic:''}${a.target?`@${a.target.side}.${a.target.slot}`:''}`:a.kind==='switch'?`switch:${a.index}`:'pass';
 const copy=x=>x==null?x:JSON.parse(JSON.stringify(x));
+// A public facade only; NEVER replace the real rule/stat object with its disguise.
+export const publicAppearance=p=>p?.illusion?{...p,...p.illusion,originalSpeciesId:p.illusion.speciesId,illusion:null}:p;
 export function legalActions(b,side=1,slot=0,reserved=new Set()){
- const p=b.cur(side,slot);if(!p||p.fainted||p.hp<=0)return[{kind:'pass',slot}];const v=p.volatile||{};
+ const p=b.cur(side,slot);if(!p||p.fainted||p.hp<=0||b.skipAction?.(p))return[{kind:'pass',slot}];const v=p.volatile||{};
  const lock=b.lockInfo?.(p);if(lock){const i=p.moves.findIndex(m=>m.id===lock.id);return[{kind:'move',index:Math.max(0,i),slot}]}
  const moves=[];
  for(let i=0;i<p.moves.length;i++){
+  // The modern engine owns disable/choice/Encore/item-suppression/Max legality.
+  // Old handwritten hints below are retained solely for old-engine compatibility.
+  if(b.rulesEngine?.id==='pokemon-showdown'&&b.moveReason){
+   const base={kind:'move',index:i,slot};if(!b.moveReason(p,i))moves.push(base);
+   if(p.mechanic&&!b.mechanicReason(p,p.mechanic)&&!b.moveReason(p,i,p.mechanic))moves.push({...base,mechanic:p.mechanic});
+   continue;
+  }
   const m=p.moves[i];if(m.ppLeft<=0||v.disableMove===m.id||p.choiceLockedMove&&m.id!==p.choiceLockedMove||v.encore?.moveId&&m.id!==v.encore.moveId)continue;
   if((v.taunt||id(p.item)==='assaultvest')&&m.category==='Status')continue;
   if(v.torment&&p._lastMoveId===m.id)continue;if(v.healblock&&(m.heal||m.drain))continue;
@@ -57,7 +66,8 @@ function safeVolatile(p,publicOnly=false){
 function own(p){const o={};for(const k of ownFields)if(p[k]!==undefined)o[k]=copy(p[k]);o.species=p.speciesId;o.moves=p.moves.map(m=>({id:m.id,ppLeft:m.ppLeft,pp:m.pp}));o.volatile=safeVolatile(p);return o}
 export function rememberPublic(p){
  if(!p?._participated)return;
- p._aiPublicSnapshot={species:p.speciesId,level:p.level,hpPercent:p.hp>0?Math.ceil(p.hp/p.maxHp*100):0,types:[...p.types],status:p.status||null,stages:{...p.stages},moves:copy(p._aiPublicMoves||[]),ability:p._aiPublicAbility||null,item:p._aiPublicItem||null,itemKnown:!!p._aiPublicItemKnown,isMega:!!p.isMega,terastallized:!!p.terastallized,dynamaxed:!!p.dynamaxed,dynamaxTurns:p.dynamaxed?p.dynamaxTurns:0,volatile:safeVolatile(p,true),lastMove:p._aiPublicLastMove||null,protectStreak:p._aiPublicProtectStreak||0};
+ const visible=publicAppearance(p);
+ p._aiPublicSnapshot={species:visible.speciesId,level:p.level,hpPercent:p.hp>0?Math.ceil(p.hp/p.maxHp*100):0,types:[...visible.types],status:p.status||null,stages:{...p.stages},moves:copy(p._aiPublicMoves||[]),ability:p._aiPublicAbility||null,item:p._aiPublicItem||null,itemKnown:!!p._aiPublicItemKnown,isMega:!!p.isMega,terastallized:!!p.terastallized,dynamaxed:!!p.dynamaxed,dynamaxTurns:p.dynamaxed?p.dynamaxTurns:0,volatile:safeVolatile(p,true),lastMove:p._aiPublicLastMove||null,protectStreak:p._aiPublicProtectStreak||0};
 }
 function fieldView(field){
  const out={};for(const [k,v]of Object.entries(field)){
@@ -75,7 +85,7 @@ export function observation(b,profile){
 // Emergency fallback deliberately uses species/type and displayed HP only.
 // In particular it never calls estimateDamage against the actual private foe.
 export function quickChoice(b,slot=0,reserved=new Set()){
- const B=globalThis.PKMBattle,me=b.cur(1,slot),foes=b.activeMons(0),legal=legalActions(b,1,slot,reserved);if(!me)return legal[0];
+ const B=globalThis.PKMBattle,me=b.cur(1,slot),foes=b.activeMons(0).map(publicAppearance),legal=legalActions(b,1,slot,reserved);if(!me)return legal[0];
  const effect=(m,f)=>globalThis.PKMTypeChart?.effectiveness(m.type,f.types)||0;
  const power=(p,f,m)=>{
   const sp=B._dex?.[f.speciesId],def=sp?.baseStats?.[m.category==='Physical'?'def':'spd']||80;
@@ -84,7 +94,7 @@ export function quickChoice(b,slot=0,reserved=new Set()){
  };
  let best=legal[0],value=-Infinity;
  for(const a of legal){let score=0;
-  if(a.kind==='move'){const base=me.moves[a.index];if(!base)continue;const m=B.transformMove(me,base,a.mechanic),foe=a.target?b.cur(a.target.side,a.target.slot):foes[0];
+  if(a.kind==='move'){const base=me.moves[a.index];if(!base)continue;const m=B.transformMove(me,base,a.mechanic),rawFoe=a.target?b.cur(a.target.side,a.target.slot):null,foe=rawFoe?(a.target.side===0?publicAppearance(rawFoe):rawFoe):foes[0];
    if(m.category!=='Status'&&foe)score=(a.target?.side===1?-1:1)*power(me,foe,m);
    else{score=2;if(m.heal)score=me.hp<me.maxHp*.5?100:0;if(m.boosts&&me.hp>me.maxHp*.65)score=Object.entries(m.boosts).reduce((n,[k,v])=>n+(v>0&&me.stages[k]<3?v*10:0),0);if(m.status&&foe&&!foe.status)score=30;if(m.sideCondition){const s=b.field.sides[m.target==='allySide'?1:0];score=s?.[m.sideCondition]?0:25}}
    if(a.mechanic)score+=4;

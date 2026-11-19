@@ -41,6 +41,7 @@
     return Math.min(.95, Math.max(.05, (.2 + .55 * (1 - health)) * multiplierFor(p,ball,context) * status));
   }
   function toSpec(p) {
+    if (typeof p?._battle?.captureSpec === 'function') return p._battle.captureSpec(p);
     return { species: p.speciesId, level: Number(p.level), nature: p.nature || '', ability: p.ability || '',
       item: p.item || '', moves: p.moves.map(m => m.id), pp: p.moves.map(m => Number(m.ppLeft)), ivs: { ...p.ivs },
       nickname: p.hasNickname ? p.name : '', shiny: !!p.shiny, gender: p.gender || null,
@@ -77,10 +78,11 @@
       if (success) {
         this.turnCount++;
         const healed=ball==='healball',spec=toSpec(target);
-        if(healed)spec.pp=target.moves.map(m=>Number(m.pp)||0);
-        this.capture = { ...attempt, spec, hpAtCapture: healed?target.maxHp:target.hp, statusAtCapture: healed?null:target.status };
+        if(healed)spec.pp=(this.persistentPokemon?this.persistentPokemon(target).moves:target.moves).map(m=>Number(m.pp)||0);
+        this.capture = { ...attempt, spec, hpAtCapture: healed?target.maxHp:target.hp, statusAtCapture: healed?null:target.status, sleepTurnsAtCapture:!healed&&target.status==='slp'?(target.sleepTurns||0):0 };
         this.outcome = 'captured'; this.winner = 0; this.pendingSwitch = null;
         target.captured = true;
+        this.completeCapture?.(); // Close the local rule queue without running an extra opponent action.
         this.say(`${target.name} 被收服了！`);
       } else {
         this.say(`${target.name} 挣脱了精灵球！`);

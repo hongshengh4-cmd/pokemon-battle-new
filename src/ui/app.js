@@ -2,7 +2,7 @@
 if(window.parent!==window)document.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();window.parent.postMessage({type:'PKM_BATTLE_EXIT'},'*');}},true);
 import {localSprite,shinySprite,installSpriteRecovery} from '../../st-bridge/sprite-recovery.js?v=1.3.31';
 installSpriteRecovery(document);
-import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/browser-ai.mjs?v=20261118-foulplay-browser-ai-v1';
+import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/browser-ai.mjs?v=20261119-showdown-rules-v1';
 /* Browser UI + SillyTavern host bridge (postMessage). Engine lives in PKMBattle. */
 (function () {
   'use strict';
@@ -220,7 +220,7 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
   if (EMBED) document.documentElement.classList.add('embed');
   let dataReady = false, pendingHostConfig = null, hostTag = null, hostMode = false;
   const APP_VERSION = '20261116-ps-move-scripts-v1';
-  const hostVersions = () => ({aiVersion:window.PKMBattle?.aiVersion===AI_BUILD?AI_BUILD:'',aiRuntime:'browser-worker-wasm',mobileScrollVersion:battleTouchScroll.version===getComputedStyle(document.documentElement).getPropertyValue('--pkm-mobile-scroll-version').trim()?battleTouchScroll.version:'',flinchPatchVersion:window.PKMBattle?.flinchPatchVersion||'',rulesPatchVersion:window.PKMBattle?.rulesPatchVersion||'',version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',moveScriptsVersion:window.PKMMoveScripts?.VERSION||'',lifecycleVersion:window.PKMMoveLifecycle?.version||'',selectionVersion:window.PKMTeamSelection?.version||'',normalAbilityVersion:window.PKMNormalAbility?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||'',genderVersion:window.PKMGender?.version||''});
+  const hostVersions = () => ({aiVersion:window.PKMBattle?.aiVersion===AI_BUILD?AI_BUILD:'',aiRuntime:'browser-worker-wasm',mobileScrollVersion:battleTouchScroll.version===getComputedStyle(document.documentElement).getPropertyValue('--pkm-mobile-scroll-version').trim()?battleTouchScroll.version:'',flinchPatchVersion:window.PKMBattle?.flinchPatchVersion||'',rulesPatchVersion:window.PKMBattle?.rulesPatchVersion||'',showdownCommit:window.PKMBattle?.rulesEngine?.commit||'',showdownReady:window.PKMBattle?.rulesEngine?.ready===true,version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',moveScriptsVersion:window.PKMMoveScripts?.VERSION||'',lifecycleVersion:window.PKMMoveLifecycle?.version||'',selectionVersion:window.PKMTeamSelection?.version||'',normalAbilityVersion:window.PKMNormalAbility?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||'',genderVersion:window.PKMGender?.version||''});
   let formatTag = '', formatRule = ''; // v1.3.8：角色卡发来的赛制（例：3v3、3只 vs 1只），显示在行动菜单的标签上
   let typeLabel = ''; // v1.3.9：角色卡发来的对战类型（道馆战 / 训练家对战 / 劲敌对战 / 火箭队……），标签第一段
   // 宿主模式：球袋来自角色卡变量（MVU），只存在本页内存里，不读写本机存档。
@@ -250,7 +250,8 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
   const zhMove = (id, fallback = '') => ZH.moves?.[normId(id)] || fallback || '未知招式';
   const zhAbility = (idOrName, fallback = '未知特性') => PKMMechanics.abilityInfo(idOrName)?.name || ZH.abilities?.[normId(idOrName)] || fallback;
   const zhNature = id => !id ? '无修正' : (ZH.natures?.[normId(id)] || '未知性格');
-  const displayPokemonName = p => p.hasNickname ? p.name : zhSpecies(p.speciesId, p.speciesName || p.name);
+  const appearancePokemon = p => p?.illusion ? { ...p, ...p.illusion, originalSpeciesId:p.illusion.speciesId, illusion:null } : p;
+  const displayPokemonName = p => { p=appearancePokemon(p);return p.hasNickname ? p.name : zhSpecies(p.speciesId, p.speciesName || p.name); };
   const displayItemName = item => !item ? '' : (PKMMechanics.ITEMS[item.id]?.name || '未知道具');
   const hasCjk = s => /[\u3400-\u9fff]/.test(String(s || ''));
   function displayMoveName(shown, base) {
@@ -458,9 +459,10 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
   window.addEventListener('resize', realignAllSprites);
   window.visualViewport?.addEventListener('resize', realignAllSprites);
   function setSprite(el, p, back) {
+    p=appearancePokemon(p);
     // HP/menu redraws must not destroy and reload the animated GIF every time.
     const visualKey = JSON.stringify([p.speciesId, p.originalSpeciesId, !!back, !!p.dynamaxed,
-      p.dynamaxForm, !!p.isMega, !!p.terastallized, p.teraType]);
+      p.dynamaxForm, !!p.isMega, !!p.terastallized, p.teraType, !!p.shiny, p.gender]);
     if (el.dataset.visualKey === visualKey && el.querySelector(':scope > img')) return;
     el.dataset.visualKey = visualKey;
     const previousImg = el.querySelector(':scope > img');
@@ -520,6 +522,7 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
 
   /* ---------- 战斗动画表现 ---------- */
   function snapPokemon(p) {
+    p=appearancePokemon(p);
     return p ? {
       speciesId: p.speciesId, originalSpeciesId: p.originalSpeciesId, rawName: p.name, name: displayPokemonName(p), hp: p.hp, maxHp: p.maxHp,
       fainted: p.fainted, status: p.status, isMega: p.isMega, dynamaxed: p.dynamaxed, shiny: !!p.shiny,
@@ -1260,7 +1263,7 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
     const view = menuView;
     for (const [id, value] of [['command-home','home'],['command-fight-panel','fight'],['command-switch-panel','switch'],['command-balls-panel','balls'],['command-items-panel','items'],['command-end','end']]) $(id).hidden = view !== value;
     $('command-title').textContent = animating ? '行动进行中…' : ended ? (battle.outcome === 'captured' ? '收服成功！' : battle.outcome === 'escaped' ? escapeTitle() : '本场战斗已结束')
-      : battle.pendingSwitch !== null ? (battle.double ? `请为${battle.pendingSwitch + 1}号位（${displayPokemonName(battle.cur(0,battle.pendingSwitch))}）选择替补` : '请选择下一只出战宝可梦') : ({home: `${displayPokemonName(battle.cur(0))}，要做什么？`, fight: `${displayPokemonName(battle.cur(0, battle.double ? doubleActionSlot : 0))} · 选择招式`, switch: battle.double && battle.pendingSwitch === null ? `为${displayPokemonName(battle.cur(0, doubleActionSlot))}选择替补` : '选择出战宝可梦', balls: '选择精灵球', items: '选择战斗道具'}[view]);
+      : battle.pendingSwitch !== null ? (battle.selectionKind() === 'revive' ? '复生祈祷 · 选择一只濒死队友' : battle.double ? `请为${battle.pendingSwitch + 1}号位（${displayPokemonName(battle.cur(0,battle.pendingSwitch))}）选择替补` : '请选择下一只出战宝可梦') : ({home: `${displayPokemonName(battle.cur(0))}，要做什么？`, fight: `${displayPokemonName(battle.cur(0, battle.double ? doubleActionSlot : 0))} · 选择招式`, switch: battle.double && battle.pendingSwitch === null ? `为${displayPokemonName(battle.cur(0, doubleActionSlot))}选择替补` : '选择出战宝可梦', balls: '选择精灵球', items: '选择战斗道具'}[view]);
     const isWild = battle.encounterType === 'wild';
     const shownTurn = battle._turnState ? battle.turnCount : battle.turnCount + (ended ? 0 : 1);
     $('encounter-tag').textContent = `${typeLabel || (isWild ? '野生遭遇' : '训练家对战')}${formatTag ? ' · ' + formatTag : ''}${battle.double ? ' · 双打' : ''} · 第 ${shownTurn} 回合`;
@@ -1297,11 +1300,12 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
     $('action-card').setAttribute('aria-busy', String(animating));
   }
   const BATTLE_ITEM_NAMES={xattack:'力量强化',xdefense:'防御强化',xspatk:'特攻强化',xspdef:'特防强化',xspeed:'速度强化',xaccuracy:'命中强化',guardspec:'能力防守',direhit:'击中要害',pokemondoll:'宝可梦玩偶'};
-  const BATTLE_ITEM_DESC={xattack:'我方当前宝可梦攻击提高 2 级',xdefense:'我方当前宝可梦防御提高 2 级',xspatk:'我方当前宝可梦特攻提高 2 级',xspdef:'我方当前宝可梦特防提高 2 级',xspeed:'我方当前宝可梦速度提高 2 级',xaccuracy:'我方当前宝可梦命中提高 1 级',guardspec:'防止我方能力被对手降低，持续 5 回合',direhit:'下次攻击提高击中要害率',pokemondoll:'立即从野生战斗中逃走'};
+  const BATTLE_ITEM_DESC={xattack:'我方当前宝可梦攻击提高 2 级',xdefense:'我方当前宝可梦防御提高 2 级',xspatk:'我方当前宝可梦特攻提高 2 级',xspdef:'我方当前宝可梦特防提高 2 级',xspeed:'我方当前宝可梦速度提高 2 级',xaccuracy:'我方当前宝可梦命中提高 2 级',guardspec:'防止我方能力被对手降低，持续 5 回合',direhit:'提高击中要害率，持续至离场',pokemondoll:'立即从野生战斗中逃走'};
   function renderBattleItems(){
     const root=$('battle-item-list');if(!root||!battle)return;root.replaceChildren();
     const ids=Object.keys(BATTLE_ITEM_NAMES).filter(id=>(battle.itemStock?.[id]||0)>0);
-    for(const id of ids){const b=document.createElement('button');b.type='button';b.className='ball-choice';b.disabled=animating||battle.winner!==null||battle.pendingSwitch!==null||!!battle.actionReason(battle.cur(0,battle.double?doubleActionSlot:0),{kind:'item'})||(id==='pokemondoll'&&battle.encounterType!=='wild');b.innerHTML=`<strong>${BATTLE_ITEM_NAMES[id]} ×${battle.itemStock[id]}</strong><small>${BATTLE_ITEM_DESC[id]}${id==='pokemondoll'&&battle.encounterType!=='wild'?' · 仅限野生战斗':''}</small>`;b.onclick=()=>chooseBattleAction({kind:'item',id});root.appendChild(b);}
+    const otherItem=battle.double&&doubleActions.some((a,i)=>i!==doubleActionSlot&&a?.kind==='item');
+    for(const id of ids){const b=document.createElement('button');b.type='button';b.className='ball-choice';b.title=otherItem?'同一训练家每回合最多使用一次背包道具。':'';b.disabled=otherItem||animating||battle.winner!==null||battle.pendingSwitch!==null||!!battle.actionReason(battle.cur(0,battle.double?doubleActionSlot:0),{kind:'item'})||(id==='pokemondoll'&&battle.encounterType!=='wild');b.innerHTML=`<strong>${BATTLE_ITEM_NAMES[id]} ×${battle.itemStock[id]}</strong><small>${BATTLE_ITEM_DESC[id]}${id==='pokemondoll'&&battle.encounterType!=='wild'?' · 仅限野生战斗':''}</small>`;b.onclick=()=>chooseBattleAction({kind:'item',id});root.appendChild(b);}
     if(!ids.length){const p=document.createElement('p');p.className='capture-hint';p.textContent='背包里没有可在战斗中使用的道具。';root.appendChild(p);}
   }
   function renderBalls() {
@@ -1499,6 +1503,8 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
       state = 'in-effect'; label = `${info.short}中`; title = `${info.short}进行中。`;
     } else if (spentFlag) {
       state = 'spent'; label = '已发动'; title = `${info.name}本场战斗已经使用过了。`;
+    } else if (battle.mechanicReason?.(me, kind)) {
+      state = 'waiting'; title = battle.mechanicReason(me, kind);
     } else if (kind === 'z' && !me.moves.some(m => m.type === me.zType)) {
       state = 'waiting'; title = `需要有「${zhType(me.zType)}」属性的招式才能使用${info.name}。`;
     } else if (reserved) {
@@ -1546,13 +1552,14 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
       const info = fighter?.querySelector('.fighter-info');
       if (!fighter || !p || p.fainted) { if (fighter) fighter.hidden = true; return; }
       fighter.hidden = false;
+      const visible=appearancePokemon(p), hiddenInfo=!!p.illusion;
       const name = info.querySelector('.name'), sub = info.querySelector('.sub');
       const hp = info.querySelector('.hpfill'), hpText = info.querySelector('.hptext');
       name.textContent = displayPokemonName(p) + (p.status ? `（${PKMBattle.STATUS_NAMES[p.status] || p.status}）` : '');
       // Keep the sex visible in both single and doubles (where .sub is hidden).
       // An unknown value is not the same as a genderless Pokémon.
-      const genderBadge = info.querySelector('.battle-gender'), gender = window.PKMGender?.normalize(p.gender);
-      const genderLabel = window.PKMGender?.label(p.gender) || '性别未记录';
+      const genderBadge = info.querySelector('.battle-gender'), gender = window.PKMGender?.normalize(visible.gender);
+      const genderLabel = window.PKMGender?.label(visible.gender) || '性别未记录';
       if (genderBadge) {
         genderBadge.textContent = gender === 'M' ? '♂' : gender === 'F' ? '♀' : genderLabel;
         genderBadge.dataset.gender = gender || 'unknown'; genderBadge.title = genderLabel;
@@ -1563,9 +1570,10 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
       if (p.captured) badges.push('已收服'); if (p.isMega) badges.push('超级进化');
       if (p.terastallized) badges.push(`太晶·${zhType(p.teraType)}`);
       if (p.dynamaxed) badges.push(`${p.dynamaxForm === 'gmax' ? '超极巨' : '极巨'}·${p.dynamaxTurns}回合`);
-      const speciesText = p.hasNickname ? ` · ${zhSpecies(p.speciesId, p.speciesName)}` : '';
-      sub.textContent = `等级 ${p.level} · ${p.types.map(zhType).join('/')} · 特性 ${ab?.name || zhAbility(p.ability)}${speciesText}${badges.length ? ' · ' + badges.join(' · ') : ''}${p.choiceLockedMove ? ' · 锁定中' : ''}`;
-      sub.title = `等级 ${p.level} · ${p.types.map(zhType).join('/')} · ${zhSpecies(p.speciesId, p.speciesName)} · 特性 ${ab?.name || zhAbility(p.ability)}${it ? ' · 道具 ' + displayItemName(it) : ''}`;
+      const speciesText = visible.hasNickname ? ` · ${zhSpecies(visible.speciesId, visible.speciesName)}` : '';
+      const abilityText = hiddenInfo ? '未公开' : ab?.name || zhAbility(p.ability), shownTypes=visible.types.map(zhType).join('/');
+      sub.textContent = `等级 ${p.level} · ${shownTypes} · 特性 ${abilityText}${speciesText}${badges.length ? ' · ' + badges.join(' · ') : ''}${p.choiceLockedMove ? ' · 锁定中' : ''}`;
+      sub.title = `等级 ${p.level} · ${shownTypes} · ${zhSpecies(visible.speciesId, visible.speciesName)} · 特性 ${abilityText}${!hiddenInfo&&it ? ' · 道具 ' + displayItemName(it) : ''}`;
       const ratio = p.hp / p.maxHp; hp.style.width = (ratio * 100).toFixed(1) + '%'; hp.className = hpClass(ratio);
       hpText.textContent = `体力 ${p.hp} / ${p.maxHp}`;
       const sprite = fighter.querySelector('[data-role="sprite"]');
@@ -1597,8 +1605,8 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
   }
   function render() {
     if (!battle) return;
-    if (battle.double && (!battle.cur(0, doubleActionSlot) || battle.cur(0, doubleActionSlot).fainted)) {
-      const nextSlot = [0, 1].find(slot => battle.cur(0, slot) && !battle.cur(0, slot).fainted);
+    if (battle.double && (!battle.cur(0, doubleActionSlot) || battle.cur(0, doubleActionSlot).fainted || battle.skipAction?.(battle.cur(0, doubleActionSlot)))) {
+      const nextSlot = [0, 1].find(slot => battle.cur(0, slot) && !battle.cur(0, slot).fainted && !battle.skipAction?.(battle.cur(0, slot)));
       if (nextSlot !== undefined) doubleActionSlot = nextSlot;
     }
     const activePlayer = battle.cur(0, battle.double ? doubleActionSlot : 0) || battle.cur(0);
@@ -1640,7 +1648,7 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
       b.type = 'button';
       b.className = `move-btn type-${String(shown.type || '').toLowerCase()}`;
       const forcedMatch = actionLock?.id === m.id;
-      b.disabled = over || animating || battle.pendingSwitch !== null || (!!actionLock && !forcedMatch) || (!actionLock && (m.ppLeft <= 0 || (me.choiceLockedMove && me.choiceLockedMove !== m.id) || me.volatile.disableMove === m.id)) || (selectedMechanic === 'z' && m.type !== me.zType);
+      b.disabled = over || animating || battle.pendingSwitch !== null || (!!actionLock && !forcedMatch) || (!actionLock && !!battle.moveReason(me, i, selectedMechanic));
       b.innerHTML = `${displayMoveName(shown, m)}<small>${zhType(shown.type)} · ${zhCat(shown.category)}${shown.basePower ? ' · 威力 ' + PKMBattle.effectiveBasePower(me, foeNow, shown) : ''}${forcedMatch ? ' · 连续行动' : ''} · 招式点数 ${m.ppLeft}/${m.pp}</small>`;
       const mech = selectedMechanic;
       const useIt = () => chooseBattleAction({ kind: 'move', index: i, mechanic: mech });
@@ -1650,12 +1658,13 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
       moves.appendChild(moveCell(b, ctxFn));
     });
     // v1.3.4：招式点数会跨战斗继承；全部用完时只能“挣扎”
-    if (!over && battle.pendingSwitch === null && actionLock?.kind === 'recharge') {
+    if (!over && battle.pendingSwitch === null && actionLock && (actionLock.kind === 'recharge' || !me.moves.some(m => m.id === actionLock.id))) {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'move-btn type-normal';
-      b.disabled = animating; b.textContent = '恢复行动（本回合休息）';
-      b.onclick = () => chooseBattleAction({ kind: 'move', index: 0 }); moves.appendChild(b);
+      b.dataset.forcedAction = actionLock.kind;
+      b.disabled = animating; b.textContent = actionLock.kind === 'recharge' ? '恢复行动（本回合休息）' : '继续行动 · ' + translateText(actionLock.label);
+      b.onclick = () => chooseBattleAction(battle.forcedAction(me)); moves.appendChild(b);
     }
-    if (!over && battle.pendingSwitch === null && !actionLock && !me.moves.some(m => m.ppLeft > 0 && me.volatile.disableMove !== m.id)) {
+    if (!over && battle.pendingSwitch === null && !actionLock && battle.needsStruggle(me, selectedMechanic)) {
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'move-btn type-normal';
       b.disabled = animating;
@@ -1678,7 +1687,9 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
       b.title = `换上${displayPokemonName(p)}，体力 ${p.hp}/${p.maxHp}`;
       const reserved = battle.double && battle.pendingSwitch === null && doubleActions.some((a, slot) => slot !== doubleActionSlot && a?.kind === 'switch' && a.index === i);
       if (reserved) { detail.textContent = '另一只已选为替补'; b.title = '另一出战位已选这只宝可梦'; }
-      b.disabled = over || animating || (battle.pendingSwitch === null && !!actionLock) || battle.activeSlots[0].includes(i) || p.fainted || p.hp <= 0 || reserved;
+      const selecting = battle.pendingSwitch !== null, reviving = selecting && battle.selectionKind() === 'revive';
+      if (reviving) { detail.textContent = p.fainted ? '可复活 · 回复一半体力' : '只能选择失去战斗能力的队友'; b.title = '复活 ' + displayPokemonName(p); }
+      b.disabled = over || animating || reserved || (selecting ? !battle.replacementOptions().includes(i) : !!battle.actionReason(me, { kind: 'switch', index: i }));
       b.onclick = () => {
         if (animating) return;
         if (battle.pendingSwitch !== null) {
@@ -1697,7 +1708,7 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
       res.textContent = battle.outcome === 'captured' ? '收服成功！' : battle.outcome === 'escaped' ? escapeTitle() : battle.outcome === 'draw' ? '双方同时倒下，请人工裁定' : battle.winner === 0 ? '🏆 胜利！' : '💀 败北……';
     } else if (battle.pendingSwitch !== null) {
       res.classList.remove('hidden');
-      res.textContent = battle.double ? `请为${battle.pendingSwitch + 1}号位选择替补` : '请选择下一只宝可梦出战';
+      res.textContent = battle.selectionKind() === 'revive' ? '复生祈祷：请选择一只失去战斗能力的队友' : battle.double ? `请为${battle.pendingSwitch + 1}号位选择替补` : '请选择下一只宝可梦出战';
     } else res.classList.add('hidden');
     renderDoubleControls();
     renderBalls(); renderBattleItems(); renderCommands();
@@ -1713,7 +1724,7 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
     actors.replaceChildren(); targets.replaceChildren();
     if (!active) return;
     for (let slot = 0; slot < 2; slot++) {
-      const p = battle.cur(0, slot); if (!p || p.fainted) continue; const b = document.createElement('button');
+      const p = battle.cur(0, slot); if (!p || p.fainted || battle.skipAction?.(p)) continue; const b = document.createElement('button');
       b.type = 'button'; b.className = 'double-actor' + (slot === doubleActionSlot ? ' selected' : '') + (doubleActions[slot] ? ' chosen' : '');
       b.disabled = false;
       b.textContent = `${slot + 1}号位：${p ? displayPokemonName(p) : '空位'}${doubleActions[slot] ? ' ✓' : ''}`;
@@ -1743,6 +1754,8 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
     if (battle.pendingSwitch !== null || animating || battle.winner !== null) return;
     const slot = doubleActionSlot;
     if (action.kind === 'move') {
+      const forced = battle.forcedAction?.(battle.cur(0, slot));
+      if (forced) { queueDoubleAction(slot, forced); return; }
       const user = battle.cur(0, slot), base = action.struggle ? { target: 'normal' } : user?.moves[action.index];
       if (!base) return;
       const shown = action.struggle ? { ...base, target: 'normal' } : PKMBattle.transformMove(user, base, action.mechanic || selectedMechanic);
@@ -1756,7 +1769,7 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
   function queueDoubleAction(slot, action) {
     doubleActions[slot] = { ...action, slot };
     pendingDoubleTarget = null;
-    const livingSlots = [0, 1].filter(i => battle.cur(0, i) && !battle.cur(0, i).fainted);
+    const livingSlots = [0, 1].filter(i => battle.cur(0, i) && !battle.cur(0, i).fainted && !battle.skipAction?.(battle.cur(0, i)));
     const next = livingSlots.find(i => !doubleActions[i]);
     if (next !== undefined) { selectedMechanic = null; doubleActionSlot = next; menuView = 'fight'; render(); return; }
     act({ kind: 'double', actions: [doubleActions[0] || { kind: 'pass', slot: 0 }, doubleActions[1] || { kind: 'pass', slot: 1 }] });
@@ -1841,8 +1854,8 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
     // v1.3.74：把逐回合日志（与战斗画面显示的中文一致）交给角色卡，供正文详细描写战斗经过。
     payload.log = (payload.log || []).map(line => translateText(line));
     payload.turnMarks = Array.isArray(payload.turnMarks) ? payload.turnMarks : [];
-    const indiv = src => ({ nature: src.nature || '', ivs: { ...src.ivs }, stats: { ...src.stats } });
-    payload.playerTeam.forEach((p, i) => { const src = battle.teams[0][i]; if (src) { Object.assign(p, indiv(src)); p.level = src.level; p.hostSlot = src.hostSlot ?? null; p.name = src.name; p.moves = src.moves.map(m => ({ id: m.id, ppLeft: m.ppLeft, pp: m.pp })); p.participated = !!src._participated; } });
+    const indiv = src => ({ nature: src.nature || '', ivs: { ...src.ivs }, stats: { ...(battle.persistentPokemon?.(src)?.stats || src.stats) } });
+    payload.playerTeam.forEach((p, i) => { const src = battle.teams[0][i]; if (src) { Object.assign(p, indiv(src)); p.level = src.level; p.hostSlot = src.hostSlot ?? null; p.name = src.name; p.moves = battle.persistentPokemon?.(src)?.moves || src.moves.map(m => ({ id: m.id, ppLeft: m.ppLeft, pp: m.pp })); p.participated = !!src._participated; } });
     payload.enemyTeam.forEach((p, i) => { const src = battle.teams[1][i]; if (src) { Object.assign(p, indiv(src)); p.level = src.level; p.name = src.name; p.shiny = !!src.shiny; p.gender = src.gender || null; } });
     postHost('PKM_BATTLE_RESULT', payload);
   }
@@ -2003,7 +2016,7 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
         if (p.hp === 0) p.fainted = true;
       }
       const st = STATUS_ALIASES[String(spec.status || '').trim()];
-      if (st && !p.fainted) { p.status = st; if (st === 'slp') p.sleepTurns = 1 + Math.floor(Math.random() * 3); }
+      if (st && !p.fainted) { p.status = st; if (st === 'slp') p.sleepTurns = Number.isInteger(spec.sleepTurns) && spec.sleepTurns > 0 ? Math.min(4, spec.sleepTurns) : 0; } // PS initializes an unspecified sleep counter, not the old 1–3 approximation.
       if (spec.hostSlot !== undefined) p.hostSlot = spec.hostSlot;
       out.push(p);
     }
@@ -2151,7 +2164,12 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
         const indices = await chooseBattleRoster(playerTeam, playerLimit);
         if (!indices) { postHost('PKM_BATTLE_EXIT', {}); return false; }
         playerTeam = PKMTeamSelection.select(playerTeam, indices, playerLimit);
-      } else playerTeam = PKMTeamSelection.healthy(playerTeam).map(x => x.p);
+      } else {
+        // A complete within-cap roster includes fainted owned bench members so
+        // Revival Blessing can select them. Never re-add an unregistered member
+        // to an over-cap/explicitly selected NvN roster.
+        playerTeam = playerTeam.length <= playerLimit ? playerTeam : PKMTeamSelection.healthy(playerTeam).map(x => x.p);
+      }
       enemyTeam = enemyTeam.slice(0, wild ? 1 : limit(cfg.rules?.enemyLimit, size));
       if (!playerTeam.length || playerTeam.every(p => p.fainted)) throw new Error('我方没有能战斗的宝可梦。');
       if (!enemyTeam.length) throw new Error('对手没有宝可梦。');

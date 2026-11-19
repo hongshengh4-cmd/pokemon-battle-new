@@ -472,7 +472,7 @@
       const isShown = shown && ev.index === state.activeSlots[ev.side]?.[ev.slot];
       switch (ev.type) {
         case 'move': {
-          if (!s || !s.home) return;
+          if (ev.cancelled || !s || !s.home) return;
           const targets = this.targetSprites(ev);
           if (ev.prepare) { await this.step(sc => sc.runPrepare(ev.moveId, [s, targets[0] || s])); return; }
           const self = ['self', 'allySide', 'allyTeam', 'adjacentAllyOrSelf'].includes(ev.moveTarget) || !targets.length;

@@ -2,7 +2,7 @@
 // Main-thread coordinator. The worker is a separate message endpoint. Only
 // observation() is sent, never a Battle, roster save, RNG, or player command.
 import {AI_BUILD,TIERS,resolveTrainerAI} from './profile.mjs?v=20261118-foulplay-browser-ai-v1';
-import {observation,rememberPublic,legalActions,quickChoice,actionKey,hash} from './battle-view.mjs?v=20261118-foulplay-browser-ai-v1';
+import {observation,rememberPublic,legalActions,quickChoice,actionKey,hash,publicAppearance} from './battle-view.mjs?v=20261119-showdown-rules-v1';
 export {AI_BUILD,resolveTrainerAI};
 export function profileForBattle(cfg,difficulty,enemyKey){
  if(cfg?.aiProfile?.version===AI_BUILD&&TIERS[cfg.aiProfile.tier])return{...cfg.aiProfile,settings:{...TIERS[cfg.aiProfile.tier]}};
@@ -65,7 +65,7 @@ export class BrowserBattleAI{
   return{...action,...(action.target?{target:{...action.target}}:{})};
  }
  replacement(b){
-  const effect=globalThis.PKMTypeChart.effectiveness,foes=b.activeMons(0);let best=-1,score=-Infinity;
+  const effect=globalThis.PKMTypeChart.effectiveness,foes=b.activeMons(0).map(publicAppearance);let best=-1,score=-Infinity;
   for(let i=0;i<b.teams[1].length;i++){
    const p=b.teams[1][i];if(p.fainted||p.hp<=0||b.activeSlots[1].includes(i))continue;
    const off=Math.max(0,...p.moves.filter(m=>m.ppLeft>0&&m.category!=='Status').flatMap(m=>foes.map(f=>effect(m.type,f.types)*(p.types.includes(m.type)?1.5:1))));

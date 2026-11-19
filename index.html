@@ -195,7 +195,7 @@ html.embed .command-panel #battle-item-list {
     </div>
   </details>
 
-  <footer class="footer-note">非官方同人练习项目 · 数据来自公开资料 · 精灵图加载失败时会自动显示占位图 · 剧情节点与双打修复版 20261113（保留原版战斗与地图功能）</footer>
+  <footer class="footer-note">非官方同人练习项目 · 数据来自公开资料 · 精灵图加载失败时会自动显示占位图 · Showdown 规则内核 · 保留原版状态栏、地图与剧情功能</footer>
 </main>
 
 <script src="./st-bridge/gender.js?v=20261113-comprehensive-fix-v6"></script>
@@ -211,16 +211,19 @@ html.embed .command-panel #battle-item-list {
 <script src="./src/engine/move-scripts.js?v=20261118-hit-lifecycle-v1"></script>
 <script src="./src/engine/team-selection.js?v=20261116-bond-npc-moves-team-v1"></script>
 <script src="./src/engine/battle.js?v=20261118-flinch-expiry-v1"></script>
-<script src="./src/engine/capture.js?v=20261117-premier-ball"></script>
+<script src="./src/engine/showdown/ps-engine.js?v=5b88c476113d51a939bddbcd00b5cd182a5d8058"></script>
+<script src="./src/engine/showdown/rule-text.js?v=20261119-showdown-rules-v1"></script>
+<script src="./src/engine/battle-showdown-adapter.js?v=20261119-showdown-rules-v1"></script>
+<script src="./src/engine/capture.js?v=20261119-showdown-rules-v1"></script>
 <script src="./src/world/save.js?v=20261117-premier-ball"></script>
 <script src="./src/ui/capture-fx.js?v=1.3.31"></script>
 <script src="./src/engine/team.js?v=1.3.44-battle-gear"></script>
 <script src="./src/data/presets.js?v=1.3.31"></script>
 <script src="./src/ui/sprite-anchor.js?v=1.3.31"></script>
 <script src="./src/ui/sprite-sizing.js?v=1.3.31"></script>
-<script src="./src/ui/move-info.js?v=20261116-bond-npc-moves-team-v1"></script>
+<script src="./src/ui/move-info.js?v=20261119-showdown-rules-v1"></script>
 <script src="./src/ui/field-fx.js?v=1.3.31"></script>
-<script src="./src/ui/ps/ps-theater.js?v=20261116-ps-theater-v1"></script>
-<script type="module" src="./src/ui/app.js?v=20261118-flinch-expiry-v1&scroll=20261118-mobile-scroll-v1"></script>
+<script src="./src/ui/ps/ps-theater.js?v=20261119-showdown-rules-v1"></script>
+<script type="module" src="./src/ui/app.js?v=20261119-showdown-rules-v1&scroll=20261118-mobile-scroll-v1"></script>
 </body>
 </html>
