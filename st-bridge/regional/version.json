@@ -1,5 +1,5 @@
 {
-  "build": "20261118-status-crown-v8.1",
+  "build": "20261118-status-restore-v8.1",
   "delivery": "repository-root-overlay-status-bar-only",
   "mounting": "same original pkdex-v121-root and message document as upstream Kanto; no outer page or regional iframe",
   "entry": "st-bridge/status.js",
@@ -16,7 +16,8 @@
       251
     ]
   },
-  "savePolicy": "real host MVU; explicit owned-item use; no automatic grants",
+  "visibilityPolicy": "original Kanto status always visible, including legacy saves and pending MVU; only owned Johto may be selected",
+  "savePolicy": "real host MVU; explicit owned-item use; no automatic grants or compatibility save writes",
   "battle": "original repository index.html and module worker/WASM; not embedded in card",
-  "correspondingSource": "双地区图鉴V8.1-顶部开合完整对应源码.zip"
+  "correspondingSource": "双地区图鉴V8.1-状态栏恢复修复完整对应源码.zip"
 }

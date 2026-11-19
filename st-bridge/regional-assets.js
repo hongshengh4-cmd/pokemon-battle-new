@@ -1,6 +1,6 @@
 // Presentation assets are hosted alongside this module, not in a character card.
-import './regional-bootstrap.js?v=20261118-status-crown-v8.1';
-const BUILD='20261118-status-crown-v8.1';
+import './regional-bootstrap.js?v=20261118-status-restore-v8.1';
+const BUILD='20261118-status-restore-v8.1';
 async function resource(name,json=false){
  const url=new URL('./regional/'+name,import.meta.url);url.searchParams.set('v',BUILD);
  const response=await fetch(url.href,{cache:'default'});

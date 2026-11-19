@@ -2,7 +2,7 @@
    APIs. The only write is PKMKanto.useRegionalDex, on an explicit Use click.
    It validates ownership inside the original serialized native write chain. */
 (()=>{'use strict';
- const W=window,H=W.PKMRegionalHost||W,D=H.document,BUILD='20261118-status-crown-v8.1';
+ const W=window,H=W.PKMRegionalHost||W,D=H.document,BUILD='20261118-status-restore-v8.1';
  try{H.PKMRegionalDex?.dispose?.();}catch{}
  const cfg=W.PKMRegionalPresentationAssets,esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const items=Object.freeze({'关都图鉴':{key:'kanto',label:'关都'},'城都图鉴':{key:'johto',label:'城都'}}),mounts=new Map();
@@ -20,12 +20,16 @@
  function variables(id){try{if(typeof W.getVariables==='function')return W.getVariables({type:'message',message_id:id});const m=context().chat?.[id];return m?.variables?.[m.swipe_id??0];}catch{return null;}}
  function snapshot(win){const c=context().chat||[],id=mesId(win),end=id==null?c.length:Math.min(c.length,id+1);let p=null;for(let i=end-1;i>=0;i--){p=variables(i)?.stat_data?.pkm;if(p)break;}if(!p){try{p=H.PKMKanto?.read?.();}catch{}}let state={};for(let i=end-1;i>=Math.max(0,end-6);i--){if(c[i]?.is_user)continue;const m=String(c[i]?.mes||'').match(/<pkm_state>([\s\S]*?)(?:<\/pkm_state>|$)/i);if(m){for(const line of m[1].split('\n')){const kv=line.match(/^\s*([^：:\n]{1,6})[：:]\s*(.*?)\s*$/);if(kv)state[kv[1].trim()]=kv[2];}break;}}return{pk:p||{},state};}
  const owned=(region,p)=>Number(p?.player?.bag?.[region==='kanto'?'关都图鉴':'城都图鉴'])>0;
+ // Original Kanto is the baseline status UI, not a newly gated inventory view.
+ // Region switching still validates real item ownership; rendering never grants items.
+ const canView=(region,p)=>region==='kanto'||(region==='johto'&&owned('johto',p));
+ const selectedRegion=p=>p?.integration?.activeRegionalDex==='johto'&&canView('johto',p)?'johto':'kanto';
  function report(win){let current=win;for(let i=0;i<8;i++){let f;try{f=current.frameElement;}catch{break;}if(!f)break;const owner=[...mounts.values()].find(m=>m.win===f.ownerDocument.defaultView||m.win===current);if(owner){owner.fit();break;}current=f.ownerDocument.defaultView;}}
  // Match current Kanto: keep the regex root and render native status bars in
  // that same message document. No regional webpage, header or extra iframe.
  function mount(win,root){
   if(stopped||!win||!root)return false;if(mounts.has(root)){mounts.get(root).sync();return true;}
-  const notice=win.document.createElement('div');notice.className='warn regional-dex-unowned';notice.dataset.regionalLocked='';notice.setAttribute('role','status');notice.textContent='尚未获得图鉴。获得后可在背包的重要物品中使用。';root.replaceChildren(notice);
+  root.replaceChildren();
   const style=win.document.createElement('style');style.dataset.regionalStyle=BUILD;style.textContent=cfg.css;win.document.head.append(style);
   const regions=new Map(),cleanups=[relay(win,root)];let dead=false,fitQueued=false;
   const fit=()=>{if(dead||fitQueued)return;fitQueued=true;win.requestAnimationFrame(()=>{fitQueued=false;if(dead||!isAttached(win)||!root.isConnected)return;const f=win.frameElement;if(!f)return;const height=Math.ceil(root.getBoundingClientRect().height+28);if(height>35&&Math.abs((parseFloat(f.style.height)||0)-height)>8)f.style.height=height+'px';});};
@@ -38,9 +42,9 @@
   }
   function sync(){
    if(dead)return;if(!root.isConnected||!isAttached(win)){dispose();return;}
-   const{pk}=snapshot(win);let active=pk.integration?.activeRegionalDex;if(!['kanto','johto'].includes(active)||!owned(active,pk))active=owned('kanto',pk)?'kanto':owned('johto',pk)?'johto':null;
-   for(const key of['kanto','johto']){if(owned(key,pk))ensureNative(key,active);const node=regions.get(key)?.node;if(node){const hidden=key!==active;if(node.hidden!==hidden)node.hidden=hidden;if(node.inert!==hidden)node.inert=hidden;}}
-   root.dataset.activeDex=active||'locked';notice.hidden=!!active;fit();
+   const{pk}=snapshot(win),active=selectedRegion(pk);
+   for(const key of['kanto','johto']){if(canView(key,pk))ensureNative(key,active);const node=regions.get(key)?.node;if(node){const hidden=key!==active;if(node.hidden!==hidden)node.hidden=hidden;if(node.inert!==hidden)node.inert=hidden;}}
+   root.dataset.activeDex=active;fit();
   }
   function dispose(){if(dead)return;dead=true;for(const entry of regions.values()){win.clearTimeout(entry.timer);try{H.PKMKantoLegacyStatus?.unmountDex?.(entry.node);}catch{}}for(const fn of cleanups.splice(0))try{fn();}catch{}observer?.disconnect();win.removeEventListener('pagehide',dispose);win.removeEventListener('resize',fit);style.remove();mounts.delete(root);}
   let observer;try{observer=new win.ResizeObserver(fit);observer.observe(root);}catch{}win.addEventListener('pagehide',dispose,{once:true});win.addEventListener('resize',fit);mounts.set(root,{win,root,fit,sync,dispose});sync();return true;

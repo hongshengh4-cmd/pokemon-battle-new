@@ -1,5 +1,5 @@
 {
-  "build": "20261118-status-crown-v8.1",
+  "build": "20261118-status-restore-v8.1",
   "repository": "hongshengh4-cmd/pokemon-battle-new",
   "branch": "main",
   "auditedHead": "b26d97deac41ce92114df6a60b9c343d791b869b",
@@ -34,6 +34,8 @@
   "statusOnly": true,
   "extraRegionalFrames": 0,
   "extraOuterPage": false,
+  "legacyKantoAlwaysVisible": true,
+  "inventoryGatesOnlyRegionalSelection": true,
   "patches": [
     {
       "label": "bridge: owned regional dex uses native confirmation and write chain",
@@ -256,8 +258,8 @@
     },
     {
       "path": "st-bridge/bridge.js",
-      "bytes": 2183590,
-      "sha256": "4294a5063ec2dd6b06b9bcafb7288c1fe02820de283c6ecccd1c99c483fc0796"
+      "bytes": 2183592,
+      "sha256": "c2894dd686db9a05fce4a71727e41ea41d4ce0d1f132d038dde97c0f9cce557f"
     },
     {
       "path": "st-bridge/kanto-hardware.js",
@@ -276,8 +278,8 @@
     },
     {
       "path": "st-bridge/regional-assets.js",
-      "bytes": 1028,
-      "sha256": "ddb4dbc49ce6833b50d7ba4c331b7c3078eced7d79eb5c2f0a05346ca3da31ba"
+      "bytes": 1032,
+      "sha256": "43038387dbec1c46fe8ff7e9f04b8492a82d44997b687d83a6c693f3432f16d2"
     },
     {
       "path": "st-bridge/regional-bootstrap.js",
@@ -286,8 +288,8 @@
     },
     {
       "path": "st-bridge/regional-manager.js",
-      "bytes": 10454,
-      "sha256": "e431e5a8ed2fad7d9dac2a2486ed9ec5396d20c461f8a2d67e7868c193cb56ff"
+      "bytes": 10382,
+      "sha256": "10a70fe9007af2f55e6f7f3f3158dde4514404606ff51f9c3f010f7268256a49"
     },
     {
       "path": "st-bridge/regional-presentation.js",
@@ -296,8 +298,8 @@
     },
     {
       "path": "st-bridge/regional-status-core.js",
-      "bytes": 1050798,
-      "sha256": "39e754fc45e1ed3e00997969b5b84e1e91b946c3e29595dbeed094e8e82a8637"
+      "bytes": 1050802,
+      "sha256": "246540e06f3966610538fdcd016beb73c63c492fdcfe3a923419e44b5724dd74"
     },
     {
       "path": "st-bridge/regional/icons.json",
@@ -326,13 +328,13 @@
     },
     {
       "path": "st-bridge/regional/version.json",
-      "bytes": 798,
-      "sha256": "13dc0f8ca2dd323cc7923e1b4d7fde9eb99ad0831b0321f480787a07e7125c50"
+      "bytes": 974,
+      "sha256": "176212a153c9a0599bf4027066d7c048d156b435e00b97490869cb76a417a846"
     },
     {
       "path": "st-bridge/status.js",
-      "bytes": 660,
-      "sha256": "28e7d2100286af794f0edfb718c8b0aa06fac6188f57d12ccfdd54a965d4cc1a"
+      "bytes": 672,
+      "sha256": "d2c3f060420ac7f89b03608ee8196e255af5d11a384e71b619f0a37ff983c48b"
     },
     {
       "path": "st-bridge/THIRD-PARTY-NOTICES",

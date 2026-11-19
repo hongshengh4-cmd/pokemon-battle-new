@@ -1,6 +1,6 @@
 import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.js?v=1.3.31';
 import {ppItemInfo} from './pp-items.mjs?v=20261115-pp-item-use-v1';
-import {installKantoHardware,HARDWARE_BUILD} from './kanto-hardware.js?v=20261118-status-crown-v8.1';
+import {installKantoHardware,HARDWARE_BUILD} from './kanto-hardware.js?v=20261118-status-restore-v8.1';
 import './plot-guard.js?v=20261115-worldbook-date-event-ability-v3';
 if(globalThis.PKMPlotGuard?.version!=='20261113-comprehensive-fix-v6')throw new Error('剧情和计时模块版本不匹配，请完整部署并刷新缓存。');
 // External status runtime 20261030-all-requested-fixes-v8; original card UI retained.
@@ -610,7 +610,7 @@ if(globalThis.PKMPlotGuard?.version!=='20261113-comprehensive-fix-v6')throw new 
     window.addEventListener('message', relayMapPoint);
     if (host !== window) host.addEventListener('message', relayMapPoint);
   } catch (_) {}
-  const api = { unmountDex:el=>mounts.get(el)?.cleanup(), regionalBuild:"20261118-status-crown-v8.1", skinVersion:HARDWARE_BUILD, johtoMapVersion: '20261113-johto-map-1', genderVersion: '20261113-comprehensive-fix-v6', version: '1.3.25-map-shop-18', mountDex,
+  const api = { unmountDex:el=>mounts.get(el)?.cleanup(), regionalBuild:"20261118-status-restore-v8.1", skinVersion:HARDWARE_BUILD, johtoMapVersion: '20261113-johto-map-1', genderVersion: '20261113-comprehensive-fix-v6', version: '1.3.25-map-shop-18', mountDex,
     dispose() { stopped = true; [...mounts.values()].forEach(m => m.cleanup()); if (host.PKMKantoLegacyStatus === api) delete host.PKMKantoLegacyStatus; }
   };
   host.PKMKantoLegacyStatus = api;
