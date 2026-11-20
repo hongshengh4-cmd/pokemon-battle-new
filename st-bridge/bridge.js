@@ -1,6 +1,7 @@
 import {resolveTrainerAI,STORY_AI_PROMPT,AI_BUILD} from '../src/ai/profile.mjs?v=20261118-foulplay-browser-ai-v1';
 import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './sprite-recovery.js?v=1.3.31';
 import * as K from './kanto-data.js?v=20261117-chain-timeline-v1';
+import '../src/engine/field-environment.js?v=20261118-field-interactions-v1';
 import {isMoveMachineName,isCaptureBallName,applyRegionalDexSwitch,INVENTORY_PATCH_VERSION} from './inventory-rules.mjs?v=journey-inventory-v1';
 import {BATTLE_START_PRIORITY,BATTLE_START_POLICY_VERSION} from './battle-start-policy.mjs?v=same-reply-battle-v1';
 import './gender.js?v=20261115-gender-bond-hotfix1';
@@ -50,6 +51,7 @@ const REPAIR_BUILD='20261116-bond-guard-hotfix2';
 // Battle-site handshake versions are tracked separately from the card-side repair build.
 const BATTLE_SITE_BUILD='20261116-ps-move-scripts-v1', BATTLE_RULES_BUILD='20261116-bond-npc-moves-team-v1';
 const BATTLE_RULES_PATCH='20261119-showdown-rules-v1';
+const FIELD_INTERACTION_VERSION='20261118-field-interactions-v1';
 const SHOWDOWN_COMMIT='5b88c476113d51a939bddbcd00b5cd182a5d8058';
 // The unchanged uploaded card requires PKMKanto.rulesPatchVersion's exact old
 // token in its loader. That export is a compatibility token ONLY. The actual
@@ -8494,10 +8496,8 @@ function engineConfig(spec, pkm, tag) {
     p1: { entrants: [{ name: 'host-player', party }] }, p2: { entrants: [{ name: 'host-enemy', party: enemy }] },
     host: { tag, identityKey:String(spec.key||cfg.id||tag), balls, battleItems:battleItemStock(pkm), intro: `${tx.intro}${doubleMode ? ' 双打规则：双方各2只同时出场。' : ''}`, captureContext }, ui: spec.ui || null };
   // Normalize legacy Chinese/string environments and structured weather+terrain.
-  const rawEnv = typeof cfg.environment === 'object' && cfg.environment ? cfg.environment : {weather: cfg.environment};
-  const w = K.WEATHER[String(rawEnv.weather || '').trim()] || rawEnv.weather;
-  if (w || rawEnv.terrain) out.environment = { weather: w || null, weatherTurns: rawEnv.weatherTurns ?? 0,
-    terrain: rawEnv.terrain || null, terrainTurns: rawEnv.terrainTurns ?? 0 };
+  const env = globalThis.PKMFieldEnvironment.environment(cfg.environment);
+  if (env.weather || env.terrain) out.environment = env;
   return { engine: out, balls, type, fmt, genderCorrections };
 }
 /* @format-end */
@@ -8826,7 +8826,7 @@ async function launchBattle(m) {
   const frame = PD.createElement('iframe');
   frame.setAttribute('allow', 'autoplay; fullscreen'); frame.setAttribute('allowfullscreen', ''); frame.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
   frame.style.background = '#070a14';
-  frame.src = W.PKM_BATTLE_EMBED_URL || `${BASE}index.html?embed=1&v=${BATTLE_RULES_PATCH}&ai=${AI_BUILD}&flinch=${FLINCH_PATCH}&scroll=${MOBILE_SCROLL_PATCH}`;
+  frame.src = W.PKM_BATTLE_EMBED_URL || `${BASE}index.html?embed=1&v=${BATTLE_RULES_PATCH}&ai=${AI_BUILD}&flinch=${FLINCH_PATCH}&scroll=${MOBILE_SCROLL_PATCH}&field=${FIELD_INTERACTION_VERSION}`;
   stage.replaceWith(frame);
   m.frame = frame;
   setBar(m.cfg.lines?.start ? '「' + m.cfg.lines.start + '」' : '正在连接对战系统……');
@@ -8861,7 +8861,7 @@ function onEngineMessage(d) {
   if (d.type === 'PKM_BATTLE_EXIT') { closeBattle();return; }
   if (d.type === 'PKM_BATTLE_READY') {
     const v=d.payload||{},expected='20261113-comprehensive-fix-v6';
-    if(v.aiVersion!==AI_BUILD||v.mobileScrollVersion!==MOBILE_SCROLL_PATCH||v.flinchPatchVersion!==FLINCH_PATCH||v.rulesPatchVersion!==BATTLE_RULES_PATCH||v.showdownCommit!==SHOWDOWN_COMMIT||v.showdownReady!==true||[v.version,v.engineVersion].some(x=>x!==BATTLE_SITE_BUILD)||[v.lifecycleVersion,v.selectionVersion].some(x=>x!==BATTLE_RULES_BUILD)||v.moveScriptsVersion!==BATTLE_SITE_BUILD||v.normalAbilityVersion!=='20261115-normal-ability-random-v2'||[v.gearVersion,v.gearDataVersion,v.genderVersion].some(x=>x!==expected)){
+    if(v.fieldInteractionVersion!==FIELD_INTERACTION_VERSION||v.aiVersion!==AI_BUILD||v.mobileScrollVersion!==MOBILE_SCROLL_PATCH||v.flinchPatchVersion!==FLINCH_PATCH||v.rulesPatchVersion!==BATTLE_RULES_PATCH||v.showdownCommit!==SHOWDOWN_COMMIT||v.showdownReady!==true||[v.version,v.engineVersion].some(x=>x!==BATTLE_SITE_BUILD)||[v.lifecycleVersion,v.selectionVersion].some(x=>x!==BATTLE_RULES_BUILD)||v.moveScriptsVersion!==BATTLE_SITE_BUILD||v.normalAbilityVersion!=='20261115-normal-ability-random-v2'||[v.gearVersion,v.gearDataVersion,v.genderVersion].some(x=>x!==expected)){
       m.verified=false;m.sent=false;clearTimeout(m.timer);
       setBar('对战版本不匹配或网站未完整部署，已拒绝启动旧引擎。请一起上传全部覆盖文件、刷新缓存后重试；手机返回或电脑 Esc 可退出。');return;
     }

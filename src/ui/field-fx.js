@@ -1,16 +1,9 @@
 /* Persistent, bounded environment effects. No network assets or animation timers. */
 (function(root) {
   'use strict';
-  const aliases = {
-    weather: {sun:'sun',sunnyday:'sun',晴:'sun',晴天:'sun',大晴天:'sun',rain:'rain',raindance:'rain',雨:'rain',下雨:'rain',sand:'sand',sandstorm:'sand',沙暴:'sand',snow:'snow',snowscape:'snow',hail:'snow',雪:'snow',下雪:'snow',冰雹:'snow'},
-    terrain: {electric:'electric',electricterrain:'electric',电气场地:'electric',grassy:'grassy',grassyterrain:'grassy',青草场地:'grassy',misty:'misty',mistyterrain:'misty',薄雾场地:'misty',psychic:'psychic',psychicterrain:'psychic',精神场地:'psychic'}
-  };
-  const normalize = (kind, value) => aliases[kind]?.[String(value || '').trim().toLowerCase()] || '';
-  function environment(value = {}) {
-    const src = typeof value === 'string' ? {weather:value} : value || {};
-    const turns = v => Number.isFinite(Number(v)) ? Math.max(0, Math.floor(Number(v))) : 0;
-    return {weather:normalize('weather',src.weather),weatherTurns:turns(src.weatherTurns),terrain:normalize('terrain',src.terrain),terrainTurns:turns(src.terrainTurns)};
-  }
+  const ENV = root.PKMFieldEnvironment;
+  if (ENV?.version !== '20261118-field-interactions-v1') throw Error('天气与场地模块未载入，请完整覆盖修复包。');
+  const {normalize,environment} = ENV;
   const scenes = new WeakMap();
   const motion = root.matchMedia?.('(prefers-reduced-motion: reduce)');
   const palettes = {sun:['#ffc35c','#ef9d32'],rain:['#38576d','#9ebec9'],sand:['#b57839','#efc879'],snow:['#c1dae8','#eef8ff']};
@@ -42,7 +35,9 @@
       if(this.env.weather!==env.weather){this.thunderStart=-100;this.nextThunder=this.time+5.5;this.thunderIndex=0;}
       this.env=env;
       this.arena.dataset.weather=env.weather;this.arena.dataset.terrain=env.terrain;
-      for(const k of ['weather','terrain'])this.layers[k].dataset.effect=env[k];
+      this.arena.dataset.weatherSuppressed=String(!!env.weatherSuppressed);
+      this.layers.terrain.dataset.effect=env.terrain;
+      this.layers.weather.dataset.effect=env.weatherSuppressed?'':ENV.visualWeather(env.weather);
       this.draw();this.schedule();
     }
     schedule(){if(!this.frame&&!this.paused&&!motion?.matches&&this.visible&&!this.arena.ownerDocument.hidden&&this.arena.isConnected){this.frame=requestAnimationFrame(t=>{this.frame=0;if(!this.last)this.last=t;this.time+=Math.min((t-this.last)/1000,.06);this.last=t;this.draw();this.schedule();});}else if(this.paused||motion?.matches||!this.visible||this.arena.ownerDocument.hidden)this.last=0;}
@@ -166,7 +161,7 @@
       g.restore();
     }
     weather(g,t){
-      const {w,h}=this,kind=this.env.weather;if(!kind)return;
+      const {w,h}=this,kind=ENV.visualWeather(this.env.weather);if(!kind||this.env.weatherSuppressed)return;
       const strength=this.intensity;
       if(kind==='sun'){
         const sun=g.createRadialGradient(w*.78,-h*.05,5,w*.78,-h*.05,w*.8);sun.addColorStop(0,'rgba(255,244,198,.85)');sun.addColorStop(.18,'rgba(255,220,130,.27)');sun.addColorStop(1,'rgba(255,190,80,0)');g.fillStyle=sun;g.fillRect(0,0,w,h);
@@ -208,6 +203,18 @@
           const d=.2+rnd(i+6)*.8,x=(rnd(i+9)*w+t*(8+d*12)+Math.sin(t*.7+i)*20)%w,y=(rnd(i+1)*h+t*(12+d*32))%(h+20)-10;
           g.fillStyle=`rgba(245,252,255,${.3+d*.6})`;g.beginPath();g.arc(x,y,.7+d*2.3,0,Math.PI*2);g.fill();
         }
+      }else if(kind==='hail'){
+        // Distinct falling pellets: hail is not the non-damaging snow effect.
+        for(let i=0;i<Math.round(count*.42);i++){
+          const d=.25+rnd(i+6)*.75,x=(rnd(i+9)*w-t*(20+d*24)%(w+20)+w+20)%(w+20)-10,y=(rnd(i+1)*h+t*(145+d*105))%(h+20)-10;
+          g.fillStyle=`rgba(223,241,253,${.35+d*.45})`;g.beginPath();g.arc(x,y,.8+d*1.5,0,Math.PI*2);g.fill();
+        }
+      }else if(kind==='strongwinds'){
+        for(let i=0;i<14;i++){
+          const y=h*(.1+rnd(i+25)*.8),x=(rnd(i+8)*w+t*(26+i*2))%(w+150)-150;
+          g.strokeStyle=`rgba(201,225,231,${.1+rnd(i)*.16})`;g.lineWidth=.65;
+          g.beginPath();g.moveTo(x,y);g.bezierCurveTo(x+40,y-8,x+80,y+6,x+130,y-3);g.stroke();
+        }
       }else if(kind==='sand'){
         for(let i=0;i<count;i++){
           const d=.2+rnd(i)*.8,x=(rnd(i+5)*w-t*(18+d*42)%(w+20)+w+20)%(w+20)-10,y=rnd(i+12)*h+Math.sin(t*.35+i)*(3+d*4);
@@ -220,10 +227,10 @@
   }
   function sync(arena,state){
     if(!arena)return;
-    const env=environment({weather:state?.weather,terrain:state?.field?.terrain});
+    const env={...environment({weather:state?.weatherId||state?.weather,terrain:state?.field?.terrain}),weatherSuppressed:!!state?.weatherSuppressed};
     let scene=scenes.get(arena);
     if(!env.weather&&!env.terrain&&!arena.classList.contains('fx-preview-arena')){
-      scene?.dispose();scenes.delete(arena);delete arena.dataset.weather;delete arena.dataset.terrain;return;
+      scene?.dispose();scenes.delete(arena);delete arena.dataset.weather;delete arena.dataset.terrain;delete arena.dataset.weatherSuppressed;return;
     }
     if(!scene){scene=new Scene(arena);scenes.set(arena,scene);}
     scene.update(env);
@@ -237,5 +244,5 @@
     if(Number.isFinite(options.intensity))scene.intensity=Math.max(.25,Math.min(1.5,options.intensity));
     scene.draw();scene.schedule();
   }
-  root.PKMFieldFX={normalize,environment,sync,configure};
+  root.PKMFieldFX={version:ENV.version,normalize,environment,sync,configure};
 })(typeof window!=='undefined'?window:globalThis);

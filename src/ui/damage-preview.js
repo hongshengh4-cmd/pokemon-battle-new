@@ -59,7 +59,7 @@
     if (mechanic === 'dynamax' && !user.volatiles.dynamax) user.addVolatile('dynamax');
   }
   function residualRisk(b, q) {
-    return ['brn','psn','tox'].includes(q.status) || ['leechseed','partiallytrapped','curse','nightmare','saltcure','perishsong'].some(id => !!q.volatiles[id]) || ['blacksludge','stickybarb'].includes(q.item) || b.field.weather === 'sandstorm' || ['sunnyday','desolateland'].includes(b.field.weather) && q.hasAbility(['solarpower','dryskin']) || ['gmaxwildfire','gmaxvinelash','gmaxcannonade','gmaxvolcalith'].some(id => !!q.side.sideConditions[id]);
+    return ['brn','psn','tox'].includes(q.status) || ['leechseed','partiallytrapped','curse','nightmare','saltcure','perishsong'].some(id => !!q.volatiles[id]) || ['blacksludge','stickybarb'].includes(q.item) || b.field.isWeather(['sandstorm','hail']) || ['sunnyday','desolateland'].includes(q.effectiveWeather()) && q.hasAbility(['solarpower','dryskin']) || ['gmaxwildfire','gmaxvinelash','gmaxcannonade','gmaxvolcalith'].some(id => !!q.side.sideConditions[id]);
   }
   function sampleMove(snap, source, target, baseId, mechanic, roll, critical, branch, effects) {
     const b = clone(snap), user = at(b, source), foe = at(b, target);

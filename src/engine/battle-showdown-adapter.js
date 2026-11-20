@@ -15,10 +15,11 @@
   const COMMIT = '5b88c476113d51a939bddbcd00b5cd182a5d8058';
   if (PS?.commit !== COMMIT) throw Error('Showdown规则内核缺失或版本不匹配。');
   const VERSION = '20261119-showdown-rules-v1';
+  const ENV = root.PKMFieldEnvironment;
+  if (ENV?.version !== '20261118-field-interactions-v1') throw Error('天气与场地模块未就绪，请完整覆盖修复包并刷新。');
   const norm = E.normId, KEYS = ['hp','atk','def','spa','spd','spe'];
   const STATUS = {brn:'灼伤',par:'麻痹',psn:'中毒',tox:'剧毒',slp:'睡眠',frz:'冰冻'};
   const WEATHER = {sunnyday:'sun',desolateland:'sun',raindance:'rain',primordialsea:'rain',sandstorm:'sand',snowscape:'snow',hail:'snow',deltastream:'strongwinds'};
-  const WEATHER_IDS = {sun:'sunnyday',rain:'raindance',sand:'sandstorm',snow:'snowscape',hail:'snowscape'};
   const WEATHER_ZH = {sunnyday:'阳光变得强烈起来了！',desolateland:'日照变得非常猛烈！',raindance:'开始下雨了！',primordialsea:'开始下起大雨了！',sandstorm:'沙暴刮起来了！',snowscape:'开始下雪了！',hail:'开始下冰雹了！',deltastream:'神秘的乱流笼罩了天空！',none:'天气恢复了正常。'};
   const EFFECT_ZH = {mustrecharge:'硬直休息',confusion:'混乱',attract:'着迷',substitute:'替身',taunt:'挑衅',encore:'再来一次',disable:'定身法',torment:'无理取闹',healblock:'回复封锁',yawn:'瞌睡',leechseed:'寄生种子',nightmare:'恶梦',perishsong:'灭亡之歌',octolock:'蛸固',ingrain:'扎根',aquaring:'水流环',magnetrise:'电磁飘浮',telekinesis:'意念移物',focusenergy:'聚气',protect:'守住',lightscreen:'光墙',reflect:'反射壁',auroraveil:'极光幕',tailwind:'顺风',safeguard:'神秘守护',mist:'白雾',stealthrock:'隐形岩',spikes:'撒菱',toxicspikes:'毒菱',stickyweb:'黏黏网',trickroom:'戏法空间',magicroom:'魔法空间',wonderroom:'奇妙空间',gravity:'重力',electricterrain:'电气场地',grassyterrain:'青草场地',mistyterrain:'薄雾场地',psychicterrain:'精神场地'};
   const label = x => {const raw=String(x||''),id=norm(raw.replace(/^(move|ability|item): /,'')),kind=raw.startsWith('ability: ')?'abilities':raw.startsWith('item: ')?'items':'moves';return EFFECT_ZH[id]||STATUS[id]||root.PKMShowdownText?.[kind]?.[id]?.name||x||'效果';};
@@ -99,7 +100,8 @@
     _initializePS(b) {
       this._ps=b;
       const weather=this._initialWeather;
-      if(weather?.weather){b.field.setWeather(WEATHER_IDS[weather.weather]||weather.weather,b.sides[0].pokemon[0],{id:'nativeweather',name:'环境天气',effectType:'Condition'});b.field.weatherState.duration=weather.turns;}
+      const weatherId=ENV.weatherId(weather?.weather);
+      if(weatherId&&b.field.setWeather(weatherId,b.sides[0].pokemon[0],{id:'nativeweather',name:'环境天气',effectType:'Condition'}))b.field.weatherState.duration=ENV.turns(weather.turns);
       for(const side of [0,1]) {
         const psSide=b.sides[side];
         // This is the existing card's explicit cross-generation house rule.
@@ -165,6 +167,10 @@
           }}
         }
         this.weather=WEATHER[b.field.weather]||b.field.weather||null;this.weatherTurns=b.field.weatherState.duration||0;
+        // Keep legacy weather aliases for AI compatibility; expose the exact
+        // canonical identity separately so hail/extreme weather never mislabel.
+        this.weatherId=b.field.weather||null;this.weatherSuppressed=!!b.field.weather&&b.sides.every(Boolean)&&b.field.suppressingWeather();
+        this.effectiveWeather=this.weatherSuppressed?null:this.weatherId;
         const field={terrain:b.field.terrain?b.field.terrain.replace(/terrain$/,''):null,terrainTurns:b.field.terrainState.duration||0,
           trickRoom:0,gravity:0,magicRoom:0,wonderRoom:0,pseudoWeather:{},sides:[{},{}]};
         for(const [k,v]of Object.entries(b.field.pseudoWeather)){field.pseudoWeather[k]=v.duration??true;const camel={trickroom:'trickRoom',magicroom:'magicRoom',wonderroom:'wonderRoom',gravity:'gravity'}[k];if(camel)field[camel]=v.duration??1;}
@@ -234,6 +240,7 @@
       switch(type){
         case 'start':this.say(this.double?'双打战斗开始！':'战斗开始！');break; // BeforeSwitchIn has not installed Illusion yet; never reveal the true roster here.
         case 'move': {
+          this._prepareNotice=null;
           const m=this._ps.activeMove||PS.Dex.moves.get(norm(a[3])),id=m.id,called=a.some(x=>x.startsWith('[from]'));
           if(!called){this.moveCount++;if(p){const moves=p._aiPublicMoves||=[];let record=moves.find(x=>x.id===id);if(!record)moves.push(record={id,used:0});record.used++;p._aiPublicLastMove=id;p._aiPublicProtectStreak=m.stallingMove?(p._aiPublicProtectStreak||0)+1:0;}}
           if(p){p._participated=true;this._lastMoveAnim=this.anim('move',{...pos,moveId:id,baseId:id,category:m.category,moveType:m.type,moveTarget:m.target,z:!!m.isZ,max:!!m.isMax,targets:target?[this._animPos(target)]:[],prepare:false,cancelled:a.includes('[still]')});}
@@ -257,7 +264,10 @@
         case '-nothing': this.say('但是什么也没有发生！');break;
         case '-notarget': this.say('没有可攻击的目标，招式失败了！');break;
         case '-mustrecharge': this.say(`${name} 下一回合需要休息！`);break;
-        case '-prepare':if(this._lastMoveAnim){this._lastMoveAnim.prepare=true;this._lastMoveAnim.cancelled=false;}this.say(`${name} 正在为 ${a[3]} 蓄力！`);break;
+        case '-prepare':
+          if(this._lastMoveAnim){this._lastMoveAnim.prepare=true;this._lastMoveAnim.cancelled=false;}
+          this._prepareNotice={ident:a[2],move:norm(a[3]),index:this.log.length,name};
+          this.say(`${name} 正在为 ${label(a[3])} 蓄力！`);break;
         case '-boost': case '-unboost':this.say(`${name} 的${({atk:'攻击',def:'防御',spa:'特攻',spd:'特防',spe:'速度',accuracy:'命中率',evasion:'闪避率'})[a[3]]||a[3]}${type==='-boost'?'提高':'降低'}了 ${a[4]} 级！`);break;
         case '-clearallboost':this.say('所有宝可梦的能力变化都复原了！');break;
         case '-clearboost':this.say(`${name} 的能力变化复原了！`);break;
@@ -280,7 +290,15 @@
         case '-mega':if(p)this.mechanicUsed[p._side].mega=true;this.say(`${name} 超级进化了！`);break;
         case '-zpower':if(p)this.mechanicUsed[p._side].z=true;this.anim('zpower',pos||{});this.say(`${name} 发动了Ｚ力量！`);break;
         case '-terastallize':if(p)this.mechanicUsed[p._side].tera=true;this.say(`${name} 太晶化了（${a[3]}）！`);break;
-        case '-anim':if(this._lastMoveAnim){this._lastMoveAnim.prepare=false;this._lastMoveAnim.cancelled=false;if(target)this._lastMoveAnim.targets=[this._animPos(target)];}break;
+        case '-anim':
+          // Upstream emits -prepare even for SAME-TURN attacks (sun/rain or
+          // Power Herb), then -anim. Amend that presentation line in place:
+          // do not delete logs or shift HP/animation indices, and never infer
+          // skipped charging from raw weather or from damage alone.
+          if(this._prepareNotice?.ident===a[2]&&this._prepareNotice.move===norm(a[3])){
+            const notice=this._prepareNotice;this.log[notice.index]=`${notice.name} 立即发动了 ${label(a[3])}！`;this._prepareNotice=null;
+          }
+          if(this._lastMoveAnim){this._lastMoveAnim.prepare=false;this._lastMoveAnim.cancelled=false;if(target)this._lastMoveAnim.targets=[this._animPos(target)];}break;
         case '-message': case 'message':this.say(a[2]);break;
         case 'win':this.say(a[2]==='我方'?'战斗胜利！':'眼前一片漆黑……');break;
         case 'tie':if(!this.outcome)this.say('双方同时失去战斗能力，本场平局。');break;
@@ -469,8 +487,20 @@
       else if(boosts[id])ok=!!this._ps.boost(boosts[id],q,q,{id,name:id,effectType:'Item'});
       if(ok){this.itemStock[id]--;this.say(`对 ${p.name} 使用了 ${id}！`);}this._readProtocol();this._syncFromPS();return ok;
     }
-    setTerrain(id,turns=5,source=null,opts={}){if(!this._ps)return false;const b=this._ps,q=this._pokemon(source)||b.sides[0].active[0],out=b.field.setTerrain(norm(id).replace(/terrain$/,'')+'terrain',q);if(out&&turns>0)b.field.terrainState.duration=turns;this._readProtocol();this._syncFromPS();return out;}
-    setWeather(id,turns=5,source=null,opts={}){if(!this._ps)return false;const b=this._ps,q=this._pokemon(source)||b.sides[0].active[0],out=b.field.setWeather(WEATHER_IDS[norm(id)]||norm(id),q);if(out&&turns>0)b.field.weatherState.duration=turns;this._readProtocol();this._syncFromPS();return out;}
+    setTerrain(id,turns=5,source=null,opts={}){
+      if(!this._ps)return false;const b=this._ps,q=this._pokemon(source)||b.sides[0].active[0],key=ENV.terrainId(id);
+      if(!key&&!ENV.isClear(id))return false;
+      const out=key?b.field.setTerrain(key,q):b.field.clearTerrain();
+      if(out&&key)b.field.terrainState.duration=ENV.turns(turns);
+      this._readProtocol();this._syncFromPS();return out;
+    }
+    setWeather(id,turns=5,source=null,opts={}){
+      if(!this._ps)return false;const b=this._ps,q=this._pokemon(source)||b.sides[0].active[0],key=ENV.weatherId(id);
+      if(!key&&!ENV.isClear(id))return false;
+      const out=key?b.field.setWeather(key,q):b.field.clearWeather();
+      if(out&&key)b.field.weatherState.duration=ENV.turns(turns);
+      this._readProtocol();this._syncFromPS();return out;
+    }
     tryStatus(p,status,source=p,opts={}){const q=this._pokemon(p),s=this._pokemon(source);if(!q)return false;const out=q.trySetStatus(status,s,opts.effect||{id:'nativeeffect',name:'状态效果',effectType:'Move'});this._readProtocol();this._syncFromPS();return !!out;}
     tryConfusion(p,source=p){const q=this._pokemon(p),out=q?.addVolatile('confusion',this._pokemon(source));this._readProtocol();this._syncFromPS();return !!out;}
     heal(p,amount,why=''){const q=this._pokemon(p);if(!q)return 0;const out=this._ps.heal(amount,q,q,{id:'nativeheal',name:why||'回复',effectType:'Condition'});this._readProtocol();this._syncFromPS();return Number(out)||0;}
@@ -506,7 +536,7 @@
   const createPokemon=E.createPokemon;
   E.createPokemon=(species,level,moves,opts={})=>{const p=createPokemon(species,level,moves,opts),h=opts.happiness??opts.friendship?.official;if(h!==undefined&&h!==null&&Number.isFinite(Number(h)))p.happiness=Math.max(0,Math.min(255,Math.floor(Number(h))));return p;};
   E.Battle=ShowdownBattle;E.rulesEngine={id:'pokemon-showdown',commit:COMMIT,adapter:VERSION,ready:true};
-  E.rulesPatchVersion=VERSION;E.showdown=PS;
+  E.rulesPatchVersion=VERSION;E.showdown=PS;E.fieldInteractionVersion=ENV.version;
   // Native lookup data and button previews must not keep old approximated effects.
   const hydrate=moves=>{for(const id of Object.keys(moves||{})){const m=PS.Dex.moves.get(id);if(!m.exists)continue;const data={...ShowdownBattle.prototype._moveTemplate(id),pp:m.pp};for(const key of Object.keys(moves[id]))delete moves[id][key];Object.assign(moves[id],data);}};
   const nativeSetData=E.setData;E.setData=(dex,moves)=>{nativeSetData(dex,moves);hydrate(moves);};if(E._moves)hydrate(E._moves);

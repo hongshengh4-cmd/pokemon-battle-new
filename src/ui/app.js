@@ -220,7 +220,7 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
   if (EMBED) document.documentElement.classList.add('embed');
   let dataReady = false, pendingHostConfig = null, hostTag = null, hostMode = false;
   const APP_VERSION = '20261116-ps-move-scripts-v1';
-  const hostVersions = () => ({aiVersion:window.PKMBattle?.aiVersion===AI_BUILD?AI_BUILD:'',aiRuntime:'browser-worker-wasm',mobileScrollVersion:battleTouchScroll.version===getComputedStyle(document.documentElement).getPropertyValue('--pkm-mobile-scroll-version').trim()?battleTouchScroll.version:'',flinchPatchVersion:window.PKMBattle?.flinchPatchVersion||'',rulesPatchVersion:window.PKMBattle?.rulesPatchVersion||'',showdownCommit:window.PKMBattle?.rulesEngine?.commit||'',showdownReady:window.PKMBattle?.rulesEngine?.ready===true,version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',moveScriptsVersion:window.PKMMoveScripts?.VERSION||'',lifecycleVersion:window.PKMMoveLifecycle?.version||'',selectionVersion:window.PKMTeamSelection?.version||'',normalAbilityVersion:window.PKMNormalAbility?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||'',genderVersion:window.PKMGender?.version||''});
+  const hostVersions = () => ({fieldInteractionVersion:window.PKMBattle?.fieldInteractionVersion===window.PKMFieldEnvironment?.version&&window.PKMFieldFX?.version===window.PKMFieldEnvironment?.version?window.PKMFieldEnvironment?.version:'',aiVersion:window.PKMBattle?.aiVersion===AI_BUILD?AI_BUILD:'',aiRuntime:'browser-worker-wasm',mobileScrollVersion:battleTouchScroll.version===getComputedStyle(document.documentElement).getPropertyValue('--pkm-mobile-scroll-version').trim()?battleTouchScroll.version:'',flinchPatchVersion:window.PKMBattle?.flinchPatchVersion||'',rulesPatchVersion:window.PKMBattle?.rulesPatchVersion||'',showdownCommit:window.PKMBattle?.rulesEngine?.commit||'',showdownReady:window.PKMBattle?.rulesEngine?.ready===true,version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',moveScriptsVersion:window.PKMMoveScripts?.VERSION||'',lifecycleVersion:window.PKMMoveLifecycle?.version||'',selectionVersion:window.PKMTeamSelection?.version||'',normalAbilityVersion:window.PKMNormalAbility?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||'',genderVersion:window.PKMGender?.version||''});
   let formatTag = '', formatRule = ''; // v1.3.8：角色卡发来的赛制（例：3v3、3只 vs 1只），显示在行动菜单的标签上
   let typeLabel = ''; // v1.3.9：角色卡发来的对战类型（道馆战 / 训练家对战 / 劲敌对战 / 火箭队……），标签第一段
   // 宿主模式：球袋来自角色卡变量（MVU），只存在本页内存里，不读写本机存档。
@@ -1616,12 +1616,15 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
     renderFighters();
     PKMFieldFX.sync(document.querySelector('.arena'), battle);
     const fieldParts = [];
-    const weatherNames = { sun: '☀️ 大晴天', rain: '🌧️ 下雨', sand: '🌪️ 沙暴', snow: '❄️ 下雪' };
+    const weatherNames = { sun: '☀️ 大晴天', rain: '🌧️ 下雨', sand: '🌪️ 沙暴', snow: '❄️ 下雪', hail: '🧊 冰雹', harshsun: '☀️ 大日照', heavyrain: '🌧️ 大雨', strongwinds: '🌬️ 乱流' };
     const terrainNames = { electric: '⚡ 电气场地', grassy: '🌿 青草场地', misty: '🌫️ 薄雾场地', psychic: '🔮 精神场地' };
-    if (battle.weather) fieldParts.push(weatherNames[battle.weather] + (battle.weatherTurns ? `（${battle.weatherTurns}）` : ''));
-    if (battle.field.terrain) fieldParts.push(terrainNames[battle.field.terrain] + `（${battle.field.terrainTurns}）`);
+    const weatherKey = PKMFieldFX.normalize('weather',battle.weatherId || battle.weather);
+    if (weatherKey) fieldParts.push(weatherNames[weatherKey] + (battle.weatherTurns ? `（${battle.weatherTurns}）` : '') + (battle.weatherSuppressed ? '（效果被抑制）' : ''));
+    if (battle.field.terrain) fieldParts.push(terrainNames[battle.field.terrain] + (battle.field.terrainTurns ? `（${battle.field.terrainTurns}）` : ''));
     if (battle.field.trickRoom > 0) fieldParts.push(`🌀 戏法空间（${battle.field.trickRoom}）`);
     if (battle.field.gravity > 0) fieldParts.push(`重力（${battle.field.gravity}）`);
+    if (battle.field.magicRoom > 0) fieldParts.push(`魔法空间（${battle.field.magicRoom}）`);
+    if (battle.field.wonderRoom > 0) fieldParts.push(`奇妙空间（${battle.field.wonderRoom}）`);
     const sideText = (sc, label) => {
       const a = [];
       if (sc.stealthrock) a.push('隐形岩'); if (sc.spikes) a.push(`撒菱×${sc.spikes}`); if (sc.toxicspikes) a.push(`毒菱×${sc.toxicspikes}`); if (sc.stickyweb) a.push('黏黏网');
