@@ -1,9 +1,9 @@
 // 招式详细说明：沿用原来的中文介绍和「效果」版式。
-// 本文件只生成说明文字，不执行招式、不估算伤害、不修改对战或存档。
+// 本文件只生成说明文字；伤害来自独立只读预览，不执行招式、不修改对战或存档。
 (function (global) {
   'use strict';
   let DESC = {};
-  const VERSION = 'move-info-zh-v2';
+  const VERSION = 'move-info-zh-preview-v3';
   const TYPE_ZH = { Normal: '一般', Fire: '火', Water: '水', Electric: '电', Grass: '草', Ice: '冰', Fighting: '格斗', Poison: '毒', Ground: '地面', Flying: '飞行', Psychic: '超能力', Bug: '虫', Rock: '岩石', Ghost: '幽灵', Dragon: '龙', Dark: '恶', Steel: '钢', Fairy: '妖精', Stellar: '星晶', '???': '？？？' };
   const CAT_ZH = { Physical: '物理', Special: '特殊', Status: '变化' };
   const STAT_ZH = { atk: '攻击', def: '防御', spa: '特攻', spd: '特防', spe: '速度', accuracy: '命中率', evasion: '闪避率' };
@@ -280,8 +280,8 @@
     return { lines: [...new Set(lines.filter(Boolean))], notes, warns };
   }
 
-  // 不展示旧的简化伤害预报，也不拿技术说明代替对战提示。
-  function matchup() { return null; }
+  // 只展示调用方提供的只读预览；不接回旧的近似伤害算法。
+  function matchup(_move, ctx = {}) { return Array.isArray(ctx.damagePreviews) ? ctx.damagePreviews : null; }
   function describe(move, ctx = {}) {
     const { user = null, baseMove = null } = ctx;
     const zhType = ctx.zhType || (t => TYPE_ZH[t] || '未知');
@@ -301,20 +301,32 @@
       name: ctx.name || global.PKMShowdownText?.moves?.[move.id]?.name || move.name || '未命名招式',
       type: move.type, category: move.category, rows, desc,
       effects: fx.lines.filter(line => line !== desc), notes: fx.notes, warns: fx.warns,
-      matchup: null, foeName: ctx.foeName || ctx.foe?.name || '',
+      matchup: matchup(move, ctx), foeName: ctx.foeName || ctx.foe?.name || '',
     };
   }
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  function damageHtml(previews) {
+    const P = global.PKMDamagePreview;
+    if (!P || !previews?.length) return '';
+    return `<section class="mi-sec mi-matchup"><h4>伤害估算 · 留血参考</h4>` + previews.map(({label,info}) => {
+      const n = info.normal, c = info.critical;
+      const row = (key,value) => `<div><dt>${esc(key)}</dt><dd>${esc(value)}</dd></div>`;
+      return `<div class="mi-damage-target" data-risk="${esc(info.risk)}"><h5>${esc(label)}${n ? ` <small>当前 ${esc(info.hp)} / ${esc(info.maxHp)}</small>` : ''}</h5>`
+        + (n ? `<dl class="mi-damage-rows">${row(n.critical ? '当前伤害（含会心）' : '预计伤害', P.span(n.min,n.max) + ' 点')}${row('招后剩余体力', P.span(n.remainingMin,n.remainingMax) + ' / ' + info.maxHp)}${c ? row('会心一击伤害',P.span(c.min,c.max) + ' 点') + row('会心后剩余体力', P.span(c.remainingMin,c.remainingMax) + ' / ' + info.maxHp) : ''}</dl><p class="mi-damage-verdict">${esc(P.caution(info))}</p>` : `<p>${esc(info.text)}</p>`)
+        + (info.notes?.length ? `<ul>${info.notes.map(note=>`<li>${esc(note)}</li>`).join('')}</ul>` : '') + '</div>';
+    }).join('') + `<p class="mi-damage-assumptions">${esc(previews.find(p=>p.info.assumptions)?.info.assumptions || '无法固定估算的招式不会显示为零伤害。')}</p></section>`;
+  }
   function html(info) {
     const li = arr => arr.map(x => `<li>${esc(x)}</li>`).join('');
     return `<header class="mi-head"><span class="mi-name">${esc(info.name)}</span><span class="mi-type">${esc(info.rows[0][1])}</span><span class="mi-cat cat-${esc(String(info.category).toLowerCase())}">${esc(info.rows[1][1])}</span></header>`
       + `<dl class="mi-rows">${info.rows.slice(2).map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>`
+      + damageHtml(info.matchup)
       + (info.desc ? `<p class="mi-desc">${esc(info.desc)}</p>` : '')
       + (info.effects.length ? `<section class="mi-sec"><h4>效果</h4><ul>${li(info.effects)}</ul></section>` : '')
       + (info.notes.length ? `<section class="mi-sec mi-notes"><h4>使用提示</h4><ul>${li(info.notes)}</ul></section>` : '');
   }
   function tooltip(info) {
-    return [`${info.name}（${info.rows[0][1]}·${info.rows[1][1]}）`, info.desc || info.effects.join('；'), '长按或点 ⓘ 查看详细说明'].filter(Boolean).join('\n');
+    return [`${info.name}（${info.rows[0][1]}·${info.rows[1][1]}）`, info.desc || info.effects.join('；'), ...(info.matchup || []).map(p => `${p.label}：${global.PKMDamagePreview?.summary(p.info) || p.info.text} ${global.PKMDamagePreview?.caution(p.info) || ''}`), '长按或点 ⓘ 查看详细说明'].filter(Boolean).join('\n');
   }
   global.PKMMoveInfo = { version: VERSION, setDesc, describe, html, tooltip, effectLines, matchup, _desc: () => DESC };
 })(typeof window !== 'undefined' ? window : globalThis);

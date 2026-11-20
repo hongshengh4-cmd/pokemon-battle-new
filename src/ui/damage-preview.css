@@ -1,0 +1,73 @@
+/* Damage preview only. Keep the existing command-panel/touch scroll owners. */
+.fight-panel .moves,
+html.embed .fight-panel .moves,
+.action-card.double-actions .fight-panel .moves,
+html.embed .action-card.double-actions .fight-panel .moves {
+  height: auto !important; min-height: 0 !important;
+  grid-template-rows: repeat(2, minmax(min-content, max-content)) !important;
+  align-content: start; align-items: stretch;
+}
+.fight-panel .move-cell,
+html.embed .fight-panel .move-cell {
+  display: block !important; height: auto !important; min-height: 64px !important; overflow: visible;
+}
+.fight-panel .move-cell > .move-btn.has-damage-preview,
+html.embed .fight-panel .move-cell > .move-btn.has-damage-preview {
+  display: flex !important; flex-direction: column !important;
+  align-items: flex-start !important; justify-content: center !important;
+  gap: 4px !important; height: auto !important; min-height: 64px !important;
+  padding: 7px 27px 7px 11px !important;
+  font-size: 13px !important; line-height: 1.25 !important;
+  overflow: hidden; white-space: normal; overflow-wrap: anywhere;
+}
+.fight-panel .move-btn.has-damage-preview small,
+html.embed .fight-panel .move-btn.has-damage-preview small {
+  max-width: 100% !important; font-size: 9px !important;
+  line-height: 1.35 !important; text-align: left !important;
+}
+.move-preview-header { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 7px; width: 100%; min-width: 0; position: relative; z-index: 1; }
+.move-preview-name { font-weight: 850; }
+.move-damage-preview {
+  position: relative; z-index: 1; display: flex; flex: 0 0 auto;
+  flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 2px 9px; width: 100%; min-width: 0;
+  padding-top: 4px; border-top: 1px dashed #b4b6bf;
+  font-size: 11px; line-height: 1.35; color: #34445d;
+  font-weight: 800; white-space: normal; overflow-wrap: anywhere;
+}
+.move-damage-preview.multi-targets { flex-direction: column; align-items: flex-start; }
+.move-damage-line { display: block; font-variant-numeric: tabular-nums; }
+.move-damage-caution { font-size: 10px; color: #32614b; }
+.move-damage-preview[data-risk=ko] .move-damage-caution,
+.move-damage-preview[data-risk=risk] .move-damage-caution { color: #a62c40; }
+.move-damage-preview[data-risk=critical] .move-damage-caution,
+.move-damage-preview[data-risk=residual] .move-damage-caution,
+.move-damage-preview[data-risk=caution] .move-damage-caution { color: #925304; }
+.move-damage-preview[data-risk=zero] .move-damage-caution { color: #5d6474; }
+.move-damage-target-hint { color: #6c6576; font-size: 9px; font-weight: 600; }
+.double-target.has-damage-preview { text-align: left; border-radius: 12px; }
+.double-target .move-damage-preview { margin-top: 3px; width: auto; }
+.mi-matchup { background: #edf1f7; border: 1px solid #d7dfeb; }
+.mi-damage-target + .mi-damage-target { margin-top: 12px; padding-top: 9px; border-top: 1px solid #cdd5e1; }
+.mi-damage-target h5 { margin: 4px 0 7px; font-size: 13px; }
+.mi-damage-target h5 small { display: inline-block; margin-left: 5px; font-size: 11px; font-weight: 500; color: #637083; }
+.mi-damage-rows { display: grid; gap: 5px; margin: 0; }
+.mi-damage-rows > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-variant-numeric: tabular-nums; }
+.mi-damage-rows dt { color: #526078; font-size: 12px; }
+.mi-damage-rows dd { margin: 0; font-weight: 800; color: #24334b; }
+.mi-damage-verdict { margin: 8px 0 5px; font-weight: 850; color: #2d654b; }
+.mi-damage-target[data-risk=ko] .mi-damage-verdict,
+.mi-damage-target[data-risk=risk] .mi-damage-verdict { color: #a62c40; }
+.mi-damage-target[data-risk=critical] .mi-damage-verdict,
+.mi-damage-target[data-risk=residual] .mi-damage-verdict,
+.mi-damage-target[data-risk=caution] .mi-damage-verdict { color: #925304; }
+.mi-damage-assumptions { margin: 10px 0 4px; color: #626a78; font-size: 11px; line-height: 1.6; }
+@media (max-width: 700px), (max-height: 460px) {
+  .fight-panel .moves, html.embed .fight-panel .moves { gap: 5px !important; }
+  .fight-panel .move-cell > .move-btn.has-damage-preview,
+  html.embed .fight-panel .move-cell > .move-btn.has-damage-preview {
+    padding-left: 10px !important; padding-right: 24px !important;
+    font-size: 12px !important; gap: 3px !important;
+  }
+  .move-damage-preview { font-size: 10px; }
+  .move-damage-caution { font-size: 9px; }
+}

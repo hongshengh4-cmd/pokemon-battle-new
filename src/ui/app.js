@@ -1654,7 +1654,7 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
       const useIt = () => chooseBattleAction({ kind: 'move', index: i, mechanic: mech });
       b.onclick = () => { if (Date.now() < suppressMoveClickUntil) return; useIt(); };
       // v1.3.5：长按招式 / 点 ⓘ 查看详细说明
-      const ctxFn = () => ({ move: shown, base: m, user: me, foe: foeNow, name: displayMoveName(shown, m), foeName: foeNow ? displayPokemonName(foeNow) : '', usable: !b.disabled, onUse: useIt });
+      const ctxFn = () => ({ move: shown, base: m, user: me, foe: foeNow, mechanic: mech, name: displayMoveName(shown, m), foeName: foeNow ? displayPokemonName(foeNow) : '', usable: !b.disabled, onUse: useIt });
       moves.appendChild(moveCell(b, ctxFn));
     });
     // v1.3.4：招式点数会跨战斗继承；全部用完时只能“挣扎”
@@ -1743,6 +1743,9 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
         const p = battle.cur(option.side, option.slot); if (!p || p.fainted) continue;
         const b = document.createElement('button'); b.type = 'button'; b.className = 'double-target';
         b.textContent = `${option.side === 0 ? '我方' : '敌方'}${option.slot + 1}号位 · ${displayPokemonName(p)}`;
+        const pending = pendingDoubleTarget, actor = battle.cur(0, pending.slot);
+        const base = pending.action.struggle ? { id: 'struggle' } : actor.moves[pending.action.index];
+        appendMovePreview(b, damagePreviewsFor({ user: actor, move, base, mechanic: pending.action.mechanic }, p));
         b.onclick = () => { const pending = pendingDoubleTarget; pending.action.target = option; queueDoubleAction(pending.slot, pending.action); };
         targets.appendChild(b);
       }
@@ -1777,15 +1780,62 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
 
   // ---------- v1.3.5：招式详细说明（长按招式 / 点 ⓘ / 右键） ----------
   let suppressMoveClickUntil = 0;
+  function damagePreviewsFor(c, selectedTarget = null) {
+    if (!battle || !window.PKMDamagePreview || !c?.user || !c.base || battle.winner !== null || battle.pendingSwitch !== null) return [];
+    const session = PKMDamagePreview.createSession(battle), user = c.user;
+    let targets;
+    if (selectedTarget) targets = [selectedTarget];
+    else if (!battle.double || c.move.category === 'Status') targets = [c.foe || battle.cur(1, 0) || user];
+    else {
+      const kind = c.move.target || 'normal';
+      if (kind === 'adjacentAlly') targets = battle.activeMons(0).filter(p => p !== user);
+      else if (kind === 'adjacentAllyOrSelf') targets = battle.activeMons(0);
+      else if (kind === 'self') targets = [user];
+      else targets = [...battle.activeMons(1), ...(['allAdjacent','any','normal'].includes(kind) ? battle.activeMons(0).filter(p => p !== user) : [])];
+    }
+    return targets.filter(p => p && !p.fainted && p.hp > 0).map(target => {
+      const side = target._side, slot = battle.activeSlots[side].indexOf(battle.teams[side].indexOf(target));
+      const label = (battle.double ? `${side === 0 ? '我方' : '敌方'}${slot + 1}号位 · ` : '') + displayPokemonName(target);
+      return { label, shortLabel: battle.double ? `${side === 0 ? '我' : '敌'}${slot + 1}` : '', side, info: session.estimate(user, target, c.base, c.mechanic || null) };
+    });
+  }
+  function appendMovePreview(btn, previews) {
+    if (!previews?.length || !window.PKMDamagePreview) return;
+    const block = document.createElement('span'); block.className = 'move-damage-preview';
+    btn.classList.add('has-damage-preview');
+    if (btn.classList.contains('move-btn') && !btn.querySelector('.move-preview-header')) {
+      const header = document.createElement('span'); header.className = 'move-preview-header';
+      const name = document.createElement('span'); name.className = 'move-preview-name';
+      const meta = btn.querySelector('small');
+      for (const node of [...btn.childNodes]) if (node !== meta) name.appendChild(node);
+      header.appendChild(name); if (meta) header.appendChild(meta); btn.appendChild(header);
+    }
+    // Ally previews are available in details AND on the actual target button;
+    // the compact move grid gives priority to the two opponents.
+    const shown = previews.some(p => p.side === 1) ? previews.filter(p => p.side === 1) : previews;
+    if (shown.length > 1) block.classList.add('multi-targets');
+    for (const preview of shown) {
+      const line = document.createElement('span'); line.className = 'move-damage-line';
+      line.textContent = (shown.length > 1 ? preview.shortLabel + ' ' : '') + PKMDamagePreview.summary(preview.info);
+      block.appendChild(line);
+    }
+    const severity = { ko: 9, risk: 8, critical: 7, residual: 6, caution: 5, unknown: 4, survives: 2, zero: 1, neutral: 0 };
+    const worst = [...shown].sort((a,b) => (severity[b.info.risk] || 0) - (severity[a.info.risk] || 0))[0]?.info;
+    block.dataset.risk = worst?.risk || 'unknown';
+    const warning = PKMDamagePreview.caution(worst);
+    if (warning) { const line = document.createElement('span'); line.className = 'move-damage-caution'; line.textContent = warning; block.appendChild(line); }
+    if (battle.double && shown.length > 1) { const line = document.createElement('span'); line.className = 'move-damage-target-hint'; line.textContent = '以实际所选目标为准'; block.appendChild(line); }
+    btn.appendChild(block);
+  }
   function moveInfoOf(c) {
-    return PKMMoveInfo.describe(c.move, { user: c.user, foe: c.foe, baseMove: c.base, name: c.name, foeName: c.foeName, zhType, zhCat });
+    return PKMMoveInfo.describe(c.move, { user: c.user, foe: c.foe, baseMove: c.base, name: c.name, foeName: c.foeName, zhType, zhCat, damagePreviews: damagePreviewsFor(c) });
   }
   function moveCell(btn, ctxFn) {
     const cell = document.createElement('div');
     cell.className = 'move-cell';
     cell.appendChild(btn);
     if (!window.PKMMoveInfo) return cell;
-    try { btn.title = PKMMoveInfo.tooltip(moveInfoOf(ctxFn())); } catch (_) {}
+    try { const info = moveInfoOf(ctxFn()); btn.title = PKMMoveInfo.tooltip(info); appendMovePreview(btn, info.matchup); } catch (_) {}
     const badge = document.createElement('span');
     badge.className = 'move-info-btn'; badge.textContent = 'i';
     badge.setAttribute('role', 'button'); badge.tabIndex = 0;
