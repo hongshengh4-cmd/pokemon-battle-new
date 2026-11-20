@@ -1,6 +1,9 @@
+import {normalizeBadges} from './badge-records.mjs?v=20261118-badge-motion-v1';
+import {badgeCollectionsHTML,installBadgeInteraction,BADGE_MOTION_VERSION} from './badge-display.mjs?v=20261118-badge-motion-v1';
 import {localSprite,shinySprite,installSpriteRecovery} from './sprite-recovery.js?v=1.3.31';
 import {ppItemInfo} from './pp-items.mjs?v=20261115-pp-item-use-v1';
-import {installKantoHardware,HARDWARE_BUILD} from './kanto-hardware.js?v=20261118-status-restore-v8.1';
+import {isMoveMachineName,isCaptureBallName} from './inventory-rules.mjs?v=journey-inventory-v1';
+import {installKantoHardware,HARDWARE_BUILD} from './kanto-hardware.js?v=20261118-badge-motion-v1';
 import './plot-guard.js?v=20261115-worldbook-date-event-ability-v3';
 if(globalThis.PKMPlotGuard?.version!=='20261113-comprehensive-fix-v6')throw new Error('剧情和计时模块版本不匹配，请完整部署并刷新缓存。');
 // External status runtime 20261030-all-requested-fixes-v8; original card UI retained.
@@ -59,9 +62,9 @@ if(globalThis.PKMPlotGuard?.version!=='20261113-comprehensive-fix-v6')throw new 
   const IT_ALIAS = { '老旧鱼竿': '破旧钓竿', '旧鱼竿': '破旧钓竿', '破旧鱼竿': '破旧钓竿', '鱼竿': '破旧钓竿', '钓竿': '破旧钓竿', '好鱼竿': '好钓竿', '厉害鱼竿': '厉害钓竿', '脚踏车': '自行车', '单车': '自行车', '解毒剂': '解毒药', '麻痹药': '解麻药', '解麻痹药': '解麻药', '烧伤药': '灼伤药', '全复药': '全复药', '圣特安努号船票': '船票', '地图': '城镇地图', '学习机': '学习装置', '解烧伤药': '灼伤药', '穿洞绳': '离洞绳', '宝可梦玩偶': '皮皮玩偶', 'HP增强剂': 'ＨＰ增强剂', '击中要害': '要害攻击' };
   const itemById = {}; Object.keys(DATA.IT).forEach(k => { itemById[DATA.IT[k][0]] = k; });
   function item(name) {
-    const s = String(name || '').trim(); const regional=host.PKMRegionalDex?.item(s);if(regional)return regional;const pp=ppItemInfo(s);if(pp)return{name:s,id:pp.sprite,pk:1,d:pp.description};const k = DATA.IT[s] ? s : IT_ALIAS[s] && DATA.IT[IT_ALIAS[s]] ? IT_ALIAS[s] : itemById[s.toLowerCase().replace(/[\s_]+/g, '-')] || null;
+    const s = String(name || '').trim(); const regional=host.PKMRegionalDex?.item(s);if(regional)return regional;if(isMoveMachineName(s))return{name:s,id:'',pk:0,d:'招式学习机。到队伍的招式调整中，为兼容的宝可梦选择对应招式；可重复使用，不消耗。'};const pp=ppItemInfo(s);if(pp)return{name:s,id:pp.sprite,pk:1,d:pp.description};const k = DATA.IT[s] ? s : IT_ALIAS[s] && DATA.IT[IT_ALIAS[s]] ? IT_ALIAS[s] : itemById[s.toLowerCase().replace(/[\s_]+/g, '-')] || null;
     if (k) { const r = DATA.IT[k]; return { name: s, id: r[0], pk: r[1], d: r[2] }; }
-    let pk = 0; if (/球$/.test(s)) pk = 2; else if (/(伤药|解.药|灼伤药|万灵药|全复药|活力|元气|PP回复药|果$|牛奶|汽水|之水|果汁)/.test(s)) pk = 1; else if (/(票|证|钥匙|卡$|信$|地图|检视镜|之笛|自行车|钓竿|学习机|化石|琥珀)/.test(s)) pk = 3;
+    let pk = 0; if (isCaptureBallName(s)) pk = 2; else if (/(伤药|解.药|灼伤药|万灵药|全复药|活力|元气|PP回复药|果$|牛奶|汽水|之水|果汁)/.test(s)) pk = 1; else if (/(票|证|钥匙|卡$|信$|地图|检视镜|之笛|自行车|钓竿|学习机|化石|琥珀)/.test(s)) pk = 3;
     return { name: s, id: '', pk: pk, d: '' };
   }
   const SD = 'https://play.pokemonshowdown.com/sprites/';
@@ -70,44 +73,8 @@ if(globalThis.PKMPlotGuard?.version!=='20261113-comprehensive-fix-v6')throw new 
   const staUrl=(d,sh)=>aniUrl(d,sh);
   // 宝可梦：与对战网站同款 Showdown 动图；加载失败退回静态图
   const pkImg = (d, sh, cls, still) => d && d.id ? `<img class="${cls || ''}" src="${still ? staUrl(d, sh) : aniUrl(d, sh)}" data-fb="${staUrl(d, sh)}" alt="" loading="lazy" draggable="false">` : `<img class="${cls || ''}" alt="" style="visibility:hidden">`;
-  const itemImg = (n, cls) => { const regional=host.PKMRegionalDex?.itemImage(n,cls);if(regional)return regional;const it = item(n); return it.id ? `<img class="${cls || 'iimg'}" src="${PA[0]}items/${it.id}.png" data-fb="${PA[1]}items/${it.id}.png" alt="${esc(n)}" title="${esc(n)}">` : ''; };
-  const BADGES = ['灰色徽章', '蓝色徽章', '橙色徽章', '彩虹徽章', '粉红徽章', '金色徽章', '深红徽章', '绿色徽章', '飞翼徽章', '昆虫徽章', '常规徽章', '幻影徽章', '打击徽章', '钢铁徽章', '冰雪徽章', '升龙徽章'];
-  const BADGE_ALIAS = { '灰色': '灰色徽章', '灰': '灰色徽章', '岩石': '灰色徽章', '蓝色': '蓝色徽章', '橙色': '橙色徽章', '彩虹': '彩虹徽章', '粉红': '粉红徽章', '粉色': '粉红徽章', '金色': '金色徽章', '金黄': '金色徽章', '深红': '深红徽章', '绿色': '绿色徽章', '绿': '绿色徽章', '岩石徽章': '灰色徽章', '岩石系徽章': '灰色徽章', '深灰徽章': '灰色徽章', '灰徽章': '灰色徽章', 'boulderbadge': '灰色徽章', '华蓝徽章': '蓝色徽章', '蓝徽章': '蓝色徽章', '水之徽章': '蓝色徽章', 'cascadebadge': '蓝色徽章', '橘色徽章': '橙色徽章', '橙徽章': '橙色徽章', '雷电徽章': '橙色徽章', '枯叶徽章': '橙色徽章', 'thunderbadge': '橙色徽章', '彩虹色徽章': '彩虹徽章', '玉虹徽章': '彩虹徽章', 'rainbowbadge': '彩虹徽章', '粉色徽章': '粉红徽章', '粉红色徽章': '粉红徽章', '浅红徽章': '粉红徽章', '灵魂徽章': '粉红徽章', 'soulbadge': '粉红徽章', '金黄徽章': '金色徽章', '金徽章': '金色徽章', '金黄市徽章': '金色徽章', 'marshbadge': '金色徽章', '红色徽章': '深红徽章', '火山徽章': '深红徽章', '红莲徽章': '深红徽章', 'volcanobadge': '深红徽章', '绿徽章': '绿色徽章', '大地徽章': '绿色徽章', '常磐徽章': '绿色徽章', 'earthbadge': '绿色徽章' };
-  Object.assign(BADGE_ALIAS, {"飞翼":"飞翼徽章","飞行徽章":"飞翼徽章","昆虫":"昆虫徽章","虫系徽章":"昆虫徽章","常规":"常规徽章","标准徽章":"常规徽章","平原徽章":"常规徽章","幻影":"幻影徽章","幽灵徽章":"幻影徽章","打击":"打击徽章","格斗徽章":"打击徽章","钢铁":"钢铁徽章","钢系徽章":"钢铁徽章","冰雪":"冰雪徽章","冰冻徽章":"冰雪徽章","冰之徽章":"冰雪徽章","升龙":"升龙徽章","龙之徽章":"升龙徽章"});
-  const BADGE_CITIES = { '小刚':'灰色徽章', '深灰道馆':'灰色徽章', '深灰市':'灰色徽章', '小霞':'蓝色徽章', '华蓝道馆':'蓝色徽章', '华蓝市':'蓝色徽章', '马志士':'橙色徽章', '枯叶道馆':'橙色徽章', '枯叶市':'橙色徽章', '莉佳':'彩虹徽章', '玉虹道馆':'彩虹徽章', '玉虹市':'彩虹徽章', '阿桔':'粉红徽章', '浅红道馆':'粉红徽章', '浅红市':'粉红徽章', '娜姿':'金色徽章', '金黄道馆':'金色徽章', '金黄市':'金色徽章', '夏伯':'深红徽章', '红莲道馆':'深红徽章', '红莲镇':'深红徽章', '坂木':'绿色徽章', '常磐道馆':'绿色徽章', '常磐市':'绿色徽章' };
-  Object.assign(BADGE_CITIES, {"桔梗道馆":"飞翼徽章","桔梗市":"飞翼徽章","阿速":"飞翼徽章","桧皮道馆":"昆虫徽章","桧皮镇":"昆虫徽章","阿笔":"昆虫徽章","满金道馆":"常规徽章","满金市":"常规徽章","小茜":"常规徽章","缘朱道馆":"幻影徽章","缘朱市":"幻影徽章","松叶":"幻影徽章","湛蓝道馆":"打击徽章","湛蓝市":"打击徽章","阿四":"打击徽章","浅葱道馆":"钢铁徽章","浅葱市":"钢铁徽章","阿蜜":"钢铁徽章","卡吉道馆":"冰雪徽章","卡吉镇":"冰雪徽章","柳伯":"冰雪徽章","烟墨道馆":"升龙徽章","烟墨市":"升龙徽章","小椿":"升龙徽章"});
-  function badgeName(value) {
-    if (value && typeof value === 'object') {
-      if (value.owned === false || value.obtained === false || value.has === false || value.获得 === false) return null;
-      value = value.name || value.badge || value.title || value.id || value.key || value.gym || value;
-      if (value && typeof value === 'object') return null;
-    }
-    if (typeof value === 'number' && Number.isInteger(value)) return value >= 1 && value <= BADGES.length ? BADGES[value - 1] : (value === 0 ? BADGES[0] : null);
-    const raw = String(value == null ? '' : value).trim(); if (!raw) return null;
-    const token = raw.toLowerCase().replace(/[\s\u3000_\-·・:：()（）【】\[\]「」『』]/g, '');
-    if (/^(?:[1-9]|1[0-6])$/.test(token)) return BADGES[Number(token)-1];
-    const direct = BADGES.find(n => token === n.toLowerCase()); if (direct) return direct;
-    if (BADGE_ALIAS[token]) return BADGE_ALIAS[token];
-    for (const [needle, canonical] of Object.entries(BADGE_ALIAS)) if (needle.length > 2 && token.includes(needle)) return canonical;
-    for (const [needle, canonical] of Object.entries(BADGE_CITIES)) if (raw.includes(needle)) return canonical;
-    const signals = [['灰色徽章','灰色徽章'],['岩石徽章','灰色徽章'],['深灰','灰色徽章'],['boulder','灰色徽章'],['蓝色徽章','蓝色徽章'],['华蓝','蓝色徽章'],['水之','蓝色徽章'],['cascade','蓝色徽章'],['橙色徽章','橙色徽章'],['橘色徽章','橙色徽章'],['雷电徽章','橙色徽章'],['枯叶','橙色徽章'],['thunder','橙色徽章'],['彩虹','彩虹徽章'],['玉虹','彩虹徽章'],['rainbow','彩虹徽章'],['粉红','粉红徽章'],['粉色徽章','粉红徽章'],['浅红','粉红徽章'],['灵魂','粉红徽章'],['soul','粉红徽章'],['金黄','金色徽章'],['金色徽章','金色徽章'],['marsh','金色徽章'],['深红','深红徽章'],['火山','深红徽章'],['红莲','深红徽章'],['volcano','深红徽章'],['绿色徽章','绿色徽章'],['大地','绿色徽章'],['常磐','绿色徽章'],['earth','绿色徽章']];
-    const found = signals.find(([needle]) => token.includes(needle.toLowerCase())); return found ? found[1] : null;
-  }
-  function normalizeBadges(pk) {
-    const out = new Set(), pl = pk?.player || {};
-    const add = v => {
-      if (Array.isArray(v)) { v.forEach(add); return; }
-      if (typeof v === 'string') { v.split(/[、,，;；|\n]+/).forEach(x => { const b = badgeName(x); if (b) out.add(b); }); return; }
-      if (typeof v === 'number') { const b = badgeName(v); if (b) out.add(b); return; }
-      if (!v || typeof v !== 'object') return;
-      if (v.name || v.badge || v.title || v.id || v.key || v.gym) { const b = badgeName(v); if (b) out.add(b); return; }
-      for (const [k, flag] of Object.entries(v)) if (flag === true || (Number.isFinite(+flag) && +flag > 0)) { const b = badgeName(k); if (b) out.add(b); }
-    };
-    add(pl.badges); add(pl.badge); add(pk?.badges); add(pk?.gym?.badges);
-    return BADGES.filter(b => out.has(b));
-  }
-  // PokeAPI sprites/badges/1~8：按游戏顺序 灰色 蓝色 橙色 彩虹 粉红 金色 深红 绿色
-  const badgeImg = i => `<img src="${PA[0]}badges/${i + 1}.png" data-fb="${PA[1]}badges/${i + 1}.png" alt="">`;
+  const itemImg = (n, cls) => { const regional=host.PKMRegionalDex?.itemImage(n,cls);if(regional)return regional;if(isMoveMachineName(n))return '<span role="img" aria-label="招式学习机" title="招式学习机">💿</span>';const it = item(n); return it.id ? `<img class="${cls || 'iimg'}" src="${PA[0]}items/${it.id}.png" data-fb="${PA[1]}items/${it.id}.png" alt="${esc(n)}" title="${esc(n)}">` : ''; };
+  // Badge record parsing and textures are isolated read-only presentation modules.
   const SPK = '<svg class="spk" viewBox="0 0 16 16"><path d="M8 0l1.9 6.1L16 8l-6.1 1.9L8 16l-1.9-6.1L0 8l6.1-1.9z" fill="#ffc400" stroke="#b07800" stroke-width=".8"/></svg>';
   const tyHtml = ts => ts.map(t => `<span class="ty" style="background:${TYC[t] || '#888'}">${esc(t)}</span>`).join('');
   const statColor = v => v >= 110 ? '#2bb673' : v >= 80 ? '#8ccf3f' : v >= 55 ? '#f2c12e' : '#f08a3c';
@@ -404,13 +371,14 @@ if(globalThis.PKMPlotGuard?.version!=='20261113-comprehensive-fix-v6')throw new 
     const syncViewportHeight=()=>el.style.setProperty('--pkdex-view-height',(host.visualViewport?.height||host.innerHeight||800)+'px');syncViewportHeight();host.addEventListener('resize',syncViewportHeight);host.visualViewport?.addEventListener('resize',syncViewportHeight);
     let style = idoc.getElementById('pkdex-css'); if (!style) { style = idoc.createElement('style'); style.id = 'pkdex-css'; (idoc.head || idoc.documentElement).appendChild(style); } style.textContent = DEX_CSS;
     const UI = { tab: el.dataset.nativeRegion==='johto'?'dex':'tr', filt: 'all', q: '', sel: null, pocket: null, bagScroll: {}, onlyF: true, folded: LS.getItem('pkdex_fold') === '1', shv: false };
+    const badgeInteraction = installBadgeInteraction({win,root:el,host});
     let sig = null, mesid = null, timer, observer, appearance;
     let fitQueued = 0;
     const fitNow = () => { try { const frame = win.frameElement; if (!frame || win.document.visibilityState === 'hidden') return; const h = Math.ceil(el.getBoundingClientRect().height + 28); if (h > 35 && Math.abs((parseFloat(frame.style.height) || 0) - h) > 8) frame.style.height = h + 'px'; } catch (_) {} };
     const fit = () => { if (fitQueued) return; fitQueued = win.requestAnimationFrame(() => { fitQueued = 0; fitNow(); }); };
     // Width-only relayout of the live map iframe; its document is never reloaded.
     try { win.addEventListener('resize', () => { const f = el.querySelector('.map-fr'); if (f && f.style.height !== MAP_H(win) + 'px') f.style.height = MAP_H(win) + 'px'; }); } catch (_) {}
-    const cleanup = () => { appearance?.dispose?.();appearance=null;win.removeEventListener('message',relayNestedMapPoint); host.removeEventListener('resize',syncViewportHeight);host.visualViewport?.removeEventListener('resize',syncViewportHeight);win.clearInterval(timer); observer?.disconnect(); mounts.delete(el); };
+    const cleanup = () => { badgeInteraction.dispose(); appearance?.dispose?.();appearance=null;win.removeEventListener('message',relayNestedMapPoint); host.removeEventListener('resize',syncViewportHeight);host.visualViewport?.removeEventListener('resize',syncViewportHeight);win.clearInterval(timer); observer?.disconnect(); mounts.delete(el); };
     imgFallback(el);
     const tick = () => {
       host.PKMKanto?.installBagDrag?.(win,el);
@@ -418,7 +386,7 @@ if(globalThis.PKMPlotGuard?.version!=='20261113-comprehensive-fix-v6')throw new 
       mesid = findMesId(win);
       let r; try { r = load(mesid); } catch (e) { log('读取失败', e); return; }
       if (r.sig === sig) return; sig = r.sig;
-      try { drawDex(el, r, UI); appearance=installKantoHardware({win,root:el,read:()=>host.PKMKanto?.read?.()}); fit(); } catch (e) { log('图鉴绘制失败', e); el.innerHTML = '<div style="padding:8px;color:#c33;font:12px sans-serif">图鉴绘制失败：' + esc(e.message) + '</div>'; }
+      try { drawDex(el, r, UI, badgeInteraction); appearance=installKantoHardware({win,root:el,read:()=>host.PKMKanto?.read?.()}); fit(); } catch (e) { log('图鉴绘制失败', e); el.innerHTML = '<div style="padding:8px;color:#c33;font:12px sans-serif">图鉴绘制失败：' + esc(e.message) + '</div>'; }
     };
     mounts.set(el, { tick, cleanup });
     try { observer = new win.ResizeObserver(fit); observer.observe(el); } catch (_) {}
@@ -426,7 +394,7 @@ if(globalThis.PKMPlotGuard?.version!=='20261113-comprehensive-fix-v6')throw new 
     win.addEventListener('pagehide', cleanup, { once: true });
     tick(); host.PKMKanto?.installBagDrag?.(win,el);const careStyle=idoc.createElement('style');careStyle.textContent='[data-p=bag] [data-use-item]{touch-action:pan-y;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;cursor:grab}';idoc.head.append(careStyle);return true;
   }
-  function drawDex(el, R, UI) {
+  function drawDex(el, R, UI, badgeInteraction) {
     host.PKMRegionalPresentation?.beforeDraw(el.ownerDocument.defaultView,el);
     const S = R.S,region=el.dataset.nativeRegion||"kanto",inRegion=n=>region==="johto"?Number(n)>=152&&Number(n)<=251:Number(n)>=1&&Number(n)<=151,seen=Object.fromEntries(Object.entries(S.dex.seen).filter(([n])=>inRegion(n))),caught=new Set([...S.dex.caught].filter(inRegion)),shiny=Object.fromEntries(Object.entries(S.dex.shiny).filter(([n])=>inRegion(n))),fresh=new Set([...S.dex.fresh].filter(inRegion));
     const nSeen = Object.keys(seen).length, nCaught = caught.size, nShiny = Object.keys(shiny).length;
@@ -478,7 +446,7 @@ if(globalThis.PKMPlotGuard?.version!=='20261113-comprehensive-fix-v6')throw new 
     } else el.replaceChildren(nextRoot);
     const root = el.firstElementChild, $ = s => root.querySelector(s);
     $('.dx-fold').onclick = () => { UI.folded = !UI.folded; root.classList.toggle('folded', UI.folded); $('.dx-fold').textContent = UI.folded ? '▸' : '▾'; try { LS.setItem('pkdex_fold', UI.folded ? '1' : '0'); } catch (e) {} };
-    const setTab = t => { UI.tab = t; root.querySelectorAll('.dx-tabs button').forEach(x => x.classList.toggle('on', x.dataset.t === t)); root.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.dataset.p === t)); render(); host.PKMRegionalPresentation?.afterRender(el.ownerDocument.defaultView,el,UI,S); };
+    const setTab = t => { UI.tab = t; root.querySelectorAll('.dx-tabs button').forEach(x => x.classList.toggle('on', x.dataset.t === t)); root.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.dataset.p === t)); render(); host.PKMRegionalPresentation?.afterRender(el.ownerDocument.defaultView,el,UI,S); badgeInteraction.sync({badges:S.player.badges,activeDex:region,activeTab:UI.tab}); };
     root.querySelectorAll('.dx-tabs button').forEach(b => b.onclick = () => setTab(b.dataset.t));
 
     function dexPane() {
@@ -535,8 +503,7 @@ if(globalThis.PKMPlotGuard?.version!=='20261113-comprehensive-fix-v6')throw new 
     <div class="rep"><div class="rep-top"><span>声望 · ${esc(r[1])}</span><span>${p.rep}${nx ? ' / ' + nx[0] : ''}</span></div><div class="rep-bar"><b style="width:${pct}%"></b></div>
      <div style="font-size:11px;color:#7b869c;margin-top:3px">${nx ? `再获得 ${nx[0] - p.rep} 声望晋升为「${nx[1]}」` : '已是最高声望'}</div></div>
    </div></div>
-   <div style="font-size:11px;font-weight:800;color:#7b7368;margin-top:8px">关都徽章</div><div class="badges">${BADGES.slice(0,8).map((n, i) => { const on = p.badges.includes(n); return `<div class="bdg ${on ? 'on' : 'off'}" title="${n}${on ? '' : '（未获得）'}">${badgeImg(i)}${n.replace('徽章', '')}</div>`; }).join('')}</div>
-   <div style="font-size:11px;font-weight:800;color:#7b7368;margin-top:8px">城都徽章</div><div class="badges">${BADGES.slice(8,16).map((n, i) => { const on = p.badges.includes(n); return `<div class="bdg ${on ? 'on' : 'off'}" title="${n}${on ? '' : '（未获得）'}">${badgeImg(i+8)}${n.replace('徽章', '')}</div>`; }).join('')}</div>
+   ${badgeCollectionsHTML(p.badges,{activeDex:region})}
    ${S.world.repel ? `<div class="repel-line ${S.world.repel.tone}">🧴 <b>${esc(S.world.repel.item)}</b>${S.world.repel.target ? ` · 基准 ${esc(S.world.repel.target)} Lv${S.world.repel.lv}` : (S.world.repel.lv > 1 ? ` · 基准 Lv${S.world.repel.lv}` : '')} · <b>${esc(S.world.repel.text)}</b></div>` : ''}`;
     }
     function bagPane() {
@@ -610,7 +577,7 @@ if(globalThis.PKMPlotGuard?.version!=='20261113-comprehensive-fix-v6')throw new 
     window.addEventListener('message', relayMapPoint);
     if (host !== window) host.addEventListener('message', relayMapPoint);
   } catch (_) {}
-  const api = { unmountDex:el=>mounts.get(el)?.cleanup(), regionalBuild:"20261118-status-restore-v8.1", skinVersion:HARDWARE_BUILD, johtoMapVersion: '20261113-johto-map-1', genderVersion: '20261113-comprehensive-fix-v6', version: '1.3.25-map-shop-18', mountDex,
+  const api = { badgeMotionVersion:BADGE_MOTION_VERSION, unmountDex:el=>mounts.get(el)?.cleanup(), regionalBuild:"20261118-status-restore-v8.1", skinVersion:HARDWARE_BUILD, johtoMapVersion: '20261113-johto-map-1', genderVersion: '20261113-comprehensive-fix-v6', version: '1.3.25-map-shop-18', mountDex,
     dispose() { stopped = true; [...mounts.values()].forEach(m => m.cleanup()); if (host.PKMKantoLegacyStatus === api) delete host.PKMKantoLegacyStatus; }
   };
   host.PKMKantoLegacyStatus = api;

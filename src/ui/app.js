@@ -12,7 +12,7 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
   // already in this document's LOCAL axes: never rotate or swap them a second time.
   function installBattleTouchScroll(doc, win) {
     const version = '20261118-mobile-scroll-v1';
-    const selector = '#log, .command-panel, .mi-body';
+    const selector = '#log, .command-panel, .mi-body, .roster-list';
     const listeners = [];
     let gesture = null, momentum = 0, lastDrag = null;
     const now = () => win.performance.now();
@@ -2055,7 +2055,7 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
       card.setAttribute('aria-labelledby', 'roster-title');
       const title = document.createElement('h2'); title.id = 'roster-title'; title.textContent = `选择本场参赛的 ${count} 只宝可梦`;
       const hint = document.createElement('p'); hint.textContent = '从完整队伍中选择；点选顺序就是出场顺序，第 1 只是首发。未参赛成员不会被删除。';
-      const list = document.createElement('div'); list.className = 'roster-list';
+      const list = document.createElement('div'); list.className = 'roster-list'; list.setAttribute('aria-label', '参赛名单，可上下滑动');
       const footer = document.createElement('div'); footer.className = 'roster-footer';
       const status = document.createElement('p'); status.setAttribute('aria-live', 'polite');
       const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = '取消对战';
@@ -2075,7 +2075,7 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
           button.disabled = p.fainted || p.hp <= 0 || (rank < 0 && chosen.length >= count);
           button.querySelector('.roster-order').textContent = rank >= 0 ? String(rank + 1) : '＋';
         });
-        status.textContent = `已选择 ${chosen.length}/${count}；第 1 只是首发。`;
+        status.textContent = `已选择 ${chosen.length}/${count}；首发：${chosen.length ? displayPokemonName(team[chosen[0]]) : '未选择'}。`;
         confirm.textContent = `开始对战（${chosen.length}/${count}）`; confirm.disabled = chosen.length !== count;
       };
       const finish = value => {
@@ -2156,10 +2156,14 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/brow
       const size = limit(cfg.rules?.teamSize, 6);
       const playerLimit = wild ? 6 : limit(cfg.rules?.playerLimit, size);
       const requested = cfg.rules?.selectedPlayerSlots;
+      // A full healthy six also chooses its opening order. Keep wild battles,
+      // explicit selections and within-cap fainted/revival benches unchanged.
+      const orderFullSix = !wild && playerLimit === 6 && limit(cfg.rules?.enemyLimit, size) === 6
+        && playerTeam.length === 6 && PKMTeamSelection.healthy(playerTeam).length === 6;
       if (Array.isArray(requested)) {
         const indices = playerTeam.every(p => Number.isInteger(p.hostSlot)) ? requested.map(slot => playerTeam.findIndex(p => p.hostSlot === slot)) : requested;
         playerTeam = PKMTeamSelection.select(playerTeam, indices, playerLimit);
-      } else if (PKMTeamSelection.healthy(playerTeam).length > playerLimit) {
+      } else if (PKMTeamSelection.healthy(playerTeam).length > playerLimit || orderFullSix) {
         postHost('PKM_BATTLE_SELECTING', { limit: playerLimit, available: PKMTeamSelection.healthy(playerTeam).length });
         const indices = await chooseBattleRoster(playerTeam, playerLimit);
         if (!indices) { postHost('PKM_BATTLE_EXIT', {}); return false; }

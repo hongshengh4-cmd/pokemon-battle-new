@@ -1,6 +1,8 @@
 import {resolveTrainerAI,STORY_AI_PROMPT,AI_BUILD} from '../src/ai/profile.mjs?v=20261118-foulplay-browser-ai-v1';
 import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './sprite-recovery.js?v=1.3.31';
 import * as K from './kanto-data.js?v=20261117-chain-timeline-v1';
+import {isMoveMachineName,isCaptureBallName,applyRegionalDexSwitch,INVENTORY_PATCH_VERSION} from './inventory-rules.mjs?v=journey-inventory-v1';
+import {BATTLE_START_PRIORITY,BATTLE_START_POLICY_VERSION} from './battle-start-policy.mjs?v=same-reply-battle-v1';
 import './gender.js?v=20261115-gender-bond-hotfix1';
 import './battle-mechanics.js?v=20261113-comprehensive-fix-v6';
 import './plot-guard.js?v=20261118-adjusted-story-v2';
@@ -231,9 +233,10 @@ function spriteUrl(name,{anim=false,shiny=false}={}) {
 const spriteImg = (name, opts = {}, cls = 'pk-spr') => { const u = spriteUrl(name, opts); return u ? `<img class="${cls}" src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer" > ` : `<span class="${cls} pk-spr-ph">?</span>`; };
 function itemIcon(name) {
   const regional=P.PKMRegionalDex?.itemImage(name);if(regional)return regional;
+  if(isMoveMachineName(name))return '<span class="pk-item-e" role="img" aria-label="招式学习机">💿</span>';
   const localCatalogIcons={ '自行车':'bicycle', '香水（30mL）':'sachet' };
   const slug = localCatalogIcons[name] || ppItemInfo(name)?.sprite || K.ITEM_ICONS[name];
-  const emoji = (K.ITEM_EMOJI.find(([re]) => re.test(name)) || [null, '🎒'])[1];
+  const emoji = (K.ITEM_EMOJI.find(([re,icon]) => (icon!=='🔴'||isCaptureBallName(name))&&re.test(name)) || [null, '🎒'])[1];
   return slug ? `<img class="pk-item" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/${slug}.png" alt="" loading="lazy" onerror="this.replaceWith(document.createTextNode('${emoji}'))">` : `<span class="pk-item-e">${emoji}</span>`;
 }
 
@@ -1467,7 +1470,7 @@ function buildInjection() {
   const st = latestState(injectionCutoff)?.state;
   const plotPrompt=dateDrivenPlotPrompt(c,st,pkm);
   if (c.length <= 1) return plotPrompt&&pkm.integration?.profile?subUser(plotPrompt):''; // 初始登记时只注入已确认日期对应的场景
-  const parts = ['【关都之旅·存档与玩法摘要】', STORY_AI_PROMPT];
+  const parts = ['【关都之旅·存档与玩法摘要】', STORY_AI_PROMPT, BATTLE_START_PRIORITY];
   parts.push(`当前：模式 ${st?.模式 || pkm.world.mode || '—'}｜时间 ${st?.时间 || pkm.world.time || '—'}｜地点 ${st?.地点 || pkm.world.location || '—'}`);
   if(plotPrompt)parts.push(plotPrompt);
   {const roster=companionRosterPrompt(pkm,st,injectionCutoff);if(roster)parts.push(roster);}
@@ -10390,7 +10393,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, storyVersion:STORY_BUILD, aiVersion:AI_BUILD, mobileScrollVersion:MOBILE_SCROLL_PATCH, flinchPatchVersion:FLINCH_PATCH, rulesPatchVersion:'20261118-hit-lifecycle-v1', battleRulesVersion:BATTLE_RULES_PATCH, showdownCommit:SHOWDOWN_COMMIT, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: REPAIR_BUILD, bondVersion:PKMBondSync.version, base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, regionalBuild: "20261118-status-restore-v8.1", useRegionalDex: name => { name=String(name||" ").trim();const region=({"关都图鉴":"kanto","城都图鉴":"johto"})[name];if(!region)return Promise.reject(new Error("不是地区图鉴道具"));return writePkm(pkm=>{if(!(Number(pkm.player?.bag?.[name])>0))throw new Error("尚未获得"+name);pkm.integration=pkm.integration&&typeof pkm.integration==="object"&&!Array.isArray(pkm.integration)?pkm.integration:{};pkm.integration.activeRegionalDex=region;}); }, purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, storyVersion:STORY_BUILD, aiVersion:AI_BUILD, mobileScrollVersion:MOBILE_SCROLL_PATCH, flinchPatchVersion:FLINCH_PATCH, rulesPatchVersion:'20261118-hit-lifecycle-v1', battleRulesVersion:BATTLE_RULES_PATCH, showdownCommit:SHOWDOWN_COMMIT, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: REPAIR_BUILD, bondVersion:PKMBondSync.version, base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, regionalBuild: "20261118-status-restore-v8.1", inventoryPatchVersion:INVENTORY_PATCH_VERSION, battleStartPolicyVersion:BATTLE_START_POLICY_VERSION, useRegionalDex: name => writePkm(pkm=>applyRegionalDexSwitch(pkm,name)), purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }

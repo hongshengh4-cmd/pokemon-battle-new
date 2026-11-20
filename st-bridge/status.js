@@ -3,8 +3,9 @@
 import './regional-bootstrap.js?v=20261118-status-restore-v8.1';
 import './regional-assets.js?v=20261118-status-restore-v8.1';
 try{window.PKMRegionalHost.PKMKantoLegacyStatus?.dispose?.();}catch{}
-await import('./regional-manager.js?v=20261118-status-restore-v8.1');
+await import('./regional-manager.js?v=journey-inventory-v1');
 await import('./regional-presentation.js?v=20261118-status-restore-v8.1');
-await import('./regional-status-core.js?v=20261118-status-restore-v8.1');
+await import('./regional-status-core.js?v=journey-inventory-v1-badge-motion-v1');
 window.PKMRegionalHost.PKMRegionalDex?.refresh();
 export const REGIONAL_REPOSITORY_BUILD='20261118-status-restore-v8.1';
+export const BADGE_PRESENTATION_BUILD='20261118-badge-motion-v1';

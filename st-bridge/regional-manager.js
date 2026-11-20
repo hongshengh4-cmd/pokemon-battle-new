@@ -1,6 +1,8 @@
 /* Formal regional UI controller. All state reads use the real Tavern/MVU
    APIs. The only write is PKMKanto.useRegionalDex, on an explicit Use click.
-   It validates ownership inside the original serialized native write chain. */
+   Ownership / legacy-original recovery are rechecked inside the original
+   serialized native write chain. Displaying this controller never writes. */
+import {activeRegionalDex,regionalDexUseState,INVENTORY_PATCH_VERSION} from './inventory-rules.mjs?v=journey-inventory-v1';
 (()=>{'use strict';
  const W=window,H=W.PKMRegionalHost||W,D=H.document,BUILD='20261118-status-restore-v8.1';
  try{H.PKMRegionalDex?.dispose?.();}catch{}
@@ -21,9 +23,10 @@
  function snapshot(win){const c=context().chat||[],id=mesId(win),end=id==null?c.length:Math.min(c.length,id+1);let p=null;for(let i=end-1;i>=0;i--){p=variables(i)?.stat_data?.pkm;if(p)break;}if(!p){try{p=H.PKMKanto?.read?.();}catch{}}let state={};for(let i=end-1;i>=Math.max(0,end-6);i--){if(c[i]?.is_user)continue;const m=String(c[i]?.mes||'').match(/<pkm_state>([\s\S]*?)(?:<\/pkm_state>|$)/i);if(m){for(const line of m[1].split('\n')){const kv=line.match(/^\s*([^：:\n]{1,6})[：:]\s*(.*?)\s*$/);if(kv)state[kv[1].trim()]=kv[2];}break;}}return{pk:p||{},state};}
  const owned=(region,p)=>Number(p?.player?.bag?.[region==='kanto'?'关都图鉴':'城都图鉴'])>0;
  // Original Kanto is the baseline status UI, not a newly gated inventory view.
- // Region switching still validates real item ownership; rendering never grants items.
+ // Switching validates ownership, with explicit recovery ONLY for an old
+ // Johto save's original Kanto dex. Rendering never grants inventory.
  const canView=(region,p)=>region==='kanto'||(region==='johto'&&owned('johto',p));
- const selectedRegion=p=>p?.integration?.activeRegionalDex==='johto'&&canView('johto',p)?'johto':'kanto';
+ const selectedRegion=activeRegionalDex;
  function report(win){let current=win;for(let i=0;i<8;i++){let f;try{f=current.frameElement;}catch{break;}if(!f)break;const owner=[...mounts.values()].find(m=>m.win===f.ownerDocument.defaultView||m.win===current);if(owner){owner.fit();break;}current=f.ownerDocument.defaultView;}}
  // Match current Kanto: keep the regex root and render native status bars in
  // that same message document. No regional webpage, header or extra iframe.
@@ -31,7 +34,7 @@
   if(stopped||!win||!root)return false;if(mounts.has(root)){mounts.get(root).sync();return true;}
   root.replaceChildren();
   const style=win.document.createElement('style');style.dataset.regionalStyle=BUILD;style.textContent=cfg.css;win.document.head.append(style);
-  const regions=new Map(),cleanups=[relay(win,root)];let dead=false,fitQueued=false;
+  const regions=new Map(),cleanups=[relay(win,root)];let dead=false,fitQueued=false,returnNotice=null;
   const fit=()=>{if(dead||fitQueued)return;fitQueued=true;win.requestAnimationFrame(()=>{fitQueued=false;if(dead||!isAttached(win)||!root.isConnected)return;const f=win.frameElement;if(!f)return;const height=Math.ceil(root.getBoundingClientRect().height+28);if(height>35&&Math.abs((parseFloat(f.style.height)||0)-height)>8)f.style.height=height+'px';});};
   function ensureNative(region,active){
    if(regions.has(region))return regions.get(region).node;
@@ -44,15 +47,28 @@
    if(dead)return;if(!root.isConnected||!isAttached(win)){dispose();return;}
    const{pk}=snapshot(win),active=selectedRegion(pk);
    for(const key of['kanto','johto']){if(canView(key,pk))ensureNative(key,active);const node=regions.get(key)?.node;if(node){const hidden=key!==active;if(node.hidden!==hidden)node.hidden=hidden;if(node.inert!==hidden)node.inert=hidden;}}
+   const recover=regionalDexUseState(pk,'关都图鉴').restore;
+   if(recover&&!returnNotice){
+    returnNotice=win.document.createElement('div');returnNotice.dataset.regionalDexReturn='kanto';
+    returnNotice.style.cssText='margin:8px 0;padding:10px 12px;border:1px solid #d8bd7e;border-radius:12px;background:#fff8e8;color:#59431b;font:13px/1.6 system-ui';
+    returnNotice.innerHTML='<span>原来的关都图鉴尚未放进背包。可以确认放回并切回关都，不会丢失城都图鉴。</span> <button type="button" data-dex-restore style="padding:6px 12px;border:0;border-radius:8px;background:#446eaf;color:white;font:inherit;cursor:pointer">放回关都图鉴并切回</button>';
+    returnNotice.querySelector('button').onclick=()=>open('关都图鉴');root.append(returnNotice);
+   }else if(!recover&&returnNotice){returnNotice.remove();returnNotice=null;}
    root.dataset.activeDex=active;fit();
   }
-  function dispose(){if(dead)return;dead=true;for(const entry of regions.values()){win.clearTimeout(entry.timer);try{H.PKMKantoLegacyStatus?.unmountDex?.(entry.node);}catch{}}for(const fn of cleanups.splice(0))try{fn();}catch{}observer?.disconnect();win.removeEventListener('pagehide',dispose);win.removeEventListener('resize',fit);style.remove();mounts.delete(root);}
+  function dispose(){if(dead)return;dead=true;for(const entry of regions.values()){win.clearTimeout(entry.timer);try{H.PKMKantoLegacyStatus?.unmountDex?.(entry.node);}catch{}}for(const fn of cleanups.splice(0))try{fn();}catch{}observer?.disconnect();win.removeEventListener('pagehide',dispose);win.removeEventListener('resize',fit);style.remove();returnNotice?.remove();mounts.delete(root);}
   let observer;try{observer=new win.ResizeObserver(fit);observer.observe(root);}catch{}win.addEventListener('pagehide',dispose,{once:true});win.addEventListener('resize',fit);mounts.set(root,{win,root,fit,sync,dispose});sync();return true;
  }
  function refresh(){if(stopped||queued)return;queued=true;W.queueMicrotask(()=>{queued=false;for(const m of mounts.values())m.sync();});}
  const itemImage=(name,cls='iimg')=>items[name]?'<img class="'+esc(cls)+' regional-dex-icon" src="'+cfg.icons[items[name].key]+'" alt="'+esc(name)+'" draggable="false">':'';
  function closeDialog(){if(!dialog)return;const old=dialog;dialog=null;old.node.remove();old.previous?.focus?.({preventScroll:true});}
- function open(name){name=String(name||'').trim();const item=items[name];if(!item)return;closeDialog();let pk;try{pk=H.PKMKanto?.read?.();}catch{}const count=Math.max(0,Number(pk?.player?.bag?.[name])||0),node=D.createElement('div'),previous=D.activeElement;node.id='pkm-regional-dex-confirm';node.className='pkb';node.setAttribute('role','dialog');node.setAttribute('aria-modal','true');node.setAttribute('aria-labelledby','pkm-regional-dex-dialog-title');node.innerHTML='<div class="care-card"><h3 id="pkm-regional-dex-dialog-title">使用'+esc(name)+'</h3><div class="care-line">'+itemImage(name,'pk-item')+'<b>'+esc(name)+'</b> × '+count+'</div><p>切换为'+item.label+'地区状态栏。图鉴与八枚徽章按地区显示；队伍、背包、世界、附近遭遇和好感仍是同一份存档。</p><p><b>重要物品，可反复使用，不会消耗。</b></p><p data-regional-error role="alert" hidden></p><div class="acts"><button type="button" class="ghost" data-dex-cancel>取消</button><button type="button" class="blue" data-dex-confirm '+(count>0?'':'disabled')+'>使用</button></div></div>';D.body.append(node);dialog={node,previous};node.querySelector('[data-dex-cancel]').onclick=closeDialog;node.querySelector('[data-dex-confirm]').onclick=async e=>{const b=e.currentTarget;b.disabled=true;try{if(!H.PKMKanto?.useRegionalDex)throw Error('完整原版桥接仍在加载，请稍后重试');await H.PKMKanto.useRegionalDex(name);closeDialog();refresh();}catch(err){const msg=node.querySelector('[data-regional-error]');msg.hidden=false;msg.textContent=err?.message||String(err);b.disabled=false;}};
+ function open(name){
+  name=String(name||'').trim();const item=items[name];if(!item)return;closeDialog();let pk;try{pk=H.PKMKanto?.read?.();}catch{}
+  const state=regionalDexUseState(pk,name),count=Math.max(0,Number(pk?.player?.bag?.[name])||0),node=D.createElement('div'),previous=D.activeElement;
+  const recovery=state.restore?'<p>原来的关都图鉴尚未登记在背包。确认后将它放回，并切回关都；当前城都图鉴也会保留。只补记缺失的原图鉴，不会反复增加数量。</p>':'';
+  node.id='pkm-regional-dex-confirm';node.className='pkb';node.setAttribute('role','dialog');node.setAttribute('aria-modal','true');node.setAttribute('aria-labelledby','pkm-regional-dex-dialog-title');
+  node.innerHTML='<div class="care-card"><h3 id="pkm-regional-dex-dialog-title">使用'+esc(name)+'</h3><div class="care-line">'+itemImage(name,'pk-item')+'<b>'+esc(name)+'</b>'+(state.restore?'（原图鉴待放回）':' × '+count)+'</div><p>切换为'+item.label+'地区状态栏。图鉴与八枚徽章按地区显示；队伍、背包、世界、附近遭遇和好感仍是同一份存档。</p>'+recovery+'<p><b>切换时，当前图鉴会放回背包。重要物品，可反复使用，不会消耗。</b></p><p data-regional-error role="alert" hidden></p><div class="acts"><button type="button" class="ghost" data-dex-cancel>取消</button><button type="button" class="blue" data-dex-confirm '+(state.allowed?'':'disabled')+'>'+(state.restore?'放回并切换':'使用')+'</button></div></div>';
+  D.body.append(node);dialog={node,previous};node.querySelector('[data-dex-cancel]').onclick=closeDialog;node.querySelector('[data-dex-confirm]').onclick=async e=>{const b=e.currentTarget;b.disabled=true;try{if(!H.PKMKanto?.useRegionalDex)throw Error('完整原版桥接仍在加载，请稍后重试');await H.PKMKanto.useRegionalDex(name);closeDialog();refresh();}catch(err){const msg=node.querySelector('[data-regional-error]');msg.hidden=false;msg.textContent=err?.message||String(err);b.disabled=false;}};
   node.addEventListener('keydown',e=>{if(e.key!=='Tab')return;const buttons=[...node.querySelectorAll('button:not(:disabled)')],first=buttons[0],last=buttons.at(-1);if(e.shiftKey&&D.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&D.activeElement===last){e.preventDefault();first.focus();}});node.querySelector('[data-dex-cancel]').focus({preventScroll:true});
  }
  const modalStyle=D.createElement('style');modalStyle.dataset.regionalModal=BUILD;modalStyle.textContent=cfg.modalCSS;D.head.append(modalStyle);
@@ -60,6 +76,6 @@
  function scan(){if(stopped)return;for(const f of D.querySelectorAll('#chat iframe')){try{const r=f.contentDocument?.getElementById('pkdex-v121-root');if(r)mount(f.contentWindow,r);}catch{}}}
  const observer=new H.MutationObserver(()=>{scan();});observer.observe(D.getElementById('chat')||D.body,{childList:true,subtree:true});
  const timer=W.setInterval(()=>{scan();refresh();},1000);
- const api={version:BUILD,mesId,isAttached,mount,report,refresh,open,itemImage,isDex:name=>!!items[String(name||'').trim()],item:name=>{const d=items[String(name||'').trim()];return d?{name:String(name).trim(),id:'',pk:3,d:'使用后切换为'+d.label+'地区状态栏；图鉴与八枚徽章分地区显示。重要物品，可反复使用，不消耗。'}:null;},dispose(){if(stopped)return;stopped=true;W.clearInterval(timer);observer.disconnect();closeDialog();D.removeEventListener('keydown',onKey);modalStyle.remove();for(const m of[...mounts.values()])m.dispose();if(H.PKMRegionalDex===api)delete H.PKMRegionalDex;}};
+ const api={version:BUILD,inventoryPatchVersion:INVENTORY_PATCH_VERSION,mesId,isAttached,mount,report,refresh,open,itemImage,isDex:name=>!!items[String(name||'').trim()],item:name=>{const d=items[String(name||'').trim()];return d?{name:String(name).trim(),id:'',pk:3,d:'使用后切换为'+d.label+'地区状态栏；图鉴与八枚徽章分地区显示。重要物品，可反复使用，不消耗。'}:null;},dispose(){if(stopped)return;stopped=true;W.clearInterval(timer);observer.disconnect();closeDialog();D.removeEventListener('keydown',onKey);modalStyle.remove();for(const m of[...mounts.values()])m.dispose();if(H.PKMRegionalDex===api)delete H.PKMRegionalDex;}};
  H.PKMRegionalDex=api;W.addEventListener('pagehide',()=>api.dispose(),{once:true});scan();
 })();
