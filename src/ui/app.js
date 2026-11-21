@@ -2,7 +2,7 @@
 if(window.parent!==window)document.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();window.parent.postMessage({type:'PKM_BATTLE_EXIT'},'*');}},true);
 import {localSprite,shinySprite,installSpriteRecovery} from '../../st-bridge/sprite-recovery.js?v=1.3.31';
 installSpriteRecovery(document);
-import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/browser-ai.mjs?v=20261119-showdown-rules-v1';
+import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD} from '../ai/browser-ai.mjs?v=20261118-ai-elite-v3';
 /* Browser UI + SillyTavern host bridge (postMessage). Engine lives in PKMBattle. */
 (function () {
   'use strict';

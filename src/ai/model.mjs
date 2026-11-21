@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Local, learnset-constrained hypotheses, NOT Foul Play's Smogon/team-dataset
 // inference. Only receives the sanitized observation, never the actual set.
-import {id} from './battle-view.mjs?v=20261118-foulplay-browser-ai-v1';
+import {id} from './battle-view.mjs?v=20261118-ai-elite-v3';
 const keys=['hp','atk','def','spa','spd','spe'];
 const natures={adamant:['atk','spa'],modest:['spa','atk'],jolly:['spe','spa'],timid:['spe','atk'],bold:['def','atk'],calm:['spd','atk'],impish:['def','spa'],careful:['spd','spa']};
 const choose=(xs,rng)=>xs[Math.floor(rng()*xs.length)];
@@ -38,7 +38,7 @@ function hypothesize(visible,index,view,db,rng){
 export function sampleWorld(view,db,rng){
  const own=view.own.map(p=>({...p,species:id(p.species||p.speciesId),types:[...p.types],stats:{...p.stats},stages:{...p.stages},volatile:{...p.volatile},nature:p.nature||'serious',weight:db.dex[id(p.species||p.speciesId)]?.weightkg||10,moves:p.moves.map(m=>({...m}))}));
  const foe=view.opponent.map((p,i)=>hypothesize(p,i,view,db,rng));
- return{teams:[own,foe],active:view.active.map(a=>a.slice()),conditions:[structuredClone(view.field.sides[1]),structuredClone(view.field.sides[0])],weather:view.weather,weatherTurns:view.weatherTurns,field:{...view.field},mechanicUsed:structuredClone(view.mechanicUsed),double:!!view.double,firstFaintLoses:!!view.firstFaintLoses};
+ return{teams:[own,foe],active:view.active.map(a=>a.slice()),conditions:[structuredClone(view.field.sides[1]),structuredClone(view.field.sides[0])],weather:view.weather,weatherId:view.weatherId,weatherTurns:view.weatherTurns,field:{...view.field},mechanicUsed:structuredClone(view.mechanicUsed),double:!!view.double,firstFaintLoses:!!view.firstFaintLoses};
 }
 const status={brn:'burn',par:'paralysis',psn:'poison',tox:'toxic',slp:'sleep',frz:'freeze'};
 const volatileMap={confusion:'CONFUSION',taunt:'TAUNT',torment:'TORMENT',healblock:'HEALBLOCK',magnetrise:'MAGNETRISE',aquaring:'AQUARING',ingrain:'INGRAIN',focusenergy:'FOCUSENERGY',attract:'ATTRACT',saltcure:'SALTCURE',yawn:'YAWN',embargo:'EMBARGO',slowstart:'SLOWSTART',cannotEscape:'TRAPPED',octolock:'OCTOLOCK',nightmare:'NIGHTMARE',minimize:'MINIMIZE',defensecurl:'DEFENSECURL',curse:'CURSE',gastroacid:'GASTROACID',leechseed:'LEECHSEED',substitute:'SUBSTITUTE',recharging:'MUSTRECHARGE',encore:'ENCORE'};
@@ -50,7 +50,9 @@ export function compatibilityReasons(view,db,catalog){
  if(Object.values(view.field.pseudoWeather||{}).some(Boolean))why.push('特殊场地状态');
  const sideKeys=new Set(['reflect','lightscreen','auroraveil','tailwind','safeguard','mist','spikes','toxicspikes','stealthrock','stickyweb','wideguard','quickguard','matblock']);
  for(const s of view.field.sides)for(const [k,v]of Object.entries(s))if(v&&!sideKeys.has(k))why.push('未映射队伍状态：'+k);
- const knownVol=new Set([...Object.keys(volatileMap),'protect','endure','disableMove','disableTurns','critBoost']);
+ // PS's stall is already represented by _protectStreak -> native protectCount;
+ // treating its mere existence as an unknown state needlessly disabled MCTS.
+ const knownVol=new Set([...Object.keys(volatileMap),'protect','endure','stall','disableMove','disableTurns','critBoost']);
  for(const [side,team]of [view.own,view.opponent].entries())for(const p of team){if(p.unseen)continue;const sp=id(p.species||p.speciesId);
   if(p.dynamaxed||p.terastallized||p.isMega)why.push('已发动特殊变身');
   if(side===0&&p.mechanic&&!view.mechanicUsed[0]?.[p.mechanic])why.push('可发动'+p.mechanic+'（兼容决策）');

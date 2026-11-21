@@ -1,4 +1,4 @@
-import {resolveTrainerAI,STORY_AI_PROMPT,AI_BUILD} from '../src/ai/profile.mjs?v=20261118-foulplay-browser-ai-v1';
+import {resolveTrainerAI,STORY_AI_PROMPT,STORY_MECHANIC_PROMPT,AI_BUILD} from '../src/ai/profile.mjs?v=20261118-ai-elite-v3';
 import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './sprite-recovery.js?v=1.3.31';
 import * as K from './kanto-data.js?v=20261117-chain-timeline-v1';
 import '../src/engine/field-environment.js?v=20261118-field-interactions-v1';
@@ -9,7 +9,7 @@ import './battle-mechanics.js?v=20261113-comprehensive-fix-v6';
 import './plot-guard.js?v=20261118-adjusted-story-v2';
 import './patch-guard.js?v=20261116-bond-guard-hotfix2';
 import './bond-sync.js?v=20261116-bond-guard-hotfix2';
-import '../src/engine/gear-resolve.js?v=20261113-comprehensive-fix-v6';
+import '../src/engine/gear-resolve.js?v=20261118-ai-elite-v3';
 import '../src/engine/held-sync.js?v=20261113-comprehensive-fix-v6';
 import '../src/engine/ability-choice.js?v=1.3.31';
 import './ability-random.js?v=20261115-normal-ability-random-v2';
@@ -1474,7 +1474,7 @@ function buildInjection() {
   const st = latestState(injectionCutoff)?.state;
   const plotPrompt=dateDrivenPlotPrompt(c,st,pkm);
   if (c.length <= 1) return plotPrompt&&pkm.integration?.profile?subUser(plotPrompt):''; // 初始登记时只注入已确认日期对应的场景
-  const parts = ['【关都之旅·存档与玩法摘要】', STORY_AI_PROMPT, BATTLE_START_PRIORITY];
+  const parts = ['【关都之旅·存档与玩法摘要】', STORY_AI_PROMPT, STORY_MECHANIC_PROMPT, BATTLE_START_PRIORITY];
   parts.push(`当前：模式 ${st?.模式 || pkm.world.mode || '—'}｜时间 ${st?.时间 || pkm.world.time || '—'}｜地点 ${st?.地点 || pkm.world.location || '—'}`);
   parts.push(localEcologyPrompt(pkm,st||{}));
   if(plotPrompt)parts.push(plotPrompt);
@@ -8491,7 +8491,9 @@ function engineConfig(spec, pkm, tag) {
   if (doubleMode || singleMode) rules.battleMode = doubleMode ? 'double' : 'single';
   if (fmt.firstFaintLoses) rules.firstFaintLoses = true;
   if (doubleMode) rules.rule = `${rules.rule}；双打：双方各2只同时出场，双方分别为每只出战宝可梦选择行动。`;
-  const out = { rules, aiProfile:resolveTrainerAI({...cfg,type,opponent:cfg.opponent||tx.opp},pkm),
+  const aiContext=Object.fromEntries(['ai','trainerRank','trainerClass','leagueStage','tournamentStage','stage','round','title','eventName','competition','tournamentName','tournament','league','remainingEntrants','exhibition'].filter(k=>cfg[k]!==undefined).map(k=>[k,clone(cfg[k])]));
+  aiContext.type=type;aiContext.opponent=cfg.opponent||tx.opp;
+  const out = { rules, aiContext, aiProfile:resolveTrainerAI({...cfg,type,opponent:cfg.opponent||tx.opp},pkm),
     encounter: { type: fmt.wild ? 'wild' : 'trainer' }, difficulty: cfg.difficulty || K.DIFFICULTY_BY_TYPE[type] || 'normal',
     p1: { entrants: [{ name: 'host-player', party }] }, p2: { entrants: [{ name: 'host-enemy', party: enemy }] },
     host: { tag, identityKey:String(spec.key||cfg.id||tag), balls, battleItems:battleItemStock(pkm), intro: `${tx.intro}${doubleMode ? ' 双打规则：双方各2只同时出场。' : ''}`, captureContext }, ui: spec.ui || null };

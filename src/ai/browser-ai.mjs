@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: MIT
 // Main-thread coordinator. The worker is a separate message endpoint. Only
 // observation() is sent, never a Battle, roster save, RNG, or player command.
-import {AI_BUILD,TIERS,resolveTrainerAI} from './profile.mjs?v=20261118-foulplay-browser-ai-v1';
-import {observation,rememberPublic,legalActions,quickChoice,actionKey,hash,publicAppearance} from './battle-view.mjs?v=20261119-showdown-rules-v1';
+import {AI_BUILD,TIERS,resolveTrainerAI} from './profile.mjs?v=20261118-ai-elite-v3';
+import {observation,rememberPublic,legalActions,quickChoice,actionKey,hash,publicAppearance} from './battle-view.mjs?v=20261118-ai-elite-v3';
 export {AI_BUILD,resolveTrainerAI};
 export function profileForBattle(cfg,difficulty,enemyKey){
  if(cfg?.aiProfile?.version===AI_BUILD&&TIERS[cfg.aiProfile.tier])return{...cfg.aiProfile,settings:{...TIERS[cfg.aiProfile.tier]}};
- return resolveTrainerAI({type:cfg?.encounter?.type==='wild'?'wild':enemyKey==='champion'?'champion':enemyKey==='gym'?'gym':'trainer',opponent:cfg?.rules?.opponent||enemyKey||'对手',ai:cfg?.ai,difficulty:cfg?cfg.difficulty:difficulty});
+ const context={...(cfg||{}),...(cfg?.aiContext||{})};
+ const type=context.type||(['wild','league','gym','elite','ace','champion'].includes(cfg?.encounter?.type)?cfg.encounter.type:enemyKey==='champion'?'champion':enemyKey==='gym'?'gym':'trainer');
+ return resolveTrainerAI({...context,type,opponent:context.opponent||cfg?.rules?.opponent||enemyKey||'对手',ai:context.ai||cfg?.ai,difficulty:context.difficulty??difficulty});
 }
 export class BrowserBattleAI{
- constructor({workerFactory=()=>new Worker(new URL('./search-worker.mjs?v='+AI_BUILD,import.meta.url),{type:'module',name:'Pokémon AI'}),timeout=5500,bootTimeout=12000}={}){
+ constructor({workerFactory=()=>new Worker(new URL('./search-worker.mjs?v='+AI_BUILD,import.meta.url),{type:'module',name:'Pokémon AI'}),timeout=3000,bootTimeout=20000}={}){
   this.workerFactory=workerFactory;this.timeout=timeout;this.bootTimeout=bootTimeout;this.worker=null;this.pending=new Map();this.serial=0;this.readyPromise=null;this.states=new WeakMap();
   const buffer=new Uint32Array(1);globalThis.crypto?.getRandomValues?.(buffer);this.salt=buffer[0]||hash(String(Date.now()));
  }
@@ -34,34 +36,48 @@ export class BrowserBattleAI{
  attach(b,profile,{onStatus=()=>{}}={}){
   if(!TIERS[profile?.tier])profile=resolveTrainerAI({});profile={...profile,settings:{...TIERS[profile.tier]}};
   if(this.activeBattle&&this.activeBattle!==b)this._reset(Error('已切换新对战'));this.activeBattle=b;
-  const state={profile,onStatus,key:null,promise:null,result:null,turn:-1,active:null};this.states.set(b,state);
+  const state={profile,onStatus,key:null,promise:null,result:null,turn:-1,active:null,memory:{at:b.turnCount,switchRuns:[0,0],recent:[]},planned:new Map()};this.states.set(b,state);
   b.aiProfile=profile;b.aiInfo={mode:'ready',tier:profile.tier,label:profile.label,build:AI_BUILD};
   b.aiController={consume:(slot,reserved)=>this.consume(b,slot,reserved),replacement:()=>this.replacement(b)};
   b.aiObserver={see:p=>{if(p?._side===0)rememberPublic(p)}};
   for(const p of b.activeMons(0))rememberPublic(p);
   onStatus(b.aiInfo,profile);void this.warm();return state;
  }
+ _syncMemory(b,s){
+  if(!s||b.turnCount<=s.memory.at)return;
+  const switched=[false,false],recent=[],consecutive=b.turnCount===s.memory.at+1;
+  for(const [slot,p]of s.planned){
+   if(p.turn!==s.memory.at||!consecutive)continue;
+   if(p.action.kind==='switch'&&b.activeSlots[1][slot]===p.action.index&&p.from!==p.action.index&&b.teams[1][p.from]?.hp>0){switched[slot]=true;recent.push({turn:p.turn,slot,kind:'switch',from:p.from,to:p.action.index});}
+   else if(p.action.kind==='move')recent.push({turn:p.turn,slot,kind:'move',index:p.action.index});
+  }
+  const switchRuns=switched.map((yes,slot)=>yes?(s.memory.switchRuns[slot]||0)+1:0);
+  s.memory={at:b.turnCount,switchRuns,recent:[...s.memory.recent,...recent].filter(r=>b.turnCount-r.turn<=4).slice(-12)};s.planned.clear();
+ }
  async prepare(b){
   const s=this.states.get(b);if(!s||b.winner!==null||b.pendingSwitch!==null||b._turnState)return null;
-  const view=observation(b,s.profile),key=JSON.stringify(view);
+  this._syncMemory(b,s);
+  const view=observation(b,s.profile,s.memory),key=JSON.stringify(view);
   if(s.key===key&&s.promise)return s.promise;
   s.key=key;s.result=null;s.turn=b.turnCount;s.active=b.activeSlots[1].join(',');
   const emit=info=>{if(s.key!==key)return;b.aiInfo={tier:s.profile.tier,label:s.profile.label,...info,build:AI_BUILD};s.onStatus(b.aiInfo,s.profile)};
   emit({mode:'thinking',tier:s.profile.tier,label:s.profile.label});
   const promise=(async()=>{
    let result;
-   try{await this._ensure();result=await this._rpc('decide',{observation:view,seed:hash(key)^this.salt});if(!Array.isArray(result.actions)||result.actions.length!==(b.double?2:1))throw Error('AI未返回完整行动');}
-   catch(error){const reserved=new Set(),actions=Array.from({length:b.double?2:1},(_,slot)=>{const a=quickChoice(b,slot,reserved);if(a.kind==='switch')reserved.add(a.index);return a});result={build:AI_BUILD,mode:'emergency',actions,info:{mode:'emergency',tier:s.profile.tier,label:s.profile.label,worlds:0,visits:0,reasons:[String(error.message||error)]}};}
+   try{await this._ensure();result=await this._rpc('decide',{observation:view,seed:hash(key)^this.salt},Math.max(this.timeout,s.profile.settings.milliseconds+1500));if(!Array.isArray(result.actions)||result.actions.length!==(b.double?2:1))throw Error('AI未返回完整行动');}
+   catch(error){const reserved=new Set(),actions=Array.from({length:b.double?2:1},(_,slot)=>{const a=quickChoice(b,slot,reserved,s.memory);if(a.kind==='switch')reserved.add(a.index);return a});result={build:AI_BUILD,mode:'emergency',actions,info:{mode:'emergency',tier:s.profile.tier,label:s.profile.label,worlds:0,visits:0,reasons:[String(error.message||error)]}};}
    if(s.key===key&&b.turnCount===s.turn&&b.activeSlots[1].join(',')===s.active){s.result=result;emit(result.info)}
    return result;
   })();s.promise=promise;return promise;
  }
  consume(b,slot=0,reserved=new Set()){
-  const s=this.states.get(b),legal=legalActions(b,1,slot,reserved);let action;
+  const s=this.states.get(b);this._syncMemory(b,s);
+  const legal=legalActions(b,1,slot,reserved);let action;
   if(s?.result&&s.turn===b.turnCount&&s.active===b.activeSlots[1].join(',')){
    const candidate=s.result.actions[slot];if(candidate)action=legal.find(a=>actionKey(a)===actionKey(candidate));
   }
-  if(!action){action=quickChoice(b,slot,reserved);b.aiInfo={mode:'emergency',tier:s?.profile.tier,label:s?.profile.label,reasons:['同步安全策略：无可用的本回合搜索结果'],build:AI_BUILD};s?.onStatus(b.aiInfo,s.profile)}
+  if(!action){action=quickChoice(b,slot,reserved,s?.memory);b.aiInfo={mode:'emergency',tier:s?.profile.tier,label:s?.profile.label,reasons:['同步安全策略：无可用的本回合搜索结果'],build:AI_BUILD};s?.onStatus(b.aiInfo,s.profile)}
+  if(s)s.planned.set(slot,{turn:b.turnCount,from:b.activeSlots[1][slot],action:{kind:action.kind,index:action.index}});
   return{...action,...(action.target?{target:{...action.target}}:{})};
  }
  replacement(b){
@@ -77,8 +93,8 @@ export class BrowserBattleAI{
  dispose(){this._reset(Error('AI线程已关闭'))}
 }
 export function showAIStatus(element,info,profile){
- if(!element)return;const mode=info.mode||'ready',labels={ready:'剧情AI · 就绪',thinking:'剧情AI · 后台思考中', 'poke-engine':'Foul Play策略 · poke-engine搜索',compatibility:'兼容AI · 近似前瞻',emergency:'安全AI · 临时降级'};
+ if(!element)return;const mode=info.mode||'ready',labels={ready:'剧情AI · 就绪',thinking:'剧情AI · 后台思考中', 'poke-engine':'Foul Play策略 · poke-engine搜索','hybrid-search':'WASM＋Showdown · 联合前瞻','showdown-search':'Showdown规则 · 多假设前瞻',compatibility:'兼容AI · 近似前瞻',emergency:'安全AI · 临时降级'};
  element.dataset.mode=mode;element.textContent=`${profile.label} · ${labels[mode]||mode}`;
  const intent={teaching:'指导赛',restrained:'收敛实力',casual:'非认真对战',serious:'认真对战'}[profile.intent]||'';
- element.title=[`人物档位：${TIERS[profile.storyTier]?.label||profile.label} → 本场：${profile.label}（${intent}）`,`依据：${profile.reason||profile.source||'默认'}`,info.worlds?`${info.worlds}组公开信息假设；${info.visits||0}次MCTS访问；${info.elapsed||0}毫秒`:'',...(info.reasons||[]),'不会改动数值；不会读取玩家未公开指令。双打和特殊机制不等同于原版Foul Play。'].filter(Boolean).join('\n');
+ element.title=[`人物档位：${TIERS[profile.storyTier]?.label||profile.label} → 本场：${profile.label}（${intent}）`,`依据：${profile.reason||profile.source||'默认'}`,info.worlds?`${info.worlds}组公开信息假设；${info.visits||0}次MCTS访问；${info.nodes||0}次规则推演；${info.elapsed||0}毫秒`:'',...(info.reasons||[]),'不会改动数值；不会读取玩家未公开指令。双打和特殊机制不等同于原版Foul Play。'].filter(Boolean).join('\n');
 }

@@ -2460,7 +2460,7 @@ p.stats = calcStats(form, p.level, { ivs: p.ivs, evs: p.evs, nature: p.nature })
     }
   }
 
-  const api = { flinchPatchVersion:'20261118-flinch-expiry-v1', aiVersion:'20261118-foulplay-browser-ai-v1', rulesPatchVersion:'20261118-hit-lifecycle-v1', effectiveBasePower, prepareMove, moveScripts: S, moveLifecycle: L, version:'20261116-ps-move-scripts-v1', setData, specialDamageInfo, FIXED_DAMAGE_IDS, VARIABLE_POWER_IDS, createPokemon, calcStats, effStat, estimateDamage, Battle, normId, STATUS_NAMES, abilityId, itemId, isGrounded, transformMove, makeZMove, makeMaxMove, stabMultiplier };
+  const api = { flinchPatchVersion:'20261118-flinch-expiry-v1', aiVersion:'20261118-ai-elite-v3', rulesPatchVersion:'20261118-hit-lifecycle-v1', effectiveBasePower, prepareMove, moveScripts: S, moveLifecycle: L, version:'20261116-ps-move-scripts-v1', setData, specialDamageInfo, FIXED_DAMAGE_IDS, VARIABLE_POWER_IDS, createPokemon, calcStats, effStat, estimateDamage, Battle, normId, STATUS_NAMES, abilityId, itemId, isGrounded, transformMove, makeZMove, makeMaxMove, stabMultiplier };
   root.PKMBattle = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

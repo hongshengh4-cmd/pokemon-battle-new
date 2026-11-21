@@ -52,6 +52,11 @@
       return false;
     };
     const gearKind=kindOf(gear?.kind),gearItem=rawItem(gear);
+    if(gear&&(gearKind==='dynamax'||gearKind==='tera')){
+      if(gearKind==='dynamax'){out.mechanic='dynamax';if(gear.form==='gmax'||gear.dynamaxForm==='gmax'||gear.gmax===true)out.dynamaxForm='gmax';}
+      else {const type=typeName(gear.teraType||gear.type||source.teraType);if(type){out.mechanic='tera';out.teraType=type;}}
+      return out; // Trainer devices never replace the Pokémon's held item.
+    }
     if(gear){
       // A legacy malformed record may contain both a separate item and battleGear.
       // Do not silently overwrite the ordinary item or manufacture a compatible stone.
@@ -61,8 +66,9 @@
       else if(gearKind==='z')setZ(api.zCrystalByItem(equipment),gear.type);
       return out;
     }
-    const directKind=kindOf(source.mechanic),directForm=formName(source.megaForm||source.mega||'');
-    const directZ=typeName(source.zType||source.zMoveType||'');
+    const declared=source.mechanic&&typeof source.mechanic==='object'?source.mechanic:{};
+    const directKind=kindOf(source.mechanic),directForm=formName(source.megaForm||source.mega||declared.megaForm||declared.form||'');
+    const directZ=typeName(source.zType||source.zMoveType||declared.zType||declared.typeName||(directKind==='z'?declared.type:''));
     if(held){
       const stone=api.megaStoneForItem(held,species);
       if(stone){
@@ -77,9 +83,10 @@
       const crystal=api.DATA.zCrystals.find(x=>x.type===directZ);
       if(crystal&&opt.allowImplicit!==false){setZ(crystal,directZ);return out;}
     }
-    if(directKind==='dynamax'){out.mechanic='dynamax';if(source.dynamaxForm||source.gmax)out.dynamaxForm=source.dynamaxForm||'gmax';}
-    if((directKind==='tera'||source.teraType)&&typeName(source.teraType)){out.mechanic='tera';out.teraType=typeName(source.teraType);}
+    if(directKind==='dynamax'){out.mechanic='dynamax';if(source.dynamaxForm==='gmax'||source.gmax===true||declared.dynamaxForm==='gmax'||declared.form==='gmax'||declared.gmax===true)out.dynamaxForm='gmax';}
+    const tera=typeName(source.teraType||declared.teraType||(directKind==='tera'?declared.typeName||declared.type:''));
+    if((directKind==='tera'||source.teraType)&&tera){out.mechanic='tera';out.teraType=tera;}
     return out;
   }
-  root.PKMGearResolve={version:'20261113-comprehensive-fix-v6',resolve};if(typeof module!=='undefined'&&module.exports)module.exports=root.PKMGearResolve;
+  root.PKMGearResolve={version:'20261113-comprehensive-fix-v6',normalizationVersion:'20261118-ai-tactics-v2',resolve};if(typeof module!=='undefined'&&module.exports)module.exports=root.PKMGearResolve;
 })(typeof globalThis!=='undefined'?globalThis:this);
