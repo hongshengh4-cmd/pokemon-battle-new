@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>宝可梦对战系统</title>
+<title>宝可梦对战系统 · 七档引擎测试</title>
 <script>if(new URLSearchParams(location.search).has('embed'))document.documentElement.classList.add('embed');</script>
 <link rel="stylesheet" href="./src/ui/styles.css?v=20261117-premier-ball">
 <link rel="stylesheet" href="./src/ui/damage-preview.css?v=20261118-damage-preview-v1">
@@ -75,6 +75,10 @@ html { --pkm-roster-scroll-version: roster-scroll-v1; }
   .roster-footer button { padding-inline: 6px; }
 }
 </style>
+<style id="ai-tier-select-size">
+.header-controls #sel-diff{min-width:142px}
+@media(max-width:480px){.header-controls #sel-diff{min-width:128px}}
+</style>
 </head>
 <body>
 <header class="top">
@@ -82,24 +86,27 @@ html { --pkm-roster-scroll-version: roster-scroll-v1; }
     <span class="ball" aria-hidden="true"></span>
     <div>
       <h1>宝可梦 <span>对战系统</span></h1>
-      <p>粉色链接 · 大世界战斗原型</p>
+      <p>七档 AI 自由测试</p>
     </div>
   </div>
   <div class="controls header-controls">
-    <label class="control-field">对手
+    <label class="control-field">对手队伍
       <select id="sel-enemy">
-        <option value="rookie">短裤小子（简单）</option>
+        <option value="rookie">短裤小子</option>
         <option value="wild">野生遭遇（可捕获）</option>
-        <option value="gym" selected>馆主·岚（普通）</option>
-        <option value="champion">冠军·希罗娜（专家）</option>
+        <option value="gym" selected>馆主·岚</option>
+        <option value="champion">冠军·希罗娜</option>
       </select>
     </label>
-    <label class="control-field">电脑难度
-      <select id="sel-diff">
-        <option value="easy">简单</option>
-        <option value="normal" selected>普通</option>
-        <option value="hard">困难</option>
-        <option value="expert">专家</option>
+    <label class="control-field">电脑 AI 档位
+      <select id="sel-diff" title="七档自由选择；切换后点击开始对战生效。导入的剧情配置不受此菜单覆盖。">
+        <option value="novice">新手</option>
+        <option value="regular" selected>普通训练家</option>
+        <option value="veteran">资深训练家</option>
+        <option value="leader">馆主</option>
+        <option value="ace">精英训练家</option>
+        <option value="elite">四天王</option>
+        <option value="champion">冠军</option>
       </select>
     </label>
     <button id="btn-wild" type="button" class="world-shortcut">野生遭遇</button>
@@ -107,6 +114,7 @@ html { --pkm-roster-scroll-version: roster-scroll-v1; }
     <button id="btn-start" class="red start-button" type="button">开始对战</button>
   </div>
 </header>
+
 
 <main class="panel">
   <section class="battle-screen" aria-label="横版战斗画面">
@@ -183,7 +191,7 @@ html { --pkm-roster-scroll-version: roster-scroll-v1; }
         <p id="command-end-text"></p><div><button type="button" id="btn-next-wild">下一次野生遭遇</button><button type="button" id="btn-end-box">查看仓库</button></div>
       </div>
       <p id="command-status" class="command-status" role="status" aria-live="polite"></p>
-      <p id="ai-status" style="font:600 11px/1.5 system-ui,sans-serif;color:#746481;margin:6px 0 0;padding:5px 2px 0;border-top:1px dashed #d8cce0;overflow-wrap:anywhere" role="status" aria-live="polite">剧情AI · 准备中</p>
+      <p id="ai-status" style="font:600 11px/1.5 system-ui,sans-serif;color:#746481;margin:6px 0 0;padding:5px 2px 0;border-top:1px dashed #d8cce0;overflow-wrap:anywhere" role="status" aria-live="polite">测试 AI · 等待开战</p>
     </div>
   </section>
   </section>
@@ -267,6 +275,6 @@ html { --pkm-roster-scroll-version: roster-scroll-v1; }
 <script src="./src/ui/move-info.js?v=move-info-zh-preview-v3"></script>
 <script src="./src/ui/field-fx.js?v=20261118-field-interactions-v1"></script>
 <script src="./src/ui/ps/ps-theater.js?v=20261119-showdown-rules-v1"></script>
-<script type="module" src="./src/ui/app.js?v=roster-scroll-v1&scroll=20261118-mobile-scroll-v1&damage=20261118-damage-preview-v1&field=20261118-field-interactions-v1&ai=20261118-ai-elite-v3&tierwiring=npc-tier-wiring-v1"></script>
+<script type="module" src="./src/ui/app.js?v=roster-scroll-v1&scroll=20261118-mobile-scroll-v1&damage=20261118-damage-preview-v1&field=20261118-field-interactions-v1&ai=20261118-ai-elite-v3&tierwiring=npc-tier-wiring-v1&testui=ai-test-ui-v2-compact"></script>
 </body>
 </html>

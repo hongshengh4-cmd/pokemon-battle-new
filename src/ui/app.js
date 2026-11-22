@@ -2,7 +2,8 @@
 if(window.parent!==window)document.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();window.parent.postMessage({type:'PKM_BATTLE_EXIT'},'*');}},true);
 import {localSprite,shinySprite,installSpriteRecovery} from '../../st-bridge/sprite-recovery.js?v=1.3.31';
 installSpriteRecovery(document);
-import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD,TIER_WIRING_BUILD} from '../ai/browser-ai.mjs?v=npc-tier-wiring-v1';
+import {BrowserBattleAI,showAIStatus,AI_BUILD,TIER_WIRING_BUILD} from '../ai/browser-ai.mjs?v=npc-tier-wiring-v1';
+import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-test-controls.mjs?v=ai-test-ui-v2-compact';
 /* Browser UI + SillyTavern host bridge (postMessage). Engine lives in PKMBattle. */
 (function () {
   'use strict';
@@ -107,6 +108,7 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD,TIER_WIRING_BUILD
   window.addEventListener('pagehide', e => { if (!e.persisted) battleTouchScroll.destroy(); });
   const $ = id => document.getElementById(id);
   const browserAI = new BrowserBattleAI();
+  document.documentElement.dataset.aiTestUi = AI_TEST_UI_BUILD;
   window.addEventListener('pagehide', () => browserAI.dispose(), {once:true});
   const BATTLE_MUSIC_TRACKS = [
     { name: '宝可梦无印战斗 BGM-2', url: 'https://archive.org/download/BGM-5/%E5%AE%9D%E5%8F%AF%E6%A2%A6%E6%97%A0%E5%8D%B0%E6%88%98%E6%96%97BGM-2.mp3' },
@@ -220,7 +222,7 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD,TIER_WIRING_BUILD
   if (EMBED) document.documentElement.classList.add('embed');
   let dataReady = false, pendingHostConfig = null, hostTag = null, hostMode = false;
   const APP_VERSION = '20261116-ps-move-scripts-v1';
-  const hostVersions = () => ({fieldInteractionVersion:window.PKMBattle?.fieldInteractionVersion===window.PKMFieldEnvironment?.version&&window.PKMFieldFX?.version===window.PKMFieldEnvironment?.version?window.PKMFieldEnvironment?.version:'',aiVersion:window.PKMBattle?.aiVersion===AI_BUILD?AI_BUILD:'',tierWiringVersion:TIER_WIRING_BUILD,aiRuntime:'browser-worker-wasm',mobileScrollVersion:battleTouchScroll.version===getComputedStyle(document.documentElement).getPropertyValue('--pkm-mobile-scroll-version').trim()?battleTouchScroll.version:'',flinchPatchVersion:window.PKMBattle?.flinchPatchVersion||'',rulesPatchVersion:window.PKMBattle?.rulesPatchVersion||'',showdownCommit:window.PKMBattle?.rulesEngine?.commit||'',showdownReady:window.PKMBattle?.rulesEngine?.ready===true,version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',moveScriptsVersion:window.PKMMoveScripts?.VERSION||'',lifecycleVersion:window.PKMMoveLifecycle?.version||'',selectionVersion:window.PKMTeamSelection?.version||'',normalAbilityVersion:window.PKMNormalAbility?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||'',genderVersion:window.PKMGender?.version||''});
+  const hostVersions = () => ({fieldInteractionVersion:window.PKMBattle?.fieldInteractionVersion===window.PKMFieldEnvironment?.version&&window.PKMFieldFX?.version===window.PKMFieldEnvironment?.version?window.PKMFieldEnvironment?.version:'',aiVersion:window.PKMBattle?.aiVersion===AI_BUILD?AI_BUILD:'',tierWiringVersion:TIER_WIRING_BUILD,testUiVersion:AI_TEST_UI_BUILD,aiRuntime:'browser-worker-wasm',mobileScrollVersion:battleTouchScroll.version===getComputedStyle(document.documentElement).getPropertyValue('--pkm-mobile-scroll-version').trim()?battleTouchScroll.version:'',flinchPatchVersion:window.PKMBattle?.flinchPatchVersion||'',rulesPatchVersion:window.PKMBattle?.rulesPatchVersion||'',showdownCommit:window.PKMBattle?.rulesEngine?.commit||'',showdownReady:window.PKMBattle?.rulesEngine?.ready===true,version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',moveScriptsVersion:window.PKMMoveScripts?.VERSION||'',lifecycleVersion:window.PKMMoveLifecycle?.version||'',selectionVersion:window.PKMTeamSelection?.version||'',normalAbilityVersion:window.PKMNormalAbility?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||'',genderVersion:window.PKMGender?.version||''});
   let formatTag = '', formatRule = ''; // v1.3.8：角色卡发来的赛制（例：3v3、3只 vs 1只），显示在行动菜单的标签上
   let typeLabel = ''; // v1.3.9：角色卡发来的对战类型（道馆战 / 训练家对战 / 劲敌对战 / 火箭队……），标签第一段
   // 宿主模式：球袋来自角色卡变量（MVU），只存在本页内存里，不读写本机存档。
@@ -2178,7 +2180,7 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD,TIER_WIRING_BUILD
     selectedMechanic = null; doubleActionSlot = 0; doubleActions = [null, null]; pendingDoubleTarget = null;
     animating = false;
     let doubleMode = battleModeFromConfig(cfg);
-    let playerTeam, enemyTeam, difficulty = $('sel-diff').value, weather = null;
+    let playerTeam, enemyTeam, difficulty = cfg ? (cfg.difficulty || 'normal') : legacyDifficultyForTest($('sel-diff').value), weather = null;
     formatTag = cfg ? String(cfg.rules?.tag || '').slice(0, 28) : ''; formatRule = cfg ? String(cfg.rules?.rule || '').slice(0, 160) : '';
     typeLabel = cfg ? String(cfg.rules?.typeLabel || '').slice(0, 8) : '';
     if (cfg) {
@@ -2261,8 +2263,13 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD,TIER_WIRING_BUILD
       if (doubleMode && (playerTeam.filter(p => !p.fainted).length < 2 || enemyTeam.filter(p => !p.fainted).length < 2)) { alert('双打模式需要双方各至少两只宝可梦。'); return; }
       battle = new PKMBattle.Battle(playerTeam, enemyTeam, { double: doubleMode, difficulty, encounterType: isWild ? 'wild' : 'trainer', balls: worldStore.state.balls });
     }
-    browserAI.attach(battle, profileForBattle(cfg, difficulty, $('sel-enemy').value), {
-      onStatus: (info, profile) => { if (battle?.aiProfile === profile) showAIStatus($('ai-status'), info, profile); }
+    browserAI.attach(battle, profileForTestUI(cfg, $('sel-diff').value, $('sel-enemy').value, battle.encounterType), {
+      onStatus: (info, profile) => {
+        if (battle?.aiProfile !== profile) return;
+        showAIStatus($('ai-status'), info, profile);
+        if (profile.manualTest && $('ai-status')) $('ai-status').textContent = $('ai-status').textContent.replace(/剧情AI/g, '测试AI');
+        if ($('ai-status')) { $('ai-status').dataset.tier = profile.tier; $('ai-status').dataset.source = profile.source || ''; }
+      }
     });
     // v1.3.9：敌方信息框的小标签：野生 / 对手名字（角色卡发来的），单机模式按野生 / 敌方
     const sideEl = $('e-side-label');
@@ -2515,10 +2522,18 @@ import {BrowserBattleAI,profileForBattle,showAIStatus,AI_BUILD,TIER_WIRING_BUILD
     const q = new URLSearchParams(location.search).get('config');
     if (window.PKMPreview) worldStore = new PKMWorldSave.Store(memoryStorage());
     dataReady = true;
+    document.documentElement.dataset.aiTestReady = 'true';
     if (pendingHostConfig) { const cfg = pendingHostConfig; pendingHostConfig = null; startHostBattle(cfg); return; }
     if (q) { try { await startBattle(JSON.parse(q)); return; } catch (e) { $('log').textContent = e.message; } }
     if (EMBED) { $('log').textContent = '对战系统已就绪，正在等待角色卡发送对战配置……'; postHost('PKM_BATTLE_READY', hostVersions()); return; }
-    await startBattle(null);
+    // Standalone tests start only on the user's explicit click. The existing
+    // opt-in effects preview still initializes its visual fixture as before.
+    if (new URLSearchParams(location.search).has('fxpreview')) { await startBattle(null); return; }
+    $('log').textContent = '选择队伍和电脑 AI 档位后，点击“开始对战”。';
+    $('command-title').textContent = '选择档位后开始测试';
+    $('command-status').textContent = '切换档位后，点击“开始对战”生效。';
+    $('encounter-tag').textContent = '独立测试 · 等待开始';
+    for (const id of ['command-fight','command-switch','command-balls','command-items']) $(id).disabled = true;
   }
 
   async function startHostBattle(cfg) {
