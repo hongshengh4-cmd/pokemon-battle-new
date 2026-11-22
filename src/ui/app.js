@@ -2,11 +2,16 @@
 if(window.parent!==window)document.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();window.parent.postMessage({type:'PKM_BATTLE_EXIT'},'*');}},true);
 import {localSprite,shinySprite,installSpriteRecovery} from '../../st-bridge/sprite-recovery.js?v=1.3.31';
 installSpriteRecovery(document);
-import {BrowserBattleAI,showAIStatus,AI_BUILD,TIER_WIRING_BUILD} from '../ai/browser-ai.mjs?v=npc-tier-wiring-v1';
-import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-test-controls.mjs?v=ai-test-ui-v2-compact';
+import {planOmitted,exhibition} from '../ai/circuit/prep.mjs?v=crown-72';
+import {BrowserBattleAI,showAIStatus,AI_BUILD,TIER_WIRING_BUILD,COMMAND_BUILD,REPLACEMENT_BUILD,resolveTrainerAI} from '../ai/browser-ai.mjs?v=npc-tier-wiring-v1&replacement=public-reserves-v71&cmd=kanto-crown-v72&features=seven-tier-v71';
+import {mountOfficialCatalog} from './official-catalog.mjs?v=seven-tier-v71';
+import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-test-controls.mjs?v=ai-test-ui-v2-compact&cmd=kanto-crown-v72&features=seven-tier-v71';
 /* Browser UI + SillyTavern host bridge (postMessage). Engine lives in PKMBattle. */
 (function () {
   'use strict';
+  const OFFICIAL_NAMES=window.PKMOfficialNames, OPPONENT_TRAINING=window.PKMOpponentTraining;
+  if(OFFICIAL_NAMES?.version!=='official-simplified-v1'||OPPONENT_TRAINING?.version!=='tier-pokemon-ev-v71')throw Error('名称名录或敌方培养模块未就绪，请完整安装新版。');
+  let buildingProfile=null, buildWarnings=[];
   /* @battle-touch-scroll-begin */
   // The host can rotate the entire iframe by 90 degrees. Some mobile engines then
   // hand native scrolling to the wrong screen axis. Touch client coordinates are
@@ -109,6 +114,7 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
   const $ = id => document.getElementById(id);
   const browserAI = new BrowserBattleAI();
   document.documentElement.dataset.aiTestUi = AI_TEST_UI_BUILD;
+  document.documentElement.dataset.aiReplacement = REPLACEMENT_BUILD;
   window.addEventListener('pagehide', () => browserAI.dispose(), {once:true});
   const BATTLE_MUSIC_TRACKS = [
     { name: '宝可梦无印战斗 BGM-2', url: 'https://archive.org/download/BGM-5/%E5%AE%9D%E5%8F%AF%E6%A2%A6%E6%97%A0%E5%8D%B0%E6%88%98%E6%96%97BGM-2.mp3' },
@@ -220,9 +226,10 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
   // v1.3.2: 外置桥接（SillyTavern 角色卡）嵌入模式：?embed=1
   const EMBED = new URLSearchParams(location.search).has('embed');
   if (EMBED) document.documentElement.classList.add('embed');
+  let practiceReturnStore=null;
   let dataReady = false, pendingHostConfig = null, hostTag = null, hostMode = false;
   const APP_VERSION = '20261116-ps-move-scripts-v1';
-  const hostVersions = () => ({fieldInteractionVersion:window.PKMBattle?.fieldInteractionVersion===window.PKMFieldEnvironment?.version&&window.PKMFieldFX?.version===window.PKMFieldEnvironment?.version?window.PKMFieldEnvironment?.version:'',aiVersion:window.PKMBattle?.aiVersion===AI_BUILD?AI_BUILD:'',tierWiringVersion:TIER_WIRING_BUILD,testUiVersion:AI_TEST_UI_BUILD,aiRuntime:'browser-worker-wasm',mobileScrollVersion:battleTouchScroll.version===getComputedStyle(document.documentElement).getPropertyValue('--pkm-mobile-scroll-version').trim()?battleTouchScroll.version:'',flinchPatchVersion:window.PKMBattle?.flinchPatchVersion||'',rulesPatchVersion:window.PKMBattle?.rulesPatchVersion||'',showdownCommit:window.PKMBattle?.rulesEngine?.commit||'',showdownReady:window.PKMBattle?.rulesEngine?.ready===true,version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',moveScriptsVersion:window.PKMMoveScripts?.VERSION||'',lifecycleVersion:window.PKMMoveLifecycle?.version||'',selectionVersion:window.PKMTeamSelection?.version||'',normalAbilityVersion:window.PKMNormalAbility?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||'',genderVersion:window.PKMGender?.version||''});
+  const hostVersions = () => ({commandVersion:window.PKMBattle?.commandVersion===COMMAND_BUILD?COMMAND_BUILD:'',fieldInteractionVersion:window.PKMBattle?.fieldInteractionVersion===window.PKMFieldEnvironment?.version&&window.PKMFieldFX?.version===window.PKMFieldEnvironment?.version?window.PKMFieldEnvironment?.version:'',aiVersion:window.PKMBattle?.aiVersion===AI_BUILD?AI_BUILD:'',tierWiringVersion:TIER_WIRING_BUILD,replacementVersion:window.PKMBattle?.replacementVersion===REPLACEMENT_BUILD?REPLACEMENT_BUILD:'',testUiVersion:AI_TEST_UI_BUILD,officialNamesVersion:OFFICIAL_NAMES.version,opponentTrainingVersion:OPPONENT_TRAINING.version,featureVersion:'seven-tier-v71',aiRuntime:'browser-worker-wasm',mobileScrollVersion:battleTouchScroll.version===getComputedStyle(document.documentElement).getPropertyValue('--pkm-mobile-scroll-version').trim()?battleTouchScroll.version:'',flinchPatchVersion:window.PKMBattle?.flinchPatchVersion||'',rulesPatchVersion:window.PKMBattle?.rulesPatchVersion||'',showdownCommit:window.PKMBattle?.rulesEngine?.commit||'',showdownReady:window.PKMBattle?.rulesEngine?.ready===true,version:APP_VERSION,engineVersion:window.PKMBattle?.version||'',moveScriptsVersion:window.PKMMoveScripts?.VERSION||'',lifecycleVersion:window.PKMMoveLifecycle?.version||'',selectionVersion:window.PKMTeamSelection?.version||'',normalAbilityVersion:window.PKMNormalAbility?.version||'',gearVersion:window.PKMGearResolve?.version||'',gearDataVersion:window.PKMBattleGear?.fixVersion||'',genderVersion:window.PKMGender?.version||''});
   let formatTag = '', formatRule = ''; // v1.3.8：角色卡发来的赛制（例：3v3、3只 vs 1只），显示在行动菜单的标签上
   let typeLabel = ''; // v1.3.9：角色卡发来的对战类型（道馆战 / 训练家对战 / 劲敌对战 / 火箭队……），标签第一段
   // 宿主模式：球袋来自角色卡变量（MVU），只存在本页内存里，不读写本机存档。
@@ -248,27 +255,16 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
   let textPairs = [], speciesZhToId = {}, textMap = new Map(), textRegex = null;
   const zhType = t => ZH.types?.[t] || PKMMechanics.TYPE_ZH[t] || t || '无属性';
   const zhCat = c => ZH.categories?.[c] || ({ Physical: '物理', Special: '特殊', Status: '变化' }[c] || c || '变化');
-  const zhSpecies = (id, fallback = '') => ZH.species?.[normId(id)] || fallback || '未知宝可梦';
-  const zhMove = (id, fallback = '') => ZH.moves?.[normId(id)] || fallback || '未知招式';
-  const zhAbility = (idOrName, fallback = '未知特性') => PKMMechanics.abilityInfo(idOrName)?.name || ZH.abilities?.[normId(idOrName)] || fallback;
+  const zhSpecies = (id, fallback = '') => OFFICIAL_NAMES.name('species',id) || '物种名称未收录';
+  const zhMove = (id, fallback = '') => OFFICIAL_NAMES.name('moves',id) || '招式名称未收录';
+  const zhAbility = (idOrName, fallback = '特性名称未收录') => OFFICIAL_NAMES.name('abilities',OFFICIAL_NAMES.resolve('abilities',idOrName)) || fallback;
   const zhNature = id => !id ? '无修正' : (ZH.natures?.[normId(id)] || '未知性格');
   const appearancePokemon = p => p?.illusion ? { ...p, ...p.illusion, originalSpeciesId:p.illusion.speciesId, illusion:null } : p;
   const displayPokemonName = p => { p=appearancePokemon(p);return p.hasNickname ? p.name : zhSpecies(p.speciesId, p.speciesName || p.name); };
-  const displayItemName = item => !item ? '' : (PKMMechanics.ITEMS[item.id]?.name || '未知道具');
+  const displayItemName = item => !item ? '' : (OFFICIAL_NAMES.name('items',item.id) || '道具名称未收录');
   const hasCjk = s => /[\u3400-\u9fff]/.test(String(s || ''));
   function displayMoveName(shown, base) {
-    if (!shown) return '未知招式';
-    if (shown._isZ) return `Ｚ招式·${zhMove(shown._baseId || base?.id, base?.name || '')}`;
-    // 只显示中文：缺 id 时按英文名换算 id 再查中文表（如 Max Guard → maxguard → 极巨防壁）。
-    const id = shown.id || normId(shown.name) || (shown._isMax && shown.volatileStatus === 'maxguard' ? 'maxguard' : '');
-    if (shown._isMax) {
-      if (String(id).startsWith('gmax')) return `超极巨${zhType(shown.type)}招式`;
-      if (shown.category === 'Status' || shown.volatileStatus === 'maxguard') return ZH.moves?.maxguard || '极巨防壁';
-    }
-    const zh = zhMove(id, '');
-    if (hasCjk(zh) && zh !== '未知招式') return zh;
-    if (shown._isMax) return `极巨${zhType(shown.type)}招式`;
-    return hasCjk(shown.name) ? shown.name : '未知招式';
+    return OFFICIAL_NAMES.name('moves',shown?.id) || OFFICIAL_NAMES.name('moves',shown?._baseId||base?.id) || '招式名称未收录';
   }
   function buildTextPairs() {
     const pairs = [];
@@ -291,7 +287,7 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
   }
   function translateText(text) {
     const out = String(text ?? '');
-    return textRegex ? out.replace(textRegex, match => textMap.get(match) || match) : out;
+    return OFFICIAL_NAMES.displayText(textRegex ? out.replace(textRegex, match => textMap.get(match) || match) : out);
   }
 
   const spriteFailed = new Set();
@@ -1493,8 +1489,9 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
   }
   function mechanicState(me, slot = battle?.double ? doubleActionSlot : 0) {
     if (!battle || !me || me.fainted || !me.mechanic || !globalThis.PKMMechanicItems) return null;
-    const info = PKMMechanicItems.describe(me, PKMBattle._dex);
-    if (!info) return null;
+    const rawInfo = PKMMechanicItems.describe(me, PKMBattle._dex);
+    if (!rawInfo) return null;
+    const info={...rawInfo,name:me.mechanic==='z'?(OFFICIAL_NAMES.name('items',PKMMechanics.zCrystalForType(me.zType))||'Ｚ招式'):me.mechanic==='mega'?(OFFICIAL_NAMES.name('items',me.item)||'超级进化'):rawInfo.name};
     const kind = me.mechanic;
     const spentFlag = !!battle.mechanicUsed[0][kind] || (kind === 'mega' && me.isMega) || (kind === 'tera' && me.terastallized);
     const active = !battle.double || slot === doubleActionSlot;
@@ -1573,7 +1570,7 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
       if (p.terastallized) badges.push(`太晶·${zhType(p.teraType)}`);
       if (p.dynamaxed) badges.push(`${p.dynamaxForm === 'gmax' ? '超极巨' : '极巨'}·${p.dynamaxTurns}回合`);
       const speciesText = visible.hasNickname ? ` · ${zhSpecies(visible.speciesId, visible.speciesName)}` : '';
-      const abilityText = hiddenInfo ? '未公开' : ab?.name || zhAbility(p.ability), shownTypes=visible.types.map(zhType).join('/');
+      const abilityText = hiddenInfo ? '未公开' : zhAbility(p.ability), shownTypes=visible.types.map(zhType).join('/');
       sub.textContent = `等级 ${p.level} · ${shownTypes} · 特性 ${abilityText}${speciesText}${badges.length ? ' · ' + badges.join(' · ') : ''}${p.choiceLockedMove ? ' · 锁定中' : ''}`;
       sub.title = `等级 ${p.level} · ${shownTypes} · ${zhSpecies(visible.speciesId, visible.speciesName)} · 特性 ${abilityText}${!hiddenInfo&&it ? ' · 道具 ' + displayItemName(it) : ''}`;
       const ratio = p.hp / p.maxHp; hp.style.width = (ratio * 100).toFixed(1) + '%'; hp.className = hpClass(ratio);
@@ -1833,7 +1830,8 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
     btn.appendChild(block);
   }
   function moveInfoOf(c) {
-    return PKMMoveInfo.describe(c.move, { user: c.user, foe: c.foe, baseMove: c.base, name: c.name, foeName: c.foeName, zhType, zhCat, damagePreviews: damagePreviewsFor(c) });
+    const info=PKMMoveInfo.describe(c.move, { user: c.user, foe: c.foe, baseMove: c.base, name: displayMoveName(c.move,c.base), foeName: c.foeName, zhType, zhCat, damagePreviews: damagePreviewsFor(c) });
+    return {...info,name:displayMoveName(c.move,c.base),desc:translateText(info.desc),effects:info.effects.map(translateText),notes:info.notes.map(translateText),warns:info.warns.map(translateText)};
   }
   function moveCell(btn, ctxFn) {
     const cell = document.createElement('div');
@@ -1996,28 +1994,25 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
     } else finishTurn();
   }
 
-  function buildFromPreset(trainer) {
-    return trainer.party.map(p => PKMBattle.createPokemon(p.species, p.level, p.moves, { ...p, generateIdentity: true }));
+  function createBattlePokemon(species,level,moves,options={},opponent=false,profile=buildingProfile) {
+    OFFICIAL_NAMES.validateBattleSpec({...options,species,moves});
+    const sid=OFFICIAL_NAMES.resolve('species',species);
+    if(!sid||!PKMBattle._dex[sid])throw Error('所选物种不在官方宝可梦名录中，已阻止开战。');
+    const mids=OFFICIAL_NAMES.normalizeMoves(moves,{warnings:buildWarnings});
+    if(!mids.length)throw Error('没有可用的官方招式，请重新配招。');
+    const opts={...options};
+    if(opts.item)opts.item=OFFICIAL_NAMES.normalizeItem(opts.item,{warnings:buildWarnings});
+    let training=null;
+    if(opponent){training=OPPONENT_TRAINING.forSpec({...opts,level},sid,mids,profile||{}, {dex:PKMBattle._dex,moves:PKMBattle._moves});opts.evs=training.evs;}
+    const p=PKMBattle.createPokemon(sid,level,mids,opts);
+    if(training)p._opponentTraining={...training.info,evs:{...training.evs}};
+    return p;
   }
-  // v1.3.2: 角色卡写的是官方中文名（“大岩蛇”“岩石封锁”），这里统一换算成引擎 id。
-  const MOVE_ALIASES = { '紧束': 'bind', '綁緊': 'bind', '十万伏特': 'thunderbolt', '十萬伏特': 'thunderbolt', '电光一闪': 'quickattack', '泡沫': 'bubble', '超音波': 'supersonic', '吸血': 'leechlife', '飞叶快刀': 'razorleaf', '火焰放射': 'flamethrower', '喷射火焰': 'flamethrower', '水炮': 'hydropump', '冲浪': 'surf', '催眠术': 'hypnosis', '念力': 'confusion', '高速移动': 'agility', '影子球': 'shadowball', '舌舔': 'lick', '黑夜魔影': 'nightshade', '奇异之光': 'confuseray', '电磁波': 'thunderwave', '打雷': 'thunder', '藤鞭': 'vinewhip', '寄生种子': 'leechseed', '日光束': 'solarbeam', '阳光烈焰': 'solarbeam' };
-  let moveZhToId = null;
-  function resolveMoveId(text) {
-    const raw = String(text || '').trim();
-    if (!raw) return '';
-    const n = normId(raw);
-    if (n && PKMBattle._moves?.[n]) return n;
-    if (!moveZhToId) {
-      moveZhToId = {};
-      for (const [id, name] of Object.entries(ZH.moves || {})) if (name && !moveZhToId[name]) moveZhToId[name] = id;
-    }
-    const plain = raw.replace(/[\s·・]/g, '');
-    for (const key of [raw, plain]) {
-      if (moveZhToId[key] && PKMBattle._moves?.[moveZhToId[key]]) return moveZhToId[key];
-      if (MOVE_ALIASES[key] && PKMBattle._moves?.[MOVE_ALIASES[key]]) return MOVE_ALIASES[key];
-    }
-    return '';
+  function buildFromPreset(trainer,opponent=false) {
+    return trainer.party.map(p => createBattlePokemon(p.species, p.level, p.moves, { ...p, generateIdentity: true },opponent));
   }
+  // Names are migrated at import only; the editor/search expose canonical labels.
+  function resolveMoveId(text) { return OFFICIAL_NAMES.resolve('moves',text); }
   const STATUS_ALIASES = { par: 'par', brn: 'brn', psn: 'psn', tox: 'tox', slp: 'slp', frz: 'frz', '麻痹': 'par', '灼伤': 'brn', '烧伤': 'brn', '中毒': 'psn', '剧毒': 'tox', '睡眠': 'slp', '睡着': 'slp', '冰冻': 'frz' };
   // Preserve M/F/N (including legacy Chinese/English aliases); N is genderless, not an omitted field.
   function buildFromConfigParty(party, identity = {}) {
@@ -2026,25 +2021,23 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
     let individualIndex = 0;
     for (const entry of party) {
       const spec = typeof entry === 'string' ? { name: entry } : (entry || {});
+      OFFICIAL_NAMES.validateBattleSpec(spec);
       const rawSpecies = spec.species || spec.name;
       const species = resolveSpeciesId(rawSpecies);
-      if (!PKMBattle._dex[species]) throw new Error(`对战系统里找不到宝可梦“${rawSpecies}”。请检查对战块里的 species 是否写成官方中文名。`);
+      if (!PKMBattle._dex[species]) throw new Error('对战配置含未收录物种，已阻止开战；请从官方宝可梦名录重新选择。');
       const level = Math.max(1, Math.min(100, parseInt(spec.lv || spec.level || 50, 10) || 50));
       // v1.3.4：宿主传来的剩余 PP。pp 可以是 {招式名: 剩余} 或与 moves 对齐的数组；缺省 = 满
       const ppById = {};
       const rawMoves = Array.isArray(spec.moves) ? spec.moves : [];
       if (Array.isArray(spec.pp)) rawMoves.forEach((mv, i) => { const id = mv ? resolveMoveId(mv) : null; const v = spec.pp[i]; if (id && v !== null && v !== undefined && Number.isFinite(Number(v)) && !(id in ppById)) ppById[id] = Number(v); });
       else if (spec.pp && typeof spec.pp === 'object') for (const [mv, v] of Object.entries(spec.pp)) { const id = resolveMoveId(mv); if (id && v !== null && Number.isFinite(Number(v))) ppById[id] = Number(v); }
-      let moves = rawMoves.filter(Boolean).map(resolveMoveId).filter(Boolean);
+      let moves = OFFICIAL_NAMES.normalizeMoves(rawMoves,{warnings:buildWarnings});
       moves = [...new Set(moves)].slice(0, 4);
-      if (!moves.length) moves = hostMode ? levelUpMoves(species, level) : autoMoves(species, level);
+      let prep=null;
+      if (!moves.length&&!rawMoves.some(Boolean)&&identity.prep){prep=planOmitted({...identity.prep,opponent:identity.opponent,species,level,authored:rawMoves,seed:identity.seed+'#'+individualIndex,knownPartners:out.flatMap(p=>p.moves.map(m=>m.id)),ability:OFFICIAL_NAMES.resolve('abilities',spec.ability),item:OFFICIAL_NAMES.resolve('items',spec.item||spec.heldItem||spec.held_item)}, {dex:PKMBattle._dex,moves:PKMBattle._moves,learnsets:PKMBattle._circuitLearnsets,levelup:LEVELUP,official:id=>OFFICIAL_NAMES.has('moves',id)});if(prep)moves=prep.moves;}
+      if (!moves.length) moves = identity.opponent ? naturalOpponentMoves(species,level) : hostMode ? levelUpMoves(species, level) : autoMoves(species, level);
       const opts = { ...spec };
-      const resolveItem = value => {
-        const raw = String(value || '').trim(), n = normId(raw);
-        if (PKMMechanics.ITEMS[n]) return n;
-        const hit = Object.values(PKMMechanics.ITEMS).find(it => it.name === raw);
-        return hit?.id || '';
-      };
+      const resolveItem = value => OFFICIAL_NAMES.normalizeItem(value,{warnings:buildWarnings});
       const gear = PKMGearResolve.resolve(spec, species, moves, { resolveItem, resolveMove: resolveMoveId, resolveSpecies: resolveSpeciesId });
       delete opts.item; delete opts.heldItem; delete opts.held_item; delete opts.mechanic;
       delete opts.megaForm; delete opts.mega; delete opts.zType; delete opts.zMoveType; delete opts.teraType; delete opts.dynamaxForm;
@@ -2061,7 +2054,8 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
       if (opts.nature) { const want = String(opts.nature); const hit = Object.entries(ZH.natures || {}).find(([id, zh]) => zh === want || id === normId(want)); opts.nature = hit ? hit[0] : ''; }
       opts.gender = window.PKMGender?.normalize(opts.gender) || null;
       if (opts.nickname === rawSpecies) delete opts.nickname;
-      const p = PKMBattle.createPokemon(species, level, moves, opts);
+      const p = createBattlePokemon(species, level, moves, opts,identity.opponent===true,identity.profile);
+      if(prep)p._circuitPrepared={source:prep.source,pool:prep.pool};
       for (const mv of p.moves) if (mv.id in ppById) mv.ppLeft = Math.max(0, Math.min(mv.pp ?? 10, Math.round(ppById[mv.id])));
       const maxHp = Number(spec.maxHp), hp = Number(spec.hp);
       if (spec.hp !== null && spec.hp !== undefined && Number.isFinite(hp)) {
@@ -2080,6 +2074,9 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
   // v1.3.2：宿主（角色卡）模式下没写招式的宝可梦，按“升级招式表”取等级以内最近学会的 4 招，
   // 而不是对战向的最强配招（否则 Lv3 的野生波波会用出大爆炸）。
   let LEVELUP = {};
+  // Omitted trainer/wild moves are not an excuse to add an unlearnable attack
+  // (e.g. Lv.5 Magikarp). Explicit story moves never enter this fallback.
+  function naturalOpponentMoves(species,level){const ok=id=>PKMBattle._moves[id]&&OFFICIAL_NAMES.has('moves',id);let ms=(LEVELUP[species]||[]).filter(([l,id])=>l>=0&&l<=level&&ok(id)).map(x=>x[1]);if(!ms.length)ms=PKMTeam.legalMoves(species,level).filter(m=>m.learn?.level>0&&m.learn.level<=level&&ok(m.id)).sort((a,b)=>a.learn.level-b.learn.level).map(m=>m.id);if(!ms.length)throw Error('未查到此物种当前等级可确认的升级招式，请在配置里明确配招。');return [...new Set(ms)].slice(-4);}
   function levelUpMoves(speciesId, level) {
     const sid = normId(speciesId);
     const lv = Math.max(1, level || 1);
@@ -2172,41 +2169,54 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
     if (saysSingle && !deniedSingle) return false;
     return false; // no stated doubles rule => preserve the existing singles default
   }
-  async function startBattle(cfg) {
+  async function startBattle(cfg, practice=false) {
     if (animating || rosterChoice) return false;
+    if(practice&&!EMBED){if(!practiceReturnStore)practiceReturnStore=worldStore;worldStore=new PKMWorldSave.Store(memoryStorage());}
+    else if(practiceReturnStore){worldStore=practiceReturnStore;practiceReturnStore=null;}
     if (cfg && cfg.host) { hostTag = cfg.host.tag || null; useHostStore(cfg.host.balls); }
     menuView = 'home'; commandMessage = ''; announcedBattle = null;
     encounterId = globalThis.crypto?.randomUUID?.() || `encounter-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     selectedMechanic = null; doubleActionSlot = 0; doubleActions = [null, null]; pendingDoubleTarget = null;
     animating = false;
+    buildWarnings=[];
+    const encounterType=cfg?.encounter?.type||((cfg?.type==='wild'||cfg?.aiContext?.type==='wild')?'wild':null)||(!cfg&&$('sel-enemy').value==='wild'&&!$('chk-custom-enemy').checked?'wild':'trainer');
+    buildingProfile=profileForTestUI(cfg,$('sel-diff').value,$('sel-enemy').value,encounterType);
     let doubleMode = battleModeFromConfig(cfg);
     let playerTeam, enemyTeam, difficulty = cfg ? (cfg.difficulty || 'normal') : legacyDifficultyForTest($('sel-diff').value), weather = null;
     formatTag = cfg ? String(cfg.rules?.tag || '').slice(0, 28) : ''; formatRule = cfg ? String(cfg.rules?.rule || '').slice(0, 160) : '';
     typeLabel = cfg ? String(cfg.rules?.typeLabel || '').slice(0, 8) : '';
     if (cfg) {
       difficulty = cfg.difficulty || difficulty;
-      if (cfg.encounter?.type === 'wild') $('sel-enemy').value = 'wild';
+      if (encounterType === 'wild') $('sel-enemy').value = 'wild';
+      const scenePrep={tier:buildingProfile.tier,intent:buildingProfile.intent,wild:encounterType==='wild',double:doubleMode,exact:cfg.ai?.prepare==='off'||cfg.aiContext?.ai?.prepare==='off',source:(cfg.ai?.prepare==='league'||cfg.aiContext?.ai?.prepare==='league')?'league':'level'};
       const resolveSide = (side, fallbackKey, opponent = false) => {
         const entrants = side?.entrants?.length ? side.entrants : [{ name: fallbackKey }];
         const team = [];
         for (const e of entrants) {
+          // Multi-trainer configs may specify the owner's rank on each p2 entrant.
+          let profile=buildingProfile;if(opponent&&profile.tier!=='wild'){
+            if(e.ai?.tier||e.ai?.rank||e.trainerRank||e.trainerClass){const scene=cfg.aiContext||cfg;profile=resolveTrainerAI({...scene,opponent:e.name,type:scene.type||'trainer',ai:e.ai||{},trainerRank:e.trainerRank,trainerClass:e.trainerClass,npcTier:e.npcTier||null});}
+            else if(entrants.length>1&&e.name&&!cfg.ai?.tier&&!cfg.aiContext?.ai?.tier){const owner=resolveTrainerAI({...cfg.aiContext,type:cfg.aiContext?.type||cfg.type||'trainer',opponent:e.name,ai:{},npcTier:e.npcTier||null});if(owner.characterTier||owner.source==='opponent-title')profile=owner;}
+          }
+          const prep={...scenePrep,tier:profile.tier,intent:profile.intent};
           const key = String(e.name || '').toLowerCase();
           const preset = PKMPresets.TRAINERS[key] || Object.values(PKMPresets.TRAINERS).find(t => t.name === e.name);
-          if (Array.isArray(e.party) && e.party.length && typeof e.party[0] === 'object') team.push(...buildFromConfigParty(e.party, { opponent, seed: cfg.host?.identityKey || cfg.id || cfg.seed || encounterId }));
+          if (Array.isArray(e.party) && e.party.length && typeof e.party[0] === 'object') team.push(...buildFromConfigParty(e.party, { opponent, prep, profile, seed: cfg.host?.identityKey || cfg.id || cfg.seed || encounterId }));
           else if (preset) {
             const party = Array.isArray(e.party) && e.party.length
               ? preset.party.filter(p => e.party.map(normId).includes(normId(p.species)))
               : preset.party;
-            team.push(...party.map((p, i) => PKMBattle.createPokemon(p.species, p.level, p.moves, { ...p, generateIdentity: true, identitySeed: `${cfg.host?.identityKey || encounterId}#${fallbackKey}#${i}` })));
-          } else if (e.party?.length) team.push(...buildFromConfigParty(e.party, { opponent, seed: cfg.host?.identityKey || cfg.id || cfg.seed || encounterId }));
-          else if (PKMBattle._dex[normId(e.name)]) team.push(PKMBattle.createPokemon(e.name, e.lv || e.level || 50, autoMoves(e.name, e.lv || e.level || 50), { ...e, generateIdentity: opponent }));
+            team.push(...party.map((p, i) => createBattlePokemon(p.species, p.level, p.moves, { ...p, generateIdentity: true, identitySeed: `${cfg.host?.identityKey || encounterId}#${fallbackKey}#${i}` },opponent,profile)));
+          } else if (e.party?.length) team.push(...buildFromConfigParty(e.party, { opponent, prep, profile, seed: cfg.host?.identityKey || cfg.id || cfg.seed || encounterId }));
+          else if (OFFICIAL_NAMES.resolve('species',e.name)) team.push(...buildFromConfigParty([{...e,species:e.name}],{opponent,profile,prep,seed:cfg.host?.identityKey||cfg.id||cfg.seed||encounterId}));
+          else throw Error('参赛方没有可用队伍：'+(e.name||'未命名'));
         }
         return team;
       };
       playerTeam = resolveSide(cfg.p1, 'player');
       enemyTeam = resolveSide(cfg.p2, $('sel-enemy').value, true);
       const limit = (v, fallback) => Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 6 ? Number(v) : fallback;
-      const wild = cfg.encounter?.type === 'wild';
+      const wild = encounterType === 'wild';
       if (wild) doubleMode = false;
       const size = limit(cfg.rules?.teamSize, 6);
       const playerLimit = wild ? 6 : limit(cfg.rules?.playerLimit, size);
@@ -2235,7 +2245,7 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
       const environment = PKMFieldFX.environment(cfg.environment);
       weather = environment.weather || null;
       const wt = environment.weatherTurns;
-      if (cfg.encounter?.type === 'wild' && enemyTeam.length !== 1) throw new Error('当前野生遭遇仅支持一只野生宝可梦。');
+      if (encounterType === 'wild' && enemyTeam.length !== 1) throw new Error('当前野生遭遇仅支持一只野生宝可梦。');
       // Standalone/config callers also cannot create a new wild individual with
       // an impossible known-species sex. Do not touch the player's old roster.
       if (wild && window.PKMGender) for (const p of enemyTeam) {
@@ -2243,27 +2253,35 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
       }
       if (doubleMode && (playerTeam.filter(p => !p.fainted).length < 2 || enemyTeam.filter(p => !p.fainted).length < 2)) throw new Error('双打模式需要双方各至少两只尚未失去战斗能力的宝可梦。');
       battle = new PKMBattle.Battle(playerTeam, enemyTeam, { double: doubleMode, firstFaintLoses: cfg.rules?.firstFaintLoses === true, difficulty, weather, weatherTurns: typeof wt !== 'undefined' ? wt : 0,
-        encounterType: cfg.encounter?.type, balls: worldStore.state.balls, itemStock:cfg.host?.battleItems||{}, seed: cfg.seed, captureContext:cfg.host?.captureContext||{} });
+        encounterType, balls: worldStore.state.balls, itemStock:cfg.host?.battleItems||{}, seed: cfg.seed, captureContext:cfg.host?.captureContext||{} });
       if (environment.terrain) battle.setTerrain(environment.terrain, environment.terrainTurns);
       if (cfg.ui?.openBalls && battle.encounterType === 'wild') menuView = 'balls';
       // v1.3.9：战斗记录第一行写明这场的类型和赛制（角色卡发来的）
+      const prepared=enemyTeam.filter(p=>p._circuitPrepared);if(prepared.length)battle.log.unshift(`联赛备战：${prepared.length} 只未指定配招的对手采用${scenePrep.source==='league'?'许可的合法招式':'本级可学的升级招式'}组合；未更改等级或持有物。缺省努力值按最终配招生成。`);
       if (cfg.host?.intro) battle.log.unshift(String(cfg.host.intro).slice(0, 200));
     } else {
       playerTeam = $('chk-custom-player').checked ? buildValidated(readEditor('player'), '我方') : buildFromPreset(PKMPresets.TRAINERS.player);
       if (!playerTeam) return;
-      enemyTeam = $('chk-custom-enemy').checked ? buildValidated(readEditor('enemy'), '敌方') : buildFromPreset(PKMPresets.TRAINERS[$('sel-enemy').value]);
+      enemyTeam = $('chk-custom-enemy').checked ? buildValidated(readEditor('enemy'), '敌方',true) : buildFromPreset(PKMPresets.TRAINERS[$('sel-enemy').value],true);
       if (!enemyTeam) return;
       const isWild = $('sel-enemy').value === 'wild' && !$('chk-custom-enemy').checked;
       if (isWild) {
         const pool = ['pikachu','eevee','growlithe','psyduck','vulpix','oddish','zubat','geodude','riolu'];
         const id = pool[Math.floor(Math.random()*pool.length)], level = 30 + Math.floor(Math.random()*16);
-        enemyTeam = [PKMBattle.createPokemon(id, level, autoMoves(id, level), {generateIdentity: true, gender:window.PKMGender?.roll(id) || null})];
+        enemyTeam = [createBattlePokemon(id, level, autoMoves(id, level), {generateIdentity: true, gender:window.PKMGender?.roll(id) || null},true)];
       }
       if (isWild) doubleMode = false;
       if (doubleMode && (playerTeam.filter(p => !p.fainted).length < 2 || enemyTeam.filter(p => !p.fainted).length < 2)) { alert('双打模式需要双方各至少两只宝可梦。'); return; }
       battle = new PKMBattle.Battle(playerTeam, enemyTeam, { double: doubleMode, difficulty, encounterType: isWild ? 'wild' : 'trainer', balls: worldStore.state.balls });
     }
-    browserAI.attach(battle, profileForTestUI(cfg, $('sel-diff').value, $('sel-enemy').value, battle.encounterType), {
+    if(buildWarnings.length)battle.log.unshift(...[...new Set(buildWarnings)]);
+    battle.opponentTraining={version:OPPONENT_TRAINING.version,tier:buildingProfile.tier,members:enemyTeam.map(p=>p._opponentTraining||null)};
+    const trained=battle.opponentTraining.members;const how=t=>t.source==='explicit'?'手填保留':t.source==='wild-zero'?'野生未训练':'按档培养';
+    const totals=trained.reduce((a,t)=>{const k=how(t);a[k]=(a[k]||0)+1;return a;},{});
+    battle.log.unshift('对手培养：'+Object.entries(totals).map(([k,n])=>k+' '+n+' 只').join('，')+'。');
+    // Detailed roster readback is limited to standalone testing, never host story mode or the AI observation.
+    const audit=$('training-audit');audit.hidden=EMBED||hostMode;if(!audit.hidden){$('training-lines').textContent=enemyTeam.map((p,i)=>{const t=trained[i],e=t.evs;return `${OFFICIAL_NAMES.name('species',p.originalSpeciesId||p.speciesId)} Lv.${p.level}｜${t.tier==='wild'?'野生':({novice:'新人',regular:'普通',veteran:'资深',leader:'馆主',ace:'精英',elite:'天王',champion:'冠军'}[t.tier]||t.tier)}｜${how(t)}${t.role?' · '+t.role:''}｜总计 ${t.total}\n体力 ${e.hp}　攻击 ${e.atk}　防御 ${e.def}　特攻 ${e.spa}　特防 ${e.spd}　速度 ${e.spe}`;}).join('\n\n');}
+    browserAI.attach(battle, buildingProfile, {
       onStatus: (info, profile) => {
         if (battle?.aiProfile !== profile) return;
         showAIStatus($('ai-status'), info, profile);
@@ -2286,17 +2304,15 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
 
 
   /* ---------- Team editor (Phase 2) ---------- */
-  const NATURES = ['', 'adamant', 'modest', 'jolly', 'timid', 'bold', 'calm', 'impish', 'careful', 'brave', 'quiet', 'relaxed', 'sassy', 'lonely', 'mild', 'hasty', 'naive', 'naughty', 'rash', 'lax', 'gentle'];
+  const NATURES = ['',...OFFICIAL_NAMES.entries('natures').map(x=>x.id)];
   const LS_KEY = 'pkm-custom-teams-v2';
-  function resolveSpeciesId(text) {
-    const raw = String(text || '').trim();
-    // Nidoran♀ and Nidoran♂ are distinct species; do not strip the symbol.
-    const n = normId(raw.replace(/♀/g, 'f').replace(/♂/g, 'm'));
-    if (PKMBattle._dex[n]) return n;
-    for (const [id, sp] of Object.entries(PKMBattle._dex)) if (normId(sp.name) === n) return id;
-    if (speciesZhToId[raw]) return speciesZhToId[raw];
-    return n;
+  function resolveSpeciesId(text) { return OFFICIAL_NAMES.resolve('species',text); }
+  function editorSpeciesId(row) {
+    const text=row.querySelector('.f-species').value.trim(),meta=row._ownedMetadata;
+    if(!meta?.speciesInputChanged&&meta?.sourceSpecies&&text===OFFICIAL_NAMES.name('species',meta.sourceSpecies))return meta.sourceSpecies;
+    return resolveSpeciesId(text);
   }
+  function pendingEditorIssues(row) { return Object.values(row._importIssues||{}).filter(Boolean).length; }
   function editorRoot(side) { return side === 'player' ? $('editor-player') : $('editor-enemy'); }
   function specFromPreset(key) {
     return PKMPresets.TRAINERS[key].party.map(p => ({ species: p.species, level: p.level, nature: p.nature || '', ability: p.ability || '', item: p.item || '', mechanic: p.mechanic || '', megaForm: p.megaForm || '', zType: p.zType || '', teraType: p.teraType || '', dynamaxForm: p.dynamaxForm || '', moves: p.moves.slice() }));
@@ -2309,10 +2325,10 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
     return { player: specFromPreset('player'), enemy: specFromPreset('gym') };
   }
   function saveEditorSpecs(show) {
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ player: readEditor('player'), enemy: readEditor('enemy') })); if (show) showValidate('已保存到本机浏览器。'); return true; } catch (e) { if (show) alert('保存失败：' + e.message); return false; }
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ player: readEditor('player'), enemy: readEditor('enemy') })); if (show) showValidate('已保存到本机浏览器。'); return true; } catch (e) { $('validate-msg').textContent='未保存：'+e.message; if (show) alert('保存失败：' + e.message); return false; }
   }
   function refreshMechanicOptions(row) {
-    const sid = resolveSpeciesId(row.querySelector('.f-species').value);
+    const sid = editorSpeciesId(row);
     const kind = row.querySelector('.f-mechanic').value;
     const detail = row.querySelector('.f-mechanic-detail');
     const prev = detail.value || detail.dataset.want || '';
@@ -2321,7 +2337,7 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
     if (kind === 'mega') {
       const forms = PKMTeam.megaForms(sid);
       if (!forms.length) add('', '（该宝可梦无超级形态）'); else forms.forEach(f => add(f.id, zhSpecies(f.id, f.name)));
-    } else if (kind === 'z') PKMMechanics.TYPES.forEach(t => add(t, `${PKMMechanics.TYPE_ZH[t]}Ｚ纯晶`));
+    } else if (kind === 'z') PKMMechanics.TYPES.forEach(t => add(t, OFFICIAL_NAMES.name('items',PKMMechanics.zCrystalForType(t))||('Ｚ招式·'+zhType(t))));
     else if (kind === 'tera') PKMMechanics.TYPES.forEach(t => add(t, `太晶·${PKMMechanics.TYPE_ZH[t]}`));
     else if (kind === 'dynamax') { add('', '普通极巨化'); if (PKMTeam.gmaxForm(sid)) add('gmax', '超极巨化'); }
     else add('', '无机制');
@@ -2331,17 +2347,19 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
     return detail.value;
   }
   function refreshRowOptions(row) {
-    const sid = resolveSpeciesId(row.querySelector('.f-species').value);
+    const sid = editorSpeciesId(row);
     const dex = PKMBattle._dex[sid];
     const level = parseInt(row.querySelector('.f-level').value || '50', 10) || 50;
     const abilitySel = row.querySelector('.f-ability');
-    const prevAbility = abilitySel.value || abilitySel.dataset.want || '';
+    const prevAbility = OFFICIAL_NAMES.resolve('abilities',abilitySel.value || abilitySel.dataset.want || '');
     abilitySel.innerHTML = '';
-    (dex?.abilities || []).forEach(a => { const o = document.createElement('option'); o.value = a; o.textContent = zhAbility(a); abilitySel.appendChild(o); });
-    if (prevAbility && dex?.abilities?.includes(prevAbility)) abilitySel.value = prevAbility;
-    const legal = dex ? PKMTeam.legalMoves(sid, level) : [];
+    (dex?.abilities || []).map(a=>OFFICIAL_NAMES.resolve('abilities',a)).filter(Boolean).forEach(a => { const o = document.createElement('option'); o.value = a; o.textContent = zhAbility(a); abilitySel.appendChild(o); });
+    if(prevAbility){if(![...abilitySel.options].some(o=>o.value===prevAbility))abilitySel.add(new Option(zhAbility(prevAbility)+'（不属于本物种）',prevAbility));abilitySel.value=prevAbility;}
+    const moveQuery=String(row.querySelector('.f-move-search')?.value||'').normalize('NFKC').trim();
+    const allLegal=(dex ? PKMTeam.legalMoves(sid, level) : []).filter(m=>OFFICIAL_NAMES.has('moves',m.id));
+    const legal = allLegal.filter(m=>!moveQuery||zhMove(m.id).normalize('NFKC').includes(moveQuery)||m.id.includes(moveQuery.toLowerCase()));
     row.querySelectorAll('.f-move').forEach(sel => {
-      const prev = sel.value || sel.dataset.want || '';
+      const prev = resolveMoveId(sel.value || sel.dataset.want || '');
       sel.innerHTML = '';
       const blank = document.createElement('option'); blank.value = ''; blank.textContent = '（自动配招）'; sel.appendChild(blank);
       for (const m of legal) {
@@ -2352,19 +2370,20 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
       }
       if (prev) {
         if (![...sel.options].some(o => o.value === prev)) {
-          const o = document.createElement('option'); o.value = prev; o.textContent = zhMove(prev, '未知招式') + '（当前等级未学会或不合法）'; sel.appendChild(o);
+          const o = document.createElement('option'); o.value = prev; o.textContent = zhMove(prev) + (PKMBattle._moves[prev]?' · '+zhType(PKMBattle._moves[prev].type):'') + (allLegal.some(m=>m.id===prev)?'（已选择）':'（原配置保留，请核对学习面）'); sel.appendChild(o);
         }
         sel.value = prev;
       }
     });
     const mechanicDetail = refreshMechanicOptions(row);
-    const abInfo = PKMMechanics.abilityInfo(abilitySel.value);
+    const abInfo = window.PKMShowdownText?.abilities?.[normId(abilitySel.value)] || PKMMechanics.abilityInfo(abilitySel.value);
     abilitySel.title = abInfo ? translateText(`${abInfo.name}：${abInfo.desc}`) : '该特性效果尚未实现';
     const itemSel = row.querySelector('.f-item');
-    if (itemSel) itemSel.title = translateText(PKMMechanics.itemInfo(itemSel.value).desc);
+    if (itemSel) itemSel.title = translateText(window.PKMShowdownText?.items?.[itemSel.value]?.desc || '由原生规则内核结算携带效果。');
     row.querySelector('.f-note').textContent = dex
       ? (PKMTeam.hasLearnset(sid) ? `${zhSpecies(sid, dex.name)} · ${dex.types.map(zhType).join('/')} · 合法招式 ${legal.length} 个 · ${abInfo ? '特性已生效' : '特性效果尚未实现'}` : `${zhSpecies(sid, dex.name)} · 暂无第九代学习面（未校验）`)
-      : '宝可梦不存在';
+      : '宝可梦不存在或形态未核验';
+    if(pendingEditorIssues(row))row.querySelector('.f-note').textContent+=' · 导入含未核验项，重选前不会保存或开战';
   }
   function renderEditor(side, specs) {
     const rootEl = editorRoot(side);
@@ -2372,15 +2391,21 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
     specs.slice(0, 6).forEach((spec, i) => {
       const row = document.createElement('fieldset');
       row.className = 'team-row';
-      row._ownedMetadata = { sourceSpecies: resolveSpeciesId(spec.species), ivs: spec.ivs, nickname: spec.nickname, shiny: spec.shiny, gender: spec.gender, captureId: spec.captureId };
+      row._ownedMetadata = { sourceSpecies: resolveSpeciesId(spec.species), speciesInputChanged:false, ivs: spec.ivs, evs: spec.evs, nickname: spec.nickname, shiny: spec.shiny, gender: spec.gender, captureId: spec.captureId };
+      row._importIssues={};
+      if(spec.species&&!row._ownedMetadata.sourceSpecies)row._importIssues.species=true;
+      for(const[kind,field]of [['items','item'],['abilities','ability'],['natures','nature']])if(spec[field]&&!OFFICIAL_NAMES.resolve(kind,spec[field]))row._importIssues[field]=true;
+      if(spec.moves!=null&&!Array.isArray(spec.moves))row._importIssues.moves=true;
+      (Array.isArray(spec.moves)?spec.moves:[]).forEach((m,k)=>{if(m&&!resolveMoveId(m))row._importIssues['move'+k]=true;});
       row.innerHTML = `<legend>#${i + 1}</legend>
         <div class="row-main">
           <input class="f-species" list="species-list" placeholder="输入名称，如：皮卡丘">
           <input class="f-level" type="number" min="1" max="100" title="等级">
           <select class="f-nature" title="性格">${NATURES.map(n => `<option value="${n}">${n ? '性格：' + zhNature(n) : '性格：无修正'}</option>`).join('')}</select>
           <select class="f-ability" title="特性"></select>
-          <select class="f-item" title="道具">${Object.values(PKMMechanics.ITEMS).map(i => `<option value="${i.id}">${i.name}</option>`).join('')}</select>
+          <select class="f-item" title="道具"><option value="">不携带道具</option>${OFFICIAL_NAMES.entries('items').map(i => `<option value="${i.id}">${i.name}</option>`).join('')}</select>
         </div>
+        <div class="row-name-search"><input class="f-move-search" type="search" placeholder="搜索本只可学的官方招式名" aria-label="搜索可学招式"><input class="f-item-search" type="search" placeholder="搜索官方携带道具名" aria-label="搜索携带道具"></div>
         <div class="move-grid">
           ${[0, 1, 2, 3].map(() => `<select class="f-move"></select>`).join('')}
         </div>
@@ -2390,50 +2415,67 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
         </div>
         <div class="f-note note"></div>`;
       rootEl.appendChild(row);
-      row.querySelector('.f-species').value = spec.species ? zhSpecies(resolveSpeciesId(spec.species), spec.species) : '';
+      row.querySelector('.f-species').value = resolveSpeciesId(spec.species) ? zhSpecies(resolveSpeciesId(spec.species)) : '';
       row.querySelector('.f-level').value = spec.level || 50;
-      row.querySelector('.f-nature').value = spec.nature || '';
-      row.querySelector('.f-ability').dataset.want = spec.ability || '';
-      row.querySelector('.f-item').value = spec.item || '';
+      row.querySelector('.f-nature').value = OFFICIAL_NAMES.resolve('natures',spec.nature) || '';
+      row.querySelector('.f-ability').dataset.want = OFFICIAL_NAMES.resolve('abilities',spec.ability) || '';
+      row.querySelector('.f-item').value = OFFICIAL_NAMES.resolve('items',spec.item) || '';
+      row.querySelector('.f-move-search').addEventListener('input',()=>refreshRowOptions(row));
+      row.querySelector('.f-item-search').addEventListener('input',()=>{
+        const sel=row.querySelector('.f-item'),prev=sel.value,query=row.querySelector('.f-item-search').value;
+        sel.replaceChildren(new Option('不携带道具',''));
+        for(const item of OFFICIAL_NAMES.search('items',query,{limit:1000}))sel.add(new Option(item.name,item.id));
+        if(prev&&![...sel.options].some(o=>o.value===prev))sel.add(new Option(OFFICIAL_NAMES.name('items',prev)+'（已选择）',prev));
+        sel.value=prev;
+      });
       row.querySelector('.f-mechanic').value = spec.mechanic || '';
       row.querySelector('.f-mechanic-detail').dataset.want = spec.mechanic === 'mega' ? (spec.megaForm || '') : spec.mechanic === 'z' ? (spec.zType || '') : spec.mechanic === 'tera' ? (spec.teraType || '') : spec.mechanic === 'dynamax' ? (spec.dynamaxForm || '') : '';
-      row.querySelectorAll('.f-move').forEach((sel, k) => { sel.dataset.want = (spec.moves || [])[k] || ''; });
+      row.querySelectorAll('.f-move').forEach((sel, k) => { sel.dataset.want = resolveMoveId((spec.moves || [])[k]) || ''; });
       refreshRowOptions(row);
       row.querySelector('.f-species').addEventListener('change', () => {
+        row._ownedMetadata.speciesInputChanged=true;
+        const raw=row.querySelector('.f-species').value.trim();row._importIssues.species=!!raw&&!resolveSpeciesId(raw);
         refreshRowOptions(row);
-        const sid = resolveSpeciesId(row.querySelector('.f-species').value);
+        const sid = editorSpeciesId(row);
         const auto = PKMTeam.chooseAutoMoves(sid, parseInt(row.querySelector('.f-level').value || '50', 10) || 50);
         row.querySelectorAll('.f-move').forEach((sel, k) => { sel.dataset.want = auto[k] || ''; sel.value = auto[k] || ''; });
         saveEditorSpecs(false);
       });
       row.querySelector('.f-level').addEventListener('change', () => { refreshRowOptions(row); saveEditorSpecs(false); });
       row.querySelector('.f-mechanic').addEventListener('change', () => { refreshMechanicOptions(row); saveEditorSpecs(false); });
-      row.addEventListener('change', () => saveEditorSpecs(false));
+      row.addEventListener('change', event => {
+        const el=event.target;
+        for(const field of ['item','ability','nature'])if(el.classList?.contains('f-'+field))delete row._importIssues[field];
+        const slot=[...row.querySelectorAll('.f-move')].indexOf(el);if(slot>=0){delete row._importIssues['move'+slot];delete row._importIssues.moves;}
+        saveEditorSpecs(false);
+      });
     });
   }
   function readEditor(side) {
     const specs = [];
     editorRoot(side).querySelectorAll('.team-row').forEach(row => {
+      if(pendingEditorIssues(row))throw Error('保存的编队中有未核验名称或形态。已暂停保存与自定义开战；请在对应栏重选，或明确清空，不会自动丢招、卸物或替换物种。');
       const speciesText = row.querySelector('.f-species').value.trim();
       if (!speciesText) return;
-      const sid = resolveSpeciesId(speciesText);
+      const sid = editorSpeciesId(row);
+      if(!sid)throw Error('有未收录物种或未核验形态。已暂停保存与开战，请从官方名录重新选择。');
       const level = parseInt(row.querySelector('.f-level').value || '50', 10) || 50;
       let moves = [...row.querySelectorAll('.f-move')].map(sel => sel.value).filter(Boolean);
       if (!moves.length) moves = PKMTeam.chooseAutoMoves(sid, level);
       const mechanic = row.querySelector('.f-mechanic').value;
       const detail = row.querySelector('.f-mechanic-detail').value;
-      specs.push({ ...(row._ownedMetadata?.sourceSpecies === sid ? { ivs: row._ownedMetadata.ivs, nickname: row._ownedMetadata.nickname, shiny: row._ownedMetadata.shiny, gender: row._ownedMetadata.gender, captureId: row._ownedMetadata.captureId } : {}), species: sid, level, nature: row.querySelector('.f-nature').value, ability: row.querySelector('.f-ability').value, item: row.querySelector('.f-item').value, mechanic, megaForm: mechanic === 'mega' ? detail : '', zType: mechanic === 'z' ? detail : '', teraType: mechanic === 'tera' ? detail : '', dynamaxForm: mechanic === 'dynamax' ? detail : '', moves });
+      specs.push({ ...(row._ownedMetadata?.sourceSpecies === sid ? { ivs: row._ownedMetadata.ivs, evs: row._ownedMetadata.evs, nickname: row._ownedMetadata.nickname, shiny: row._ownedMetadata.shiny, gender: row._ownedMetadata.gender, captureId: row._ownedMetadata.captureId } : {}), species: sid, level, nature: row.querySelector('.f-nature').value, ability: row.querySelector('.f-ability').value, item: row.querySelector('.f-item').value, mechanic, megaForm: mechanic === 'mega' ? detail : '', zType: mechanic === 'z' ? detail : '', teraType: mechanic === 'tera' ? detail : '', dynamaxForm: mechanic === 'dynamax' ? detail : '', moves });
     });
     return specs;
   }
-  function buildValidated(spec, label) {
+  function buildValidated(spec, label,opponent=false) {
     const v = PKMTeam.validateTeam(spec);
     showValidate((v.errors.length ? `${label}错误：\n` + v.errors.join('\n') : '') + (v.warnings.length ? `\n${label}提示：\n` + v.warnings.join('\n') : ''));
     if (!v.ok) { alert(label + '队伍有问题：\n' + v.errors.map(translateText).join('\n')); return null; }
-    return spec.map(p => PKMBattle.createPokemon(p.species, p.level, p.moves, { ...p, generateIdentity: true }));
+    return spec.map(p => createBattlePokemon(p.species, p.level, p.moves, { ...p, generateIdentity: true },opponent));
   }
   function showValidate(extra) {
-    const pv = PKMTeam.validateTeam(readEditor('player')), ev = PKMTeam.validateTeam(readEditor('enemy'));
+    let pv,ev;try{pv=PKMTeam.validateTeam(readEditor('player'));ev=PKMTeam.validateTeam(readEditor('enemy'));}catch(e){$('validate-msg').textContent=e.message;return;}
     const lines = [];
     if (extra) lines.push(extra);
     lines.push(pv.ok ? '我方队伍：合法 ✓' : '我方队伍错误：\n' + pv.errors.join('\n'));
@@ -2467,15 +2509,15 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
 
   async function init() {
     const [dex, moves, learnsets, zh, spriteMap] = await Promise.all([
-      fetch('./src/data/pokedex.json?v=0.9.0').then(r => r.json()),
-      fetch('./src/data/moves.json?v=0.9.0').then(r => r.json()),
-      fetch('./src/data/learnsets.json?v=0.9.0').then(r => r.json()),
-      fetch('./src/data/zh-names.json?v=0.9.0').then(r => r.ok ? r.json() : {}).catch(() => ({})),
+      fetch('./src/data/pokedex.json?v=seven-tier-v71').then(r => r.json()),
+      fetch('./src/data/moves.json?v=seven-tier-v71').then(r => r.json()),
+      fetch('./src/data/learnsets.json?v=seven-tier-v71').then(r => r.json()),
+      fetch('./src/data/zh-names.json?v=seven-tier-v71').then(r => r.ok ? r.json() : {}).catch(() => ({})),
       fetch('./src/data/sprite-map.json?v=1.3.20').then(r => r.ok ? r.json() : {}).catch(() => ({})),
       fetch('./src/data/levelup.json?v=1.3.2').then(r => r.ok ? r.json() : {}).then(x => { LEVELUP = x || {}; }).catch(() => {}),
       fetch('./src/data/move-desc-zh.json?v=1.3.7').then(r => r.ok ? r.json() : {}).then(x => { if (window.PKMMoveInfo) PKMMoveInfo.setDesc(x); }).catch(() => {}),
     ]);
-    ZH = zh || {};
+    ZH = OFFICIAL_NAMES.overlay(zh || {});
     SPRITES = spriteMap?.entries || {};
     SPRITE_FEET = {};
     SPRITE_FEETX = {};
@@ -2493,7 +2535,7 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
       }
     }
     PKMBattle.setData(dex, moves);
-    PKMTeam.setData(dex, moves, learnsets);
+    PKMTeam.setData(dex, moves, learnsets);PKMBattle._circuitLearnsets=learnsets;
     PKMBattle._dex = dex; PKMBattle._moves = moves;
     preloadItemSheet();
     buildTextPairs();
@@ -2502,6 +2544,7 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
       .filter(([id, sp]) => sp.num >= 1 && sp.num <= 1025 && (!sp.baseSpecies || normId(sp.baseSpecies) === id))
       .sort((a, b) => a[1].num - b[1].num)
       .forEach(([id, sp]) => { const o = document.createElement('option'); o.value = zhSpecies(id, sp.name); dl.appendChild(o); });
+    mountOfficialCatalog($('official-name-catalog'));
     const specs = loadEditorSpecs();
     renderEditor('player', specs.player);
     renderEditor('enemy', specs.enemy);
@@ -2511,6 +2554,8 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
     $('btn-reset-teams').onclick = () => { renderEditor('player', specFromPreset('player')); renderEditor('enemy', specFromPreset('gym')); saveEditorSpecs(false); showValidate('已恢复内置队伍。'); };
     initWorldControls();
     $('btn-start').onclick = () => startBattle(null).catch(e => alert(e.message));
+    if(!EMBED){const opt=$('league-cores');try{opt.value=localStorage.getItem('kanto-circuit-workers')||'auto';}catch{}opt.onchange=()=>{try{localStorage.setItem('kanto-circuit-workers',opt.value);}catch{}};const start=$('league-start');start.onclick=()=>{if(animating||rosterChoice)return;const cfg=exhibition($('league-seat').value,$('league-rank').value,$('league-training').value);startBattle(cfg,true).catch(e=>alert(e.message));};}
+
     $('btn-config').onclick = () => {
       try {
         const raw = $('txt-config').value.replace(/<\/?PKM_BATTLE>/gi, '').trim();

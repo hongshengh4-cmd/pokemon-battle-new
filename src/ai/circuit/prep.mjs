@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: MIT
+// Optional competitive coaching for *omitted* NPC moves. No player roster or player inputs.
+import {LIBRARY} from './book.mjs?v=crown-72';
+import {seeded,hash} from '../battle-view.mjs?v=20261118-ai-elite-v3&cmd=kanto-crown-v72';
+const flex=/[METR]/,hazards=new Set(['stealthrock','spikes','toxicspikes','stickyweb']);
+export function planOmitted({opponent,tier,intent='serious',wild=false,authored=[],source='level',exact=false,species,level,double=false,seed='',knownPartners=[],ability='',item=''},db){if(!opponent||exact||wild||intent!=='serious'||!['leader','ace','elite','champion'].includes(tier)||authored.some(Boolean)||!db.dex[species])return null;const rng=seeded(hash(String(seed)+'/'+species)),learn=db.learnsets[species]||{},sp=db.dex[species],prior=new Set(knownPartners),levelIds=new Set((db.levelup?.[species]||[]).filter(x=>x[0]>=0&&x[0]<=level).map(x=>x[1]));const legal=mid=>{const v=learn[mid];return !!db.moves[mid]&&(!db.official||db.official(mid))&&((source==='league'&&v&&(v[0]>0&&v[0]<=level||flex.test(v[1]||'')))||levelIds.has(mid)||v&&v[0]>0&&v[0]<=level);};let best=null;
+ for(const row of LIBRARY[species]||[]){if(double?row[0]!=='D9':row[0]==='D9')continue;let ms=[],score=0;for(const slot of row[2]){const opts=slot.filter(m=>legal(m)&&!ms.includes(m)&&m!=='terablast'&&!(m==='trick'||m==='switcheroo')&&!(m==='rest'&&row[2].flat().includes('sleeptalk')&&!row[2].some(s=>s.includes('sleeptalk')&&legal('sleeptalk'))));if(!opts.length)continue;ms.push(opts[Math.floor(rng()*opts.length)]);}
+  if(ms.length<3)continue;const attacks=ms.map(k=>db.moves[k]).filter(m=>m.category!=='Status'&&m.basePower>0);if(!attacks.length||!attacks.some(m=>sp.types.includes(m.type)))continue;
+  score+=ms.length*3+new Set(attacks.map(m=>m.type)).size*.7+Math.log2(1+row[1]/3000)*.45;
+  if(ability&&row[4].includes(ability))score+=.6;if(item&&row[3].includes(item))score+=.8;for(const mid of ms){if(hazards.has(mid))score+=prior.has(mid)?-2:1;if(['uturn','voltswitch','flipturn','rapidspin','roost','recover','swordsdance','dragondance','quiverdance'].includes(mid))score+=.5;}
+  score+=rng()*.4;if(!best||score>best.score)best={moves:ms,source:row[0],pool:source,score};}
+ if(best&&best.moves.length<4){const attacks=Object.keys(learn).filter(mid=>legal(mid)&&!best.moves.includes(mid)&&db.moves[mid]?.basePower>0&&!db.moves[mid].selfdestruct&&!db.moves[mid].flags?.charge).sort((a,b)=>{const rank=x=>{const m=db.moves[x];return Math.min(125,m.basePower)*(sp.types.includes(m.type)?1.2:1)*(m.accuracy===true?1:(m.accuracy||100)/100);};return rank(b)-rank(a)||a.localeCompare(b);});if(attacks.length)best.moves.push(attacks[0]);}
+ return best;}
+// Equal levels and budgets; no career character is changed. The player can swap seats in the menu.
+const std=(species,moves,ability,item)=>({species,moves:moves.split(' '),ability,item,level:50,nature:'serious',gender:'N',ivs:{hp:31,atk:31,def:31,spa:31,spd:31,spe:31},evs:{hp:0,atk:0,def:0,spa:0,spd:0,spe:0}});
+export const squads=[
+ [std('politoed','surf icebeam encore protect','drizzle','damprock'),std('kingdra','hydropump dracometeor surf flipturn','swiftswim','choicespecs'),std('ferrothorn','powerwhip leechseed spikes knockoff','ironbarbs','leftovers')],
+ [std('torkoal','lavaplume rapidspin stealthrock yawn','drought','heatrock'),std('venusaur','growth gigadrain sludgebomb earthpower','chlorophyll','lifeorb'),std('dragonite','dragondance extremespeed earthquake roost','multiscale','heavydutyboots')]
+];
+export function exhibition(seat,tier,training='rank'){const i=seat==='sun'?1:0,enemy=structuredClone(squads[1-i]);if(training!=='equal')for(const p of enemy)delete p.evs;return {id:'circuit-weather-3v3',seed:708149,encounter:{type:'trainer'},rules:{opponent:i?'联赛雨队':'联赛晴队',battleMode:'single',tag:'Lv.50 · 天气争夺',rule:'同级 3v3 单打，败方全队倒下。'},ai:{tier,intent:'serious',reason:'独立联赛陪练，不更改剧情人物。'},p1:{entrants:[{name:'我方',party:structuredClone(squads[i])}]},p2:{entrants:[{name:'联赛陪练',party:enemy}]}};}

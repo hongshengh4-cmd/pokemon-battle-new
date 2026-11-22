@@ -35,11 +35,11 @@ export const NATIVE_BUILD='20261118-foulplay-browser-ai-v1';
 // to Ace Trainer: the new, separate, backwards-compatible identifier is `ace`.
 export const TIERS=Object.freeze(Object.assign(Object.create(null),{
  wild:Object.freeze({label:'野生本能',milliseconds:35,worlds:1,mistake:.32,window:.12,nativeDepth:1}),
- novice:Object.freeze({label:'新手',milliseconds:45,worlds:1,mistake:.24,window:.3,nativeDepth:1}),
- regular:Object.freeze({label:'普通训练家',milliseconds:100,worlds:2,mistake:.10,window:.55,nativeDepth:1}),
- veteran:Object.freeze({label:'资深训练家',milliseconds:220,worlds:3,mistake:.035,window:.7,nativeDepth:2}),
+ novice:Object.freeze({label:'新人',milliseconds:45,worlds:1,mistake:.24,window:.3,nativeDepth:1}),
+ regular:Object.freeze({label:'普通',milliseconds:100,worlds:2,mistake:.10,window:.55,nativeDepth:1}),
+ veteran:Object.freeze({label:'资深',milliseconds:220,worlds:3,mistake:.035,window:.7,nativeDepth:2}),
  leader:Object.freeze({label:'馆主',milliseconds:1200,worlds:6,mistake:.01,window:.75,nativeDepth:2,canonical:true,lookahead:2}),
- ace:Object.freeze({label:'精英训练家',milliseconds:5000,worlds:12,mistake:0,window:.75,nativeDepth:2,canonical:true,lookahead:3}),
+ ace:Object.freeze({label:'精英',milliseconds:5000,worlds:12,mistake:0,window:.75,nativeDepth:2,canonical:true,lookahead:3}),
  elite:Object.freeze({label:'天王',milliseconds:7000,worlds:16,mistake:0,window:.75,nativeDepth:2,canonical:true,lookahead:4}),
  champion:Object.freeze({label:'冠军',milliseconds:9000,worlds:20,mistake:0,window:.75,nativeDepth:2,canonical:true,lookahead:4}),
 }));

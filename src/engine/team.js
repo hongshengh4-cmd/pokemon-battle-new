@@ -41,13 +41,13 @@
   function megaForms(speciesId) {
     const sid = normId(speciesId);
     return Object.entries(DEX)
-      .filter(([id, sp]) => id.includes('mega') && normId(sp.baseSpecies || '') === sid)
+      .filter(([id, sp]) => id.includes('mega') && (!root.PKMOfficialNames||root.PKMOfficialNames.resolve('species',id)) && normId(sp.baseSpecies || '') === sid)
       .map(([id, sp]) => ({ id, ...sp }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }
   function gmaxForm(speciesId) {
     const id = normId(speciesId) + 'gmax';
-    return DEX[id] ? { id, ...DEX[id] } : null;
+    return DEX[id] && (!root.PKMOfficialNames||root.PKMOfficialNames.resolve('species',id)) ? { id, ...DEX[id] } : null;
   }
   function mechanicOf(entry) {
     const mech = root.PKMMechanics;
@@ -142,11 +142,11 @@
       if (mechKind === 'dynamax' && entry.dynamaxForm === 'gmax' && !gmaxForm(sid)) warnings.push(`${at} ${sid}：没有超极巨化形态，将按普通极巨化处理`);
       if (entry.ability && DEX[sid].abilities?.length && !DEX[sid].abilities.some(a => normId(a) === normId(entry.ability))) {
         errors.push(`${at} ${sid}：特性 ${entry.ability} 不在该物种特性列表中`);
-      } else if (entry.ability && root.PKMMechanics && !root.PKMMechanics.isSupportedAbility(entry.ability)) {
-        warnings.push(`${at} ${sid}：特性 ${entry.ability} 的效果将在后续阶段实现（当前不触发）`);
+      } else if (entry.ability && root.PKMOfficialNames && !root.PKMOfficialNames.resolve('abilities',entry.ability)) {
+        warnings.push(`${at} ${sid}：特性 ${entry.ability} 未收录官方名称，已禁止作为战斗候选`);
       }
-      if (entry.item && root.PKMMechanics && !root.PKMMechanics.isSupportedItem(entry.item)) {
-        warnings.push(`${at} ${sid}：道具 ${entry.item} 的效果将在后续阶段实现（当前不触发）`);
+      if (entry.item && root.PKMOfficialNames && !root.PKMOfficialNames.resolve('items',entry.item)) {
+        warnings.push(`${at} ${sid}：道具 ${entry.item} 未收录官方名称，已禁止作为战斗候选`);
       }
     });
     return { ok: errors.length === 0, errors, warnings };

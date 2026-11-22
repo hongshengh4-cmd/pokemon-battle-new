@@ -15,6 +15,7 @@
   const COMMIT = '5b88c476113d51a939bddbcd00b5cd182a5d8058';
   if (PS?.commit !== COMMIT) throw Error('Showdown规则内核缺失或版本不匹配。');
   const VERSION = '20261119-showdown-rules-v1';
+  const REPLACEMENT_VERSION = 'public-reserves-v71';
   const ENV = root.PKMFieldEnvironment;
   if (ENV?.version !== '20261118-field-interactions-v1') throw Error('天气与场地模块未就绪，请完整覆盖修复包并刷新。');
   const norm = E.normId, KEYS = ['hp','atk','def','spa','spd','spe'];
@@ -93,6 +94,7 @@
       this._initializing=false;this._initial=null;this._readProtocol();this._syncFromPS();this._pumpReplacements();
       this.rng=()=>b.random(0x100000000)/0x100000000; // Capture only; AI never receives this.
     }
+    say(text){return super.say(root.PKMOfficialNames ? root.PKMOfficialNames.displayText(text) : text);}
     onEnter() { /* Rules entry point is Showdown switchIn, never Legacy.onEnter. */ }
     _animKey(p){return {...super._animKey(p),speciesId:p.illusion?.speciesId||p.speciesId};} // Illusion reveal is a presentation form event, not a real species change.
     _native(q) { return q?.side && Number.isInteger(slotOf(q)) ? this.teams[q.side.n]?.[slotOf(q)] : null; }
@@ -152,6 +154,7 @@
             p.terastallized=!!q.terastallized;p.teraType=q.teraType;
             p.dynamaxed=!!q.volatiles.dynamax;p.dynamaxTurns=p.dynamaxed?(q.volatiles.dynamax.turns??3):0;p.normalMaxHp=p.dynamaxed?q.baseMaxhp:null;
             if(q.isActive)p._participated=true;
+            p._cmdMoveActions=Number(q.activeMoveActions)||0;p._cmdOwnUsed=q.moveSlots.filter(m=>m.used).map(m=>m.id);
             p._enteredThisTurn=q.activeTurns===0;p.enteredTurn=Math.max(0,b.turn-(q.activeTurns||0)-1);
             p.choiceLockedMove=q.volatiles.choicelock?.move||null;p._lastMoveId=q.lastMove?.id||null;p._lastMoveType=q.lastMove?.type||null;
             p._protectStreak=q.volatiles.stall?.counter?Math.round(Math.log(q.volatiles.stall.counter)/Math.log(3)):0;
@@ -236,13 +239,23 @@
       const a=line.split('|'),type=a[1];
       const p=this._native(args?.[1])||this._byIdent(a[2]),name=/^p[12][a-z]?: /.test(a[2]||'')?sourceName(a[2]):p?.name||sourceName(a[2]),target=this._native(args?.[3])||this._byIdent(a[4]);
       const pos=p?this._animPos(p):null;
+      if(this._c6Entry&&(type==='move'||type==='turn'||type==='upkeep'||(type==='switch'||type==='drag')&&p===this._c6Entry)){
+        if(!this._c6Entry._c6Rocks)this._c6Entry._c6Rocks='no-chip';this._c6Entry=null;}
       const from=a.slice(4).find(x=>x.startsWith('[from] ability: '));if(from&&p)p._aiPublicAbility=norm(from.slice(16));
       switch(type){
         case 'start':this.say(this.double?'双打战斗开始！':'战斗开始！');break; // BeforeSwitchIn has not installed Illusion yet; never reveal the true roster here.
         case 'move': {
           this._prepareNotice=null;
           const m=this._ps.activeMove||PS.Dex.moves.get(norm(a[3])),id=m.id,called=a.some(x=>x.startsWith('[from]'));
-          if(!called){this.moveCount++;if(p){const moves=p._aiPublicMoves||=[];let record=moves.find(x=>x.id===id);if(!record)moves.push(record={id,used:0});record.used++;p._aiPublicLastMove=id;p._aiPublicProtectStreak=m.stallingMove?(p._aiPublicProtectStreak||0)+1:0;}}
+          this._c6Contact=null;
+          if(!called&&p&&target&&!this.double&&p._side!==target._side&&m.basePower>0&&!m.multihit&&!m.ohko&&!m.selfdestruct&&!m.flags?.charge&&!p.dynamaxed&&!target.dynamaxed&&!p.terastallized&&!target.terastallized&&!this.weather&&!this.field.terrain&&!Object.values(p.stages||{}).some(Boolean)&&!Object.values(target.stages||{}).some(Boolean)&&!p.status&&!target.status&&!this.field.sides.some(s=>s.reflect||s.lightscreen||s.auroraveil)){
+           this._c6Contact={p:target,from:p.illusion?.speciesId||p.speciesId,move:id,before:target.hp,t:this.turnCount};}
+          if(!called&&p){const u=p._c6GearUsed||=[];if(!u.includes(id))u.push(id);
+            if(!this.double){const other=this.cur(1-p._side),clean=!this.weather&&!this.field.terrain&&!this.field.trickRoom&&!this.field.sides.some(s=>s.tailwind)&&[p,other].every(x=>x&&!x.status&&!x.stages?.spe)&&!m.priority&&m.category!=='Status'&&!m.drain&&!m.flags?.heal;
+              const shown=x=>x?.illusion?.speciesId||x?.speciesId,prev=this._c6Prev;if(clean&&prev?.clean&&prev.t===this.turnCount&&prev.p===other&&prev.s!==p._side&&prev.spec===shown(other)&&prev.vs===shown(p)){
+               p._c6Order={vs:shown(other),first:false,t:this.turnCount};other._c6Order={vs:shown(p),first:true,t:this.turnCount};}
+              this._c6Prev={p,s:p._side,t:this.turnCount,clean,spec:shown(p),vs:shown(other)};}}
+          if(!called){this.moveCount++;if(p){const seen=p._cmdPublicUsed||=[];if(!seen.includes(id))seen.push(id);const moves=p._aiPublicMoves||=[];let record=moves.find(x=>x.id===id);if(!record)moves.push(record={id,used:0});record.used++;p._aiPublicLastMove=id;p._aiPublicProtectStreak=m.stallingMove?(p._aiPublicProtectStreak||0)+1:0;}}
           if(p){p._participated=true;this._lastMoveAnim=this.anim('move',{...pos,moveId:id,baseId:id,category:m.category,moveType:m.type,moveTarget:m.target,z:!!m.isZ,max:!!m.isMax,targets:target?[this._animPos(target)]:[],prepare:false,cancelled:a.includes('[still]')});}
           this.say(`${name}${called?' 在招式效果中':' '}使用了 ${a[3]}！`);break;
         }
@@ -253,14 +266,15 @@
         case '-status': this.say(`${name} 陷入了${STATUS[a[3]]||a[3]}状态！`);break;
         case '-curestatus': this.say(`${name} 的${STATUS[a[3]]||a[3]}状态解除了！`);break;
         case '-cureteam': this.say(`${name} 一方的异常状态被治愈了！`);break;
-        case '-damage': {const why=a.slice(4).find(x=>x.startsWith('[from] '));if(why)this.say(`${name} 受到了${label(why.slice(7))}的伤害！`);break;}
+        case '-damage': {const why=a.slice(4).find(x=>x.startsWith('[from] ')),h=this._c6Contact;
+          if(p&&p===this._c6Entry&&why==='[from] Stealth Rock'){p._c6Rocks='hit';this._c6Entry=null;}if(!why&&h&&h.p===p&&h.t===this.turnCount&&p.hp>1&&h.before>p.hp&&!p.volatile?.substitute){p._c6OwnImpact={from:h.from,move:h.move,loss:h.before-p.hp,before:h.before,t:h.t};this._c6Contact=null;}if(why)this.say(`${name} 受到了${label(why.slice(7))}的伤害！`);break;}
         case '-heal': this.say(`${name} 回复了体力！`);break;
         case '-fail': this.say(`${name} 的招式失败了！`);break;
         case '-immune': this.say(`对 ${name} 没有效果……`);break;
         case '-miss': this.anim('miss',{...pos,target:target?this._animPos(target):undefined});this.say(`${name} 的攻击没有命中！`);break;
         case '-supereffective': this.say('效果绝佳！');break;
         case '-resisted': this.say('效果不理想……');break;
-        case '-crit': this.say('击中了要害！');break;
+        case '-crit': this._c6Contact=null;this.say('击中了要害！');break;
         case '-nothing': this.say('但是什么也没有发生！');break;
         case '-notarget': this.say('没有可攻击的目标，招式失败了！');break;
         case '-mustrecharge': this.say(`${name} 下一回合需要休息！`);break;
@@ -283,9 +297,9 @@
         case '-weather':if(!a.includes('[upkeep]'))this.say(WEATHER_ZH[norm(a[2])]||`${a[2]}天气生效了！`);break;
         case '-ability':if(p)p._aiPublicAbility=norm(a[3]);this.say(`${name} 的${a[3]}特性发动了！`);break;
         case '-endability':this.say(`${name} 的特性失效了！`);break;
-        case '-item':if(p){p._aiPublicItem=norm(a[3]);p._aiPublicItemKnown=true;if(a.some(x=>/\[from\] move: (Trick|Switcheroo|Bestow|Thief|Covet)/.test(x)))p._itemTransferOccurred=true;}this.say(`${name} 的道具 ${a[3]} 生效了！`);break;
-        case '-enditem':if(p){p._aiPublicItem=null;p._aiPublicItemKnown=true;if(a.includes('[eat]'))p._ateBerry=true;const moved=a.some(x=>(x.startsWith('[from] move:')&&!x.startsWith('[from] move: Fling'))||x.startsWith('[from] ability: Pickpocket')||x.startsWith('[from] ability: Magician'));if(moved)p._itemTransferOccurred=true;}this.say(`${name} ${a.includes('[eat]')?'吃下':'失去了'} ${a[3]}！`);break;
-        case 'switch':case 'drag':if(!this._initializing)this.say(`${name} ${type==='drag'?'被迫':'替换'}上场了！`);break;
+        case '-item':if(p){p._aiPublicItem=norm(a[3]);p._aiPublicItemKnown=true;if(a.some(x=>/\[from\] move: (Trick|Switcheroo|Bestow|Thief|Covet)/.test(x))){p._itemTransferOccurred=true;p._c6Rocks=null;p._c6OwnImpact=null;p._c6Order=null;p._c6GearUsed=[];if(this._c6Entry===p)this._c6Entry=null;}}this.say(`${name} 的道具 ${a[3]} 生效了！`);break;
+        case '-enditem':if(p){p._c6Rocks=null;p._c6OwnImpact=null;p._c6Order=null;if(this._c6Entry===p)this._c6Entry=null;p._c6GearUsed=[];p._aiPublicItem=null;p._aiPublicItemKnown=true;if(a.includes('[eat]'))p._ateBerry=true;const moved=a.some(x=>(x.startsWith('[from] move:')&&!x.startsWith('[from] move: Fling'))||x.startsWith('[from] ability: Pickpocket')||x.startsWith('[from] ability: Magician'));if(moved)p._itemTransferOccurred=true;}this.say(`${name} ${a.includes('[eat]')?'吃下':'失去了'} ${a[3]}！`);break;
+        case 'switch':case 'drag':this._c6Prev=null;this._c6Contact=null;if(p){p._c6Rocks=null;if(!this.double&&!this.field.magicRoom&&this.field.sides[p._side]?.stealthrock)this._c6Entry=p;p._c6OwnImpact=null;p._c6Order=null;p._c6GearUsed=[];p._cmdPublicUsed=[];p._aiPublicLastMove=null;p._aiPublicProtectStreak=0;}if(!this._initializing)this.say(`${name} ${type==='drag'?'被迫':'替换'}上场了！`);break;
         case 'faint':this.aiObserver?.see(p);this.say(`${name} 失去了战斗能力！`);break;
         case '-mega':if(p)this.mechanicUsed[p._side].mega=true;this.say(`${name} 超级进化了！`);break;
         case '-zpower':if(p)this.mechanicUsed[p._side].z=true;this.anim('zpower',pos||{});this.say(`${name} 发动了Ｚ力量！`);break;
@@ -449,15 +463,55 @@
       this._ps.commitChoices();this._replacementChoices.clear();this._readProtocol();this._syncFromPS();this._pumpReplacements();return this.log.slice(start);
     }
     turnDouble(actions){return this.turn({kind:'double',actions});}
+    _enemyReplacementRequest(){
+      const s=this._ps.sides[1],force=s.activeRequest?.forceSwitch||[],reserved=[...s.choice.switchIns].map(i=>slotOf(s.pokemon[i])).filter(Number.isInteger);
+      return{totalSlots:s.active.length,switchesLeft:s.choice.forcedSwitchesLeft,passesLeft:s.choice.forcedPassesLeft,reserved,slots:s.active.map((q,slot)=>{
+        if(!force[slot])return{slot,kind:'pass',candidates:[]};
+        const revive=!!s.slotConditions[slot]?.revivalblessing;
+        return{slot,kind:revive?'revive':'switch',phase:q.hp>0&&!q.fainted?'pivot':'faint',...(typeof q.switchFlag==='string'&&this._ps.dex.moves.get(q.switchFlag).selfSwitch?{relayMove:q.switchFlag}:{}),candidates:s.pokemon.filter(p=>!reserved.includes(slotOf(p))&&(revive?p.fainted:p.hp>0&&!p.fainted&&!s.active.includes(p))).map(slotOf),...(typeof q.switchFlag==='string'&&this._ps.dex.moves.get(q.switchFlag).selfSwitch==='copyvolatile'?{passStages:{...q.boosts}}:{})};
+      })};
+    }
+    _planEnemyReplacement(){
+      const side=this._ps.sides[1],request=side.activeRequest;if(!request?.forceSwitch)return null;
+      if(this._enemyReplacementCache?.request===request)return this._enemyReplacementCache;
+      // Compute before accepting any human replacement. Never pass the live PS
+      // side, player choice/actions, queue, or RNG to the planner.
+      side.clearChoice();let actions=null,error=null;
+      try{if(!this.aiController?.replacements)throw Error('公开信息替补AI尚未附着');actions=this.aiController.replacements(this._enemyReplacementRequest());}
+      catch(e){error=String(e.message||e);this.aiController?.replacementFailure?.(error);}
+      return this._enemyReplacementCache={request,actions,error};
+    }
+    _submitEnemyReplacement(){
+      const s=this._ps.sides[1],plan=this._planEnemyReplacement();if(!plan)return;
+      let ok=false;
+      if(Array.isArray(plan.actions)){
+        try{
+          const own=this._enemyReplacementRequest(),seen=new Set();
+          if(plan.actions.length!==s.active.length)throw Error('替补组合槽位数不完整');
+          const texts=plan.actions.map((a,slot)=>{
+            const rule=own.slots[slot];if(!rule||rule.kind==='pass'){if(a.kind!=='pass')throw Error('无替补请求的槽位收到换人');return'pass';}
+            if(a.kind==='pass')return'pass';
+            if(a.kind!=='switch'||!rule.candidates.includes(a.index)||rule.kind!=='revive'&&seen.has(a.index))throw Error('替补目标不在本方规则候选中');
+            if(rule.kind!=='revive')seen.add(a.index);
+            const target=this._pokemon(this.teams[1][a.index]);return'switch '+(target.position+1);
+          });
+          ok=s.choose(texts.join(', '))&&s.isChoiceDone();
+          if(!ok)throw Error(s.choice.error||'替补组合未完成规则请求');
+        }catch(e){this.aiController?.replacementFailure?.(String(e.message||e));}
+      }
+      // Last-resort legal fallback, never advertised as a searched decision.
+      if(!ok){s.clearChoice();s.autoChoose();}
+    }
     _pumpReplacements(){
       const b=this._ps;let safety=0;
       while(!b.ended&&b.requestState==='switch'&&this.winner===null){
         if(++safety>32)throw Error('连续替换超过安全上限；请保留战斗日志。');
         this._syncFromPS();const p1=b.sides[0],p2=b.sides[1];
+        if(p2.activeRequest?.forceSwitch)this._planEnemyReplacement();
         if(p1.activeRequest?.forceSwitch&&this.pendingSwitch!==null)return;
         for(const s of [p1,p2]){
           if(!s.activeRequest?.forceSwitch)continue;
-          s.clearChoice();s.autoChoose();
+          if(s===p2)this._submitEnemyReplacement();else{s.clearChoice();s.autoChoose();}
         }
         if(b.allChoicesDone()){b.commitChoices();this._replacementChoices.clear();this._readProtocol();this._syncFromPS();}else return;
       }
@@ -466,10 +520,11 @@
     forceSwitch(index){
       if(this.pendingSwitch===null||this.winner!==null)return false;
       if(!this.replacementOptions().includes(index))return false;
+      this._planEnemyReplacement(); // Lock AI's plan before storing ANY human target.
       const slot=this.pendingSwitch;this._replacementChoices.set(slot,index);this._syncFromPS();if(this.pendingSwitch!==null)return true;
       const s=this._ps.sides[0],text=s.active.map((q,i)=>s.activeRequest.forceSwitch[i]&&this._replacementChoices.has(i)?'switch '+(this._pokemon(this.teams[0][this._replacementChoices.get(i)]).position+1):'pass').join(', ');
       if(!s.choose(text)){this._replacementChoices.delete(slot);this._syncFromPS();this.say('替换校验失败：'+s.choice.error);return false;}
-      const enemy=this._ps.sides[1];if(enemy.activeRequest?.forceSwitch){enemy.clearChoice();enemy.autoChoose();}
+      const enemy=this._ps.sides[1];if(enemy.activeRequest?.forceSwitch)this._submitEnemyReplacement();
       if(this._ps.allChoicesDone()){this._ps.commitChoices();this._replacementChoices.clear();this._readProtocol();this._syncFromPS();this._pumpReplacements();}
       return true;
     }
@@ -535,6 +590,8 @@
   }
   const createPokemon=E.createPokemon;
   E.createPokemon=(species,level,moves,opts={})=>{const p=createPokemon(species,level,moves,opts),h=opts.happiness??opts.friendship?.official;if(h!==undefined&&h!==null&&Number.isFinite(Number(h)))p.happiness=Math.max(0,Math.min(255,Math.floor(Number(h))));return p;};
+  E.commandVersion='kanto-crown-v72';
+  E.replacementVersion=REPLACEMENT_VERSION;
   E.Battle=ShowdownBattle;E.rulesEngine={id:'pokemon-showdown',commit:COMMIT,adapter:VERSION,ready:true};
   E.rulesPatchVersion=VERSION;E.showdown=PS;E.fieldInteractionVersion=ENV.version;
   // Native lookup data and button previews must not keep old approximated effects.

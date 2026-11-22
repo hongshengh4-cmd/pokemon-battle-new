@@ -28,7 +28,7 @@ SOFTWARE.
 // SPDX-License-Identifier: MIT
 // Local, learnset-constrained hypotheses, NOT Foul Play's Smogon/team-dataset
 // inference. Only receives the sanitized observation, never the actual set.
-import {id} from './battle-view.mjs?v=20261118-ai-elite-v3';
+import {id} from './battle-view.mjs?v=20261118-ai-elite-v3&cmd=kanto-crown-v72';
 const keys=['hp','atk','def','spa','spd','spe'];
 const natures={adamant:['atk','spa'],modest:['spa','atk'],jolly:['spe','spa'],timid:['spe','atk'],bold:['def','atk'],calm:['spd','atk'],impish:['def','spa'],careful:['spd','spa']};
 const choose=(xs,rng)=>xs[Math.floor(rng()*xs.length)];
@@ -49,10 +49,10 @@ export function plausibleMoves(species,level,revealed,db,rng,{wild=false}={}){
  if(!known.length)known.push('tackle');
  return known.map(mid=>{const used=(revealed||[]).find(m=>id(m.id)===mid)?.used||0;return{id:mid,ppLeft:Math.max(0,(db.moves[mid]?.pp||20)-used)}});
 }
-function hypothesize(visible,index,view,db,rng){
+function hypothesize(visible,index,view,db,rng,worldOptions){
  const level=Math.round(view.opponent.filter(p=>!p.unseen).reduce((s,p,_,a)=>s+(p.level||50)/a.length,0))||view.own[0]?.level||50;
  const neutral=['pidgeot','raticate','fearow','arbok','pikachu','sandslash','ninetales','vileplume','golduck','primeape','arcanine','poliwrath','machamp','victreebel','tentacruel','golem','rapidash','slowbro','dodrio','dewgong','muk','cloyster','hypno','kingler','electrode','exeggutor','marowak','weezing','rhydon','tangela','seadra','seaking','scyther','pinsir','tauros','gyarados','lapras','snorlax'].filter(s=>db.dex[s]);
- const species=visible.unseen?choose(neutral,rng):id(visible.species),sp=db.dex[species];if(!sp)throw Error('缺少物种资料：'+species);
+ const species=visible.unseen?(worldOptions?.unseen?.()||choose(neutral,rng)):id(visible.species),sp=db.dex[species];if(!sp)throw Error('缺少物种资料：'+species);
  const physical=sp.baseStats.atk>=sp.baseStats.spa,defensive=rng()<.3;
  const nature=choose(['serious','serious',physical?'adamant':'modest',physical?'jolly':'timid',physical?'impish':'calm'],rng);
  const ev=choose([0,0,128,252],rng),evs=defensive?{hp:ev,[physical?'def':'spd']:ev}:{[physical?'atk':'spa']:ev,spe:ev};
@@ -60,11 +60,11 @@ function hypothesize(visible,index,view,db,rng){
  const wild=view.encounterType==='wild';
  const ability=visible.ability||id(choose(sp.abilities?.length?sp.abilities:['none'],rng));
  const item=visible.itemKnown?(visible.item||'none'):(wild||rng()<.6?'none':choose(['leftovers','sitrusberry','lifeorb',physical?'choiceband':'choicespecs','choicescarf','focussash'],rng));
- return{species,level:visible.level||level,maxHp:stats.hp,hp:fraction===0?0:Math.max(1,Math.round(stats.hp*fraction)),stats,types:visible.types||sp.types,ability,item,nature,moves:plausibleMoves(species,visible.level||level,visible.moves,db,rng,{wild}),stages:{...visible.stages},status:visible.status||null,sleepTurns:visible.status==='slp'?2:0,toxicCounter:visible.toxicCounter||1,volatile:{...visible.volatile},weight:sp.weightkg||10,lastMove:visible.lastMove,_protectStreak:visible.protectStreak||0,isMega:!!visible.isMega,terastallized:!!visible.terastallized,teraType:visible.terastallized?visible.types?.[0]:null,dynamaxed:!!visible.dynamaxed,dynamaxTurns:visible.dynamaxTurns||0,originalTypes:sp.types};
+ return{species,level:visible.level||level,maxHp:stats.hp,hp:fraction===0?0:Math.max(1,Math.round(stats.hp*fraction)),stats,types:visible.types||sp.types,ability,item,nature,moves:worldOptions?.setsFilledLater?[]:plausibleMoves(species,visible.level||level,visible.moves,db,rng,{wild}),stages:{...visible.stages},status:visible.status||null,sleepTurns:visible.status==='slp'?2:0,toxicCounter:visible.toxicCounter||1,volatile:{...visible.volatile},weight:sp.weightkg||10,lastMove:visible.lastMove,_protectStreak:visible.protectStreak||0,isMega:!!visible.isMega,terastallized:!!visible.terastallized,teraType:visible.terastallized?visible.types?.[0]:null,dynamaxed:!!visible.dynamaxed,dynamaxTurns:visible.dynamaxTurns||0,originalTypes:sp.types};
 }
-export function sampleWorld(view,db,rng){
+export function sampleWorld(view,db,rng,worldOptions){
  const own=view.own.map(p=>({...p,species:id(p.species||p.speciesId),types:[...p.types],stats:{...p.stats},stages:{...p.stages},volatile:{...p.volatile},nature:p.nature||'serious',weight:db.dex[id(p.species||p.speciesId)]?.weightkg||10,moves:p.moves.map(m=>({...m}))}));
- const foe=view.opponent.map((p,i)=>hypothesize(p,i,view,db,rng));
+ const foe=view.opponent.map((p,i)=>hypothesize(p,i,view,db,rng,worldOptions));
  return{teams:[own,foe],active:view.active.map(a=>a.slice()),conditions:[structuredClone(view.field.sides[1]),structuredClone(view.field.sides[0])],weather:view.weather,weatherId:view.weatherId,weatherTurns:view.weatherTurns,field:{...view.field},mechanicUsed:structuredClone(view.mechanicUsed),double:!!view.double,firstFaintLoses:!!view.firstFaintLoses};
 }
 const status={brn:'burn',par:'paralysis',psn:'poison',tox:'toxic',slp:'sleep',frz:'freeze'};

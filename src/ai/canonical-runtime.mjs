@@ -1,6 +1,6 @@
 /*
-Runtime-only repackaging: license embedded here instead of a separate file.
-No executable logic changed.
+Replacement wiring revision: public-reserves-v71.
+Original integration license retained below; revision changes are documented.
 Browser AI integration helpers - MIT notice
 
 MIT License
@@ -29,8 +29,12 @@ SOFTWARE.
 // PRIVATE SIMULATIONS ONLY. This module never receives the real Battle, its PS
 // snapshot, RNG or a player's command. All turns (including ties, priority,
 // Trick Room, pivots and gimmicks) are executed by the existing pinned PS code.
+import {positionalValue} from './circuit/position.mjs?v=crown-72';
 import PS from './vendor/showdown-search.mjs?v=20261118-ai-elite-v3';
-import {id,actionKey} from './battle-view.mjs?v=20261118-ai-elite-v3';
+import {id,actionKey,hash,seeded} from './battle-view.mjs?v=20261118-ai-elite-v3&cmd=kanto-crown-v72';
+import {REPLACEMENT_BUILD,rankReplacementPlans,chooseReplacementPlan,scoreReplacement} from './replacement-policy.mjs?v=public-reserves-v71';
+export {REPLACEMENT_BUILD};
+export const RUNTIME_COMMAND='kanto-crown-v72';
 export const CANONICAL_COMMIT='5b88c476113d51a939bddbcd00b5cd182a5d8058';
 const noop=()=>{},alive=p=>p&&p.hp>0&&!p.fainted;
 const statKeys=['atk','def','spa','spd','spe'];
@@ -131,11 +135,11 @@ export function createSimulation(world,view,seed=[1,2,3,4]){
    const lead=world.active[s].filter(i=>i>=0&&world.teams[s][i]?.hp>0),order=[...lead,...world.teams[s].map((_,i)=>i).filter(i=>!lead.includes(i))];
    b.setPlayer('p'+(s+1),{name:s===0?'AI':'Hypothesis',team:order.map(i=>asSet(world.teams[s][i],i))});
   }
-  configureGimmicks(b);b.turn=Math.max(1,(view.turn||0)+1);b.ended=false;b.winner='';
+  configureGimmicks(b);b._aiReplacementProfile=JSON.parse(JSON.stringify(view.profile||{}));b.turn=Math.max(1,(view.turn||0)+1);b.ended=false;b.winner='';
   for(let s=0;s<2;s++){
    const side=b.sides[s],used=world.mechanicUsed?.[s]||{};
    for(const q of side.pokemon){
-    const p=world.teams[s][q.set._aiIndex],sp=b.dex.species.get(p.species);if(!sp.exists)throw Error('AI规则缺少物种：'+p.species);
+    const p=world.teams[s][q.set._aiIndex],sp=b.dex.species.get(p.species);q.set._aiReplacementPublic=replacementEvidence(s===0?view.own[q.set._aiIndex]?.revealed:view.opponent[q.set._aiIndex]);if(!sp.exists)throw Error('AI规则缺少物种：'+p.species);
     q.species=sp;q.baseSpecies=b.dex.species.get(p.originalSpeciesId||p.species);q.weighthg=sp.weighthg;
     // The facade's types are the DISPLAYED Tera type. PS keeps pre-Tera types
     // internally for original STAB and overlays the defensive type in getTypes.
@@ -146,7 +150,9 @@ export function createSimulation(world,view,seed=[1,2,3,4]){
     q.status=p.status||'';q.statusState=state(b,q.status,q,q);
     if(q.status==='slp')q.statusState.time=q.statusState.startTime=p.sleepTurns||2;
     if(q.status==='tox')q.statusState.stage=Math.max(0,(p.toxicCounter||1)-1);
-    for(let j=0;j<q.baseMoveSlots.length;j++){const raw=p.moves[j],m=q.baseMoveSlots[j];m.pp=Math.max(0,Number(raw?.ppLeft)||0);m.maxpp=Number(raw?.pp)||Math.max(m.pp,b.dex.moves.get(m.id).pp);m.disabled=false;m.used=!!raw?.used;}
+    const seenThisStay=s===1?(view.opponent[q.set._aiIndex]?.seenThisStay||[]):[];
+    q.activeMoveActions=s===0?(Number(p._cmdMoveActions)||0):Number(seenThisStay.length>0);
+    for(let j=0;j<q.baseMoveSlots.length;j++){const raw=p.moves[j],m=q.baseMoveSlots[j];m.pp=Math.max(0,Number(raw?.ppLeft)||0);m.maxpp=Number(raw?.pp)||Math.max(m.pp,b.dex.moves.get(m.id).pp);m.disabled=false;m.used=s===0?!!raw?.usedThisStay:seenThisStay.includes(m.id);}
     q.moveSlots=q.baseMoveSlots.slice();q.ppUps=q.moveSlots.map(()=>0);
     q.lastMove=q.lastMoveEncore=q.lastMoveUsed=p._lastMoveId||p.lastMove?b.dex.moves.get(p._lastMoveId||p.lastMove):null;
     q.activeTurns=p._enteredThisTurn?0:Math.max(1,b.turn-(Number(p.enteredTurn)||0));q.newlySwitched=false;q.trapped=false;q.maybeTrapped=false;
@@ -190,6 +196,45 @@ export function saveSimulation(b){clearLogs(b);return JSON.stringify(b.toJSON())
 export function restoreSimulation(json,seed){
  const b=PS.Battle.fromJSON(json);configureGimmicks(b);if(seed)b.resetRNG(seed);b.makeRequest(b.requestState);clearLogs(b);return b;
 }
+
+function replacementEvidence(p){return{moves:(p?.moves||[]).map(m=>({id:m.id,used:m.used||0})),ability:p?.ability||null,item:p?.item||null,itemKnown:!!p?.itemKnown};}
+function rememberSimulationReveals(b,lines){
+ for(const line of lines){
+  const a=line.split('|'),match=/^p([12])([a-z])?: (.*)$/.exec(a[2]||'');if(!match)continue;
+  const side=b.sides[Number(match[1])-1],q=side.pokemon.find(p=>p.name===match[3]||p.set.name===match[3]);if(!q)continue;
+  const pub=q.set._aiReplacementPublic||={moves:[],ability:null,item:null,itemKnown:false};
+  if(a[1]==='move'&&!a.slice(4).some(s=>s.startsWith('[from]'))){const mid=id(a[3]);let m=pub.moves.find(m=>m.id===mid);if(!m)pub.moves.push(m={id:mid,used:0});m.used++;}
+  if(a[1]==='-ability')pub.ability=id(a[3]);
+  if(a[1]==='-item'){pub.item=id(a[3]);pub.itemKnown=true;}
+  if(a[1]==='-enditem'){pub.item=null;pub.itemKnown=true;}
+  const from=a.slice(4).find(s=>s.startsWith('[from] ability: '));if(from)pub.ability=id(from.slice(16));
+ }
+}
+export function simulationReplacementRequest(b,side){
+ const s=b.sides[side],force=s.activeRequest?.forceSwitch||[],reserved=[...s.choice.switchIns].map(i=>s.pokemon[i]?.set._aiIndex).filter(Number.isInteger);
+ const slots=s.active.map((q,slot)=>{
+  if(!force[slot])return{slot,kind:'pass',candidates:[]};
+  const revive=!!s.slotConditions[slot]?.revivalblessing,candidates=s.pokemon.filter(p=>!reserved.includes(p.set._aiIndex)&&(revive?p.fainted:alive(p)&&!s.active.includes(p))).map(p=>p.set._aiIndex);
+  return{slot,kind:revive?'revive':'switch',phase:q.hp>0&&!q.fainted?'pivot':'faint',candidates,...(typeof q.switchFlag==='string'&&b.dex.moves.get(q.switchFlag).selfSwitch==='copyvolatile'?{passStages:{...q.boosts}}:{})};
+ });
+ return{totalSlots:s.active.length,switchesLeft:s.choice.forcedSwitchesLeft,passesLeft:s.choice.forcedPassesLeft,reserved,slots};
+}
+export function simulationReplacementObservation(b,side){
+ const s=b.sides[side],other=b.sides[1-side],own=[],opponent=[];
+ for(const q of s.pokemon){own[q.set._aiIndex]={species:q.species.id,level:q.level,hp:q.hp,maxHp:q.maxhp,fainted:q.fainted,types:q.getTypes(),originalTypes:q.baseTypes.slice(),stats:{hp:q.baseMaxhp,...q.storedStats},stages:{...q.boosts},ability:q.ability,item:q.item,status:q.status||null,moves:q.moveSlots.map(m=>({id:m.id,ppLeft:m.pp,pp:m.maxpp})),volatile:{},terastallized:!!q.terastallized,teraType:q.teraType};}
+ for(const q of other.pokemon){
+  if(!other.active.includes(q)){opponent[q.set._aiIndex]={unseen:true};continue;}
+  const pub=q.set._aiReplacementPublic||{moves:[]},visible=q.illusion?.species||q.species;
+  opponent[q.set._aiIndex]={species:visible.id,level:q.level,types:q.illusion?visible.types.slice():q.getTypes(),hpPercent:q.hp>0?Math.ceil(q.hp/q.maxhp*100):0,status:q.status||null,stages:{...q.boosts},moves:(pub.moves||[]).map(m=>({...m})),ability:pub.ability||null,item:pub.item||null,itemKnown:!!pub.itemKnown,dynamaxed:!!q.volatiles.dynamax,terastallized:!!q.terastallized,volatile:Object.fromEntries(['magnetrise','telekinesis','ingrain','smackdown'].filter(k=>q.volatiles[k]).map(k=>[k,true]))};
+ }
+ const sides=[other,s].map(x=>Object.fromEntries(Object.entries(x.sideConditions).map(([k,v])=>[k,v.layers??v.duration??true])));
+ return{profile:b._aiReplacementProfile||{tier:'regular',settings:{}},turn:b.turn,double:b.gameType==='doubles',own,opponent,active:[s.active.map(q=>q?.set._aiIndex??-1),other.active.map(q=>q?.set._aiIndex??-1)],weather:b.field.weather||null,weatherId:b.field.weather||null,field:{sides,terrain:b.field.terrain?.replace(/terrain$/,'')||null,trickRoom:b.field.pseudoWeather.trickroom?.duration||0,gravity:b.field.pseudoWeather.gravity?.duration||0,magicRoom:b.field.pseudoWeather.magicroom?.duration||0}};
+}
+export function simulationReplacementPlans(b,side,{limit=48}={}){
+ const view=simulationReplacementObservation(b,side),request=simulationReplacementRequest(b,side),db={dex:PS.Dex.data.Pokedex,moves:PS.Dex.data.Moves};
+ return rankReplacementPlans(view,request,db,{limit});
+}
+
 export function commandFor(b,side,actions){
  const s=b.sides[side];return actions.map((a,slot)=>{
   if(!a||a.kind==='pass')return'pass';
@@ -222,8 +267,9 @@ export function simulationMenus(b,side){
  const s=b.sides[side],r=s.activeRequest;if(!r||r.wait)return[[{kind:'pass'}]];
  return s.active.map((q,slot)=>{
   if(r.forceSwitch&&!r.forceSwitch[slot])return[{kind:'pass'}];
-  const swaps=s.pokemon.filter(p=>alive(p)&&!s.active.includes(p)).map(p=>({kind:'switch',index:p.set._aiIndex,slot}));
-  if(r.forceSwitch?.[slot])return swaps.length?(r.forceSwitch.filter(Boolean).length>swaps.length?[...swaps,{kind:'pass'}]:swaps):[{kind:'pass'}];
+  const revive=!!s.slotConditions[slot]?.revivalblessing;
+  const swaps=s.pokemon.filter(p=>(r.forceSwitch?.[slot]&&revive?p.fainted:alive(p)&&!s.active.includes(p))).map(p=>({kind:'switch',index:p.set._aiIndex,slot,...(revive?{revive:true}:{})}));
+  if(r.forceSwitch?.[slot])return swaps.length?(s.choice.forcedPassesLeft>0&&!revive?[...swaps,{kind:'pass',slot}]:swaps):[{kind:'pass',slot}];
   if(!alive(q))return[{kind:'pass'}];
   const req=r.active?.[slot]||q.getMoveRequestData(),out=[];
   for(let i=0;i<(req.moves||[]).length;i++){
@@ -277,7 +323,18 @@ function expectedDamage(b,p,q,m){
  if(m.multihit)damage*=typeof m.multihit==='number'?m.multihit:p.ability==='skilllink'?m.multihit[1]:p.item==='loadeddice'?4.5:3.1;
  return Number.isFinite(damage)?damage*accuracy:0;
 }
+// These helpers see simulated hypotheses only. They order replies/rollouts; they never apply
+// synthetic damage or mutate a move, the battle RNG, or the actual player's team.
+const deadOpener=(p,m)=>p.activeMoveActions>0&&['fakeout','firstimpression','matblock'].includes(m.id)||m.id==='lastresort'&&(p.moveSlots.length<2||p.moveSlots.some(x=>x.id!=='lastresort'&&!x.used));
 export function actionPrior(b,side,slot,a){
+ // A forced switch/revival is scored BEFORE the outgoing-fainted guard. This
+ // direct entry point and rankedJointActions share the same public policy.
+ if(b.sides[side].activeRequest?.forceSwitch){
+  const request=simulationReplacementRequest(b,side),rule=request.slots[slot];
+  if(a.kind==='pass')return rule?.kind==='pass'||request.passesLeft>0?0:-1000;
+  if(a.kind!=='switch'||!rule?.candidates.includes(a.index))return-1000;
+  return scoreReplacement(simulationReplacementObservation(b,side),request,rule,a.index,{dex:PS.Dex.data.Pokedex,moves:PS.Dex.data.Moves}).score;
+ }
  const p=b.sides[side].active[slot];if(!alive(p))return a.kind==='pass'?0:-1000;
  const foes=b.sides[1-side].active.filter(alive);
  if(a.kind==='pass')return-100;
@@ -291,6 +348,7 @@ export function actionPrior(b,side,slot,a){
  let m=b.dex.moves.get(p.moveSlots[a.index]?.id||'struggle');
  if(a.mechanic==='z')m=b.actions.getActiveZMove(m,p);
  if(a.mechanic==='dynamax'||p.volatiles.dynamax)m=b.actions.getActiveMaxMove(m,p);
+ if(deadOpener(p,m))return -250;
  const q=targetOf(b,side,slot,a,m);let score=0;
  if(m.category!=='Status'&&q){const d=expectedDamage(b,p,q,m);score+=(q.side.n===side?-1:1)*(Math.min(d,q.hp)/q.maxhp*75+(d>=q.hp&&d>0?75:0));}
  if(m.heal)score+=Math.min(p.maxhp-p.hp,p.maxhp*m.heal[0]/m.heal[1])/p.maxhp*80;
@@ -307,27 +365,48 @@ export function actionPrior(b,side,slot,a){
  if(a.mechanic==='z')score-=3;
  return Number.isFinite(score)?score:-1000;
 }
+// Do not count two KOs on the same target, or treat Earthquake as a single-target attack.
+// This is a candidate-ordering prior. The equilibrium solver can STILL choose focus fire,
+// protect a teammate, or aim both moves at a slot likely to switch. PS judges the outcome.
+export function jointPrior(b,side,actions){
+ const solo=actions.reduce((n,a,i)=>n+actionPrior(b,side,i,a),0);if(b.gameType!=='doubles'||actions.length!==2||b.requestState==='switch')return solo;
+ const foe=b.sides[1-side].active,own=b.sides[side].active,dmg=new Map();let remove=0,allyBill=0;
+ const worth=(q,d)=>75*(Math.min(q.hp,d)/q.maxhp)+(d>=q.hp&&d>0?75:0);
+ const guard=slot=>{const p=own[slot],a=actions[slot],m=a?.kind==='move'&&p&&b.dex.moves.get(p.moveSlots[a.index]?.id||'struggle');return !!(m&&(m.stallingMove||m.id==='protect'||m.id==='detect')&&!(p.volatiles.stall?.counter>1));};
+ for(let slot=0;slot<2;slot++){const p=own[slot],a=actions[slot];if(a?.kind!=='move'||!alive(p))continue;
+ let m=b.dex.moves.get(p.moveSlots[a.index]?.id||'struggle');if(a.mechanic==='z')m=b.actions.getActiveZMove(m,p);if(a.mechanic==='dynamax'||p.volatiles.dynamax)m=b.actions.getActiveMaxMove(m,p);if(!m||m.category==='Status'||deadOpener(p,m))continue;
+ const main=targetOf(b,side,slot,a,m);if(!alive(main)||main.side.n===side)continue;const spread=['allAdjacentFoes','allAdjacent','all'].includes(m.target);const multi=spread&&foe.filter(alive).length+(m.target==='allAdjacent'&&alive(own[1-slot])?1:0)>1;
+ remove+=worth(main,expectedDamage(b,p,main,m));for(const q of spread?foe.filter(alive):[main])dmg.set(q,(dmg.get(q)||0)+expectedDamage(b,p,q,m)*(multi?.75:1));
+ const other=actions[1-slot]?.kind==='switch'?b.sides[side].pokemon.find(x=>x.set._aiIndex===actions[1-slot].index):own[1-slot];if(['allAdjacent','all'].includes(m.target)&&alive(other)&&!guard(1-slot))allyBill+=worth(other,expectedDamage(b,p,other,m)*(multi?.75:1));
+ }return solo+.90*([...dmg].reduce((n,[q,d])=>n+worth(q,d),0)-remove-allyBill);
+}
 export function rankedJointActions(b,side,{perSlot=4,joints=10}={}){
+ if(b.sides[side].activeRequest?.forceSwitch)return simulationReplacementPlans(b,side,{limit:joints});
  const groups=simulationMenus(b,side).map((menu,slot)=>menu.map(a=>({a,score:actionPrior(b,side,slot,a)})).sort((a,c)=>c.score-a.score||actionKey(a.a).localeCompare(actionKey(c.a))).slice(0,perSlot));
- return jointActions(groups.map(g=>g.map(x=>x.a))).map(actions=>({actions,score:actions.reduce((n,a,slot)=>n+actionPrior(b,side,slot,a),0)})).sort((a,c)=>c.score-a.score||a.actions.map(actionKey).join('|').localeCompare(c.actions.map(actionKey).join('|'))).slice(0,joints);
+ return jointActions(groups.map(g=>g.map(x=>x.a))).map(actions=>({actions,score:jointPrior(b,side,actions)})).sort((a,c)=>c.score-a.score||a.actions.map(actionKey).join('|').localeCompare(c.actions.map(actionKey).join('|'))).slice(0,joints);
 }
 export function executeChoices(b,ours,theirs){
  const commands=[commandFor(b,0,ours),commandFor(b,1,theirs)],required=b.sides.map(s=>!!s.activeRequest&&!s.activeRequest.wait);
  // choose() commits immediately once all REQUIRED sides are done. During a
  // pivot only one side chooses; do not inspect the OTHER side's NEW next-turn
  // request after that commit and accidentally submit a stale pass/move to it.
- for(let s=0;s<2;s++)if(required[s]){if(!b.choose('p'+(s+1),commands[s]))throw Error('AI模拟非法行动：'+commands[s]+' / '+b.sides[s].choice.error);}
+ const start=b.log.length;
+ try{for(let s=0;s<2;s++)if(required[s]){if(!b.choose('p'+(s+1),commands[s]))throw Error('AI模拟非法行动：'+commands[s]+' / '+b.sides[s].choice.error);}}finally{rememberSimulationReveals(b,b.log.slice(start));}
 }
 export function settleReplacements(b,{firstFaintLoses=false,max=8}={}){
  for(let i=0;i<max&&!b.ended&&b.requestState==='switch';i++){
   if(firstFaintLoses&&b.sides.some((s,i)=>s.pokemon.filter(p=>p.fainted).length>(b._aiFaintBaseline?.[i]||0)))return;
   // Both replacement policies are computed BEFORE either command is submitted.
-  const actions=b.sides.map((_,s)=>rankedJointActions(b,s,{perSlot:3,joints:1})[0]?.actions||[{kind:'pass'}]);
+  const actions=b.sides.map((side,s)=>{
+   if(!side.activeRequest?.forceSwitch)return[{kind:'pass'}];
+   const plans=simulationReplacementPlans(b,s),profile=b._aiReplacementProfile||{},seed=hash(JSON.stringify({view:simulationReplacementObservation(b,s),request:simulationReplacementRequest(b,s)}));
+   return chooseReplacementPlan(plans,profile,{rng:seeded(seed)}).actions;
+  });
   executeChoices(b,actions[0],actions[1]);
  }
  if(!b.ended&&b.requestState==='switch'&&!firstFaintLoses)throw Error('AI模拟替换未收敛');
 }
-export function evaluateSimulation(b,{firstFaintLoses=false}={}){
+export function evaluateSimulation(b,{firstFaintLoses=false,matchCache=null}={}){
  if(firstFaintLoses){const gone=b.sides.map((s,i)=>s.pokemon.filter(p=>p.fainted).length>(b._aiFaintBaseline?.[i]||0));if(gone[0]||gone[1])return gone[0]===gone[1]?0:gone[0]?-1:1;}
  if(b.ended)return b.winner===b.sides[0].name?1:b.winner===b.sides[1].name?-1:0;
  const values=b.sides.map(s=>{
@@ -349,6 +428,6 @@ export function evaluateSimulation(b,{firstFaintLoses=false}={}){
   if(s.sideConditions.reflect)value+=5;if(s.sideConditions.lightscreen)value+=5;if(s.sideConditions.auroraveil)value+=8;if(s.sideConditions.tailwind)value+=5;
   return value;
  });
- return Math.tanh((values[0]-values[1])/170)*.94;
+ return Math.tanh((values[0]-values[1]+positionalValue(b,expectedDamage,matchCache))/170)*.94;
 }
 export {PS};

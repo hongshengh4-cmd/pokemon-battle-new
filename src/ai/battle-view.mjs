@@ -1,6 +1,6 @@
 /*
-Runtime-only repackaging: license embedded here instead of a separate file.
-No executable logic changed.
+Replacement wiring revision: public-reserves-v71.
+Original integration license retained below; revision changes are documented.
 Browser AI integration helpers - MIT notice
 
 MIT License
@@ -83,7 +83,7 @@ export function legalActions(b,side=1,slot=0,reserved=new Set()){
  if(!trapped&&maySwitch)for(let i=0;i<b.teams[side].length;i++){const q=b.teams[side][i];if(q.hp>0&&!q.fainted&&!b.activeSlots[side].includes(i)&&!reserved.has(i))moves.push({kind:'switch',index:i,slot})}
  return moves.length?moves:[{kind:'pass',slot}];
 }
-const ownFields=['speciesId','originalSpeciesId','originalTypes','name','level','hp','maxHp','stats','ivs','evs','gender','happiness','types','ability','item','nature','status','sleepTurns','toxicCounter','mechanic','megaForm','dynamaxForm','zType','teraType','isMega','terastallized','dynamaxed','dynamaxTurns','normalMaxHp','choiceLockedMove','stages','_lastMoveId','_protectStreak','enteredTurn','_enteredThisTurn'];
+const ownFields=['_c6OwnImpact','_cmdMoveActions','speciesId','originalSpeciesId','originalTypes','name','level','hp','maxHp','stats','ivs','evs','gender','happiness','types','ability','item','nature','status','sleepTurns','toxicCounter','mechanic','megaForm','dynamaxForm','zType','teraType','isMega','terastallized','dynamaxed','dynamaxTurns','normalMaxHp','choiceLockedMove','stages','_lastMoveId','_protectStreak','enteredTurn','_enteredThisTurn'];
 const transient=new Set(['usedMoves','protect','endure','followme','ragepowder','helpinghand','afteryou','quash']);
 function safeVolatile(p,publicOnly=false){
  const v={};for(const [k,x]of Object.entries(p.volatile||{})){
@@ -96,12 +96,18 @@ function safeVolatile(p,publicOnly=false){
  }
  return v;
 }
-function own(p){const o={};for(const k of ownFields)if(p[k]!==undefined)o[k]=copy(p[k]);o.species=p.speciesId;o.moves=p.moves.map(m=>({id:m.id,ppLeft:m.ppLeft,pp:m.pp}));o.volatile=safeVolatile(p);return o}
+function own(p){const o={};for(const k of ownFields)if(p[k]!==undefined)o[k]=copy(p[k]);o.species=p.speciesId;o.moves=p.moves.map(m=>({id:m.id,ppLeft:m.ppLeft,pp:m.pp,usedThisStay:p._cmdOwnUsed?.includes(m.id)||false}));o.volatile=safeVolatile(p);o.revealed={moves:copy(p._aiPublicMoves||[]),ability:p._aiPublicAbility||null,item:p._aiPublicItem||null,itemKnown:!!p._aiPublicItemKnown};return o}
 export function rememberPublic(p){
  if(!p?._participated)return;
  const visible=publicAppearance(p);
- p._aiPublicSnapshot={species:visible.speciesId,level:p.level,hpPercent:p.hp>0?Math.ceil(p.hp/p.maxHp*100):0,types:[...visible.types],status:p.status||null,stages:{...p.stages},moves:copy(p._aiPublicMoves||[]),ability:p._aiPublicAbility||null,item:p._aiPublicItem||null,itemKnown:!!p._aiPublicItemKnown,isMega:!!p.isMega,terastallized:!!p.terastallized,dynamaxed:!!p.dynamaxed,dynamaxTurns:p.dynamaxed?p.dynamaxTurns:0,volatile:safeVolatile(p,true),lastMove:p._aiPublicLastMove||null,protectStreak:p._aiPublicProtectStreak||0};
+ p._aiPublicSnapshot={species:visible.speciesId,level:p.level,hpPercent:p.hp>0?Math.ceil(p.hp/p.maxHp*100):0,types:[...visible.types],status:p.status||null,stages:{...p.stages},moves:copy(p._aiPublicMoves||[]),ability:p._aiPublicAbility||null,item:p._aiPublicItem||null,itemKnown:!!p._aiPublicItemKnown,isMega:!!p.isMega,terastallized:!!p.terastallized,dynamaxed:!!p.dynamaxed,dynamaxTurns:p.dynamaxed?p.dynamaxTurns:0,volatile:safeVolatile(p,true),lastMove:p._aiPublicLastMove||null,protectStreak:p._aiPublicProtectStreak||0,rocksWitness:p._c6Rocks||null,circuitOrder:copy(p._c6Order)||null,circuitUsed:[...(p._c6GearUsed||[])],seenThisStay:[...(p._cmdPublicUsed||[])]};
 }
+// Deliberately a preference rather than a rules ban: a forced action or a Z/Max variant is still possible.
+export function practicalMenu(p,menu){if(!p||p.dynamaxed)return menu;
+ const kept=menu.filter(a=>{if(a.kind!=='move'||a.struggle||a.mechanic)return true;const m=p.moves[a.index];if(!m)return true;
+ if(['fakeout','firstimpression','matblock'].includes(m.id)&&p._cmdMoveActions>0)return false;
+ if(m.id==='lastresort'&&(p.moves.length<2||p.moves.some(x=>x.id!=='lastresort'&&!(x.usedThisStay||p._cmdOwnUsed?.includes(x.id)))))return false;
+ return true;});return kept.length?kept:menu;}
 function fieldView(field){
  const out={};for(const [k,v]of Object.entries(field)){
   if(k==='sides')out.sides=v.map(s=>Object.fromEntries(Object.entries(s).map(([a,b])=>[a,typeof b==='object'?!!b:b])));
@@ -113,12 +119,19 @@ function fieldView(field){
 }
 export function observation(b,profile,memory={}){
  for(const p of b.activeMons(0))rememberPublic(p);
- return{profile:{...profile,settings:{...profile.settings}},memory:copy(memory),turn:b.turnCount,double:!!b.double,firstFaintLoses:!!b.firstFaintLoses,own:b.teams[1].map(own),opponent:b.teams[0].map(p=>copy(p._aiPublicSnapshot)||{unseen:true}),active:[b.activeSlots[1].slice(),b.activeSlots[0].slice()],field:fieldView(b.field),weather:b.weather||null,weatherId:b.weatherId||null,weatherTurns:b.weatherTurns,mechanicUsed:[copy(b.mechanicUsed[1]),{}],encounterType:b.encounterType,legal:Array.from({length:b.double?2:1},(_,slot)=>legalActions(b,1,slot))};
+ return{profile:{...profile,settings:{...profile.settings}},memory:copy(memory),turn:b.turnCount,double:!!b.double,firstFaintLoses:!!b.firstFaintLoses,own:b.teams[1].map(own),opponent:b.teams[0].map(p=>copy(p._aiPublicSnapshot)||{unseen:true}),active:[b.activeSlots[1].slice(),b.activeSlots[0].slice()],field:fieldView(b.field),weather:b.weather||null,weatherId:b.weatherId||null,weatherTurns:b.weatherTurns,mechanicUsed:[copy(b.mechanicUsed[1]),{}],encounterType:b.encounterType,legal:Array.from({length:b.double?2:1},(_,slot)=>practicalMenu(b.cur(1,slot),legalActions(b,1,slot)))};
+}
+// Separate phase boundary: never query normal move legality during a forced
+// replacement. Refresh ONLY currently active public appearances, even fainted;
+// never refresh a benched opponent's private regeneration/status/item changes.
+export function replacementObservation(b,profile){
+ for(const i of b.activeSlots[0]){const p=b.teams[0][i];if(p)rememberPublic(p);}
+ return{profile:{...profile,settings:{...profile?.settings}},turn:b.turnCount,double:!!b.double,firstFaintLoses:!!b.firstFaintLoses,encounterType:b.encounterType,weatherTurns:b.weatherTurns,mechanicUsed:[copy(b.mechanicUsed[1]),{}],own:b.teams[1].map(own),opponent:b.teams[0].map(p=>copy(p._aiPublicSnapshot)||{unseen:true}),active:[b.activeSlots[1].slice(),b.activeSlots[0].slice()],field:fieldView(b.field),weather:b.weather||null,weatherId:b.weatherId||null};
 }
 // Emergency fallback deliberately uses species/type and displayed HP only.
 // In particular it never calls estimateDamage against the actual private foe.
 export function quickChoice(b,slot=0,reserved=new Set(),memory={}){
- const B=globalThis.PKMBattle,me=b.cur(1,slot),foes=b.activeMons(0).map(publicAppearance),legal=legalActions(b,1,slot,reserved);if(!me)return legal[0];
+ const B=globalThis.PKMBattle,me=b.cur(1,slot),foes=b.activeMons(0).map(publicAppearance),legal=practicalMenu(me,legalActions(b,1,slot,reserved));if(!me)return legal[0];
  const effect=(m,f)=>globalThis.PKMTypeChart?.effectiveness(m.type,f.types)||0;
  const power=(p,f,m)=>{
   const sp=B._dex?.[f.speciesId],def=sp?.baseStats?.[m.category==='Physical'?'def':'spd']||80;

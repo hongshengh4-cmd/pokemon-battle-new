@@ -28,7 +28,7 @@ SOFTWARE.
 // SPDX-License-Identifier: MIT
 // Independent bounded approximate lookahead. This is NOT poke-engine,
 // Showdown, or a rules-complete battle simulator. Never writes to the game.
-import {actionKey} from './battle-view.mjs?v=20261118-ai-elite-v3';
+import {actionKey} from './battle-view.mjs?v=20261118-ai-elite-v3&cmd=kanto-crown-v72';
 import {effectiveness,isGuardMove,actionAssessment} from './tactical-policy.mjs?v=20261118-ai-elite-v3';
 export {effectiveness};
 const clone=x=>structuredClone(x),alive=p=>p&&p.hp>0;
