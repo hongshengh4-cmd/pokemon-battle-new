@@ -1,14 +1,41 @@
+/*
+Runtime-only repackaging: license embedded here instead of a separate file.
+No executable logic changed.
+Browser AI integration helpers - MIT notice
+
+MIT License
+
+Copyright (c) 2026 Contributors to the browser AI integration
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
 // SPDX-License-Identifier: MIT
 // Main-thread coordinator. The worker is a separate message endpoint. Only
 // observation() is sent, never a Battle, roster save, RNG, or player command.
-import {AI_BUILD,TIERS,resolveTrainerAI} from './profile.mjs?v=20261118-ai-elite-v3';
+import {AI_BUILD,TIERS,resolveTrainerAI,TIER_WIRING_BUILD} from './profile.mjs?v=npc-tier-wiring-v1';
 import {observation,rememberPublic,legalActions,quickChoice,actionKey,hash,publicAppearance} from './battle-view.mjs?v=20261118-ai-elite-v3';
-export {AI_BUILD,resolveTrainerAI};
+export {AI_BUILD,resolveTrainerAI,TIER_WIRING_BUILD};
 export function profileForBattle(cfg,difficulty,enemyKey){
- if(cfg?.aiProfile?.version===AI_BUILD&&TIERS[cfg.aiProfile.tier])return{...cfg.aiProfile,settings:{...TIERS[cfg.aiProfile.tier]}};
+ if(cfg?.aiProfile?.version===AI_BUILD&&cfg.aiProfile.wiringVersion===TIER_WIRING_BUILD&&TIERS[cfg.aiProfile.tier])return{...cfg.aiProfile,settings:{...TIERS[cfg.aiProfile.tier]}};
  const context={...(cfg||{}),...(cfg?.aiContext||{})};
  const type=context.type||(['wild','league','gym','elite','ace','champion'].includes(cfg?.encounter?.type)?cfg.encounter.type:enemyKey==='champion'?'champion':enemyKey==='gym'?'gym':'trainer');
- return resolveTrainerAI({...context,type,opponent:context.opponent||cfg?.rules?.opponent||enemyKey||'对手',ai:context.ai||cfg?.ai,difficulty:context.difficulty??difficulty});
+ return resolveTrainerAI({...context,type,opponent:context.opponent||cfg?.rules?.opponent||enemyKey||'对手',ai:context.ai||cfg?.ai,difficulty:cfg?.aiContext?cfg.aiContext.difficulty:context.difficulty??difficulty});
 }
 export class BrowserBattleAI{
  constructor({workerFactory=()=>new Worker(new URL('./search-worker.mjs?v='+AI_BUILD,import.meta.url),{type:'module',name:'Pokémon AI'}),timeout=3000,bootTimeout=20000}={}){
@@ -96,5 +123,5 @@ export function showAIStatus(element,info,profile){
  if(!element)return;const mode=info.mode||'ready',labels={ready:'剧情AI · 就绪',thinking:'剧情AI · 后台思考中', 'poke-engine':'Foul Play策略 · poke-engine搜索','hybrid-search':'WASM＋Showdown · 联合前瞻','showdown-search':'Showdown规则 · 多假设前瞻',compatibility:'兼容AI · 近似前瞻',emergency:'安全AI · 临时降级'};
  element.dataset.mode=mode;element.textContent=`${profile.label} · ${labels[mode]||mode}`;
  const intent={teaching:'指导赛',restrained:'收敛实力',casual:'非认真对战',serious:'认真对战'}[profile.intent]||'';
- element.title=[`人物档位：${TIERS[profile.storyTier]?.label||profile.label} → 本场：${profile.label}（${intent}）`,`依据：${profile.reason||profile.source||'默认'}`,info.worlds?`${info.worlds}组公开信息假设；${info.visits||0}次MCTS访问；${info.nodes||0}次规则推演；${info.elapsed||0}毫秒`:'',...(info.reasons||[]),'不会改动数值；不会读取玩家未公开指令。双打和特殊机制不等同于原版Foul Play。'].filter(Boolean).join('\n');
+ element.title=[`人物档位：${TIERS[profile.storyTier]?.label||profile.label} → 本场：${profile.label}（${intent}）`,`档位来源：${profile.source||'默认'}`,profile.reason?`配置理由：${profile.reason}`:'',profile.characterName?`人物资料：${profile.characterName} / ${profile.characterTier||profile.characterTierStatus||'未指定'} / ${profile.characterTierSource||'—'}`:'',...(profile.tierWarnings||[]),info.worlds?`${info.worlds}组公开信息假设；${info.visits||0}次MCTS访问；${info.nodes||0}次规则推演；${info.elapsed||0}毫秒`:'',...(info.reasons||[]),'不会改动数值；不会读取玩家未公开指令。双打和特殊机制不等同于原版Foul Play。'].filter(Boolean).join('\n');
 }

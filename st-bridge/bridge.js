@@ -1,4 +1,4 @@
-import {resolveTrainerAI,STORY_AI_PROMPT,STORY_MECHANIC_PROMPT,AI_BUILD} from '../src/ai/profile.mjs?v=20261118-ai-elite-v3';
+import {resolveTrainerAI,resolveNpcTier,TIER_WIRING_BUILD,STORY_AI_PROMPT,STORY_MECHANIC_PROMPT,AI_BUILD} from '../src/ai/profile.mjs?v=npc-tier-wiring-v1';
 import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './sprite-recovery.js?v=1.3.31';
 import * as K from './kanto-data.js?v=20261117-chain-timeline-v1';
 import '../src/engine/field-environment.js?v=20261118-field-interactions-v1';
@@ -8433,6 +8433,39 @@ function battleTexts(cfg, fmt, pN, eN) {
   return { typeLabel, opp, sideLabel: opp || '对手', tag: `${opp ? opp + ' · ' : ''}${fmt.name}${short ? `（${short}）` : ''}`,
     intro: `【${typeLabel} · ${fmt.name}】${who}派出 ${eN} 只，我方参赛 ${pN} 只；参赛的全部倒下就判负。` };
 }
+/* @npc-tier-begin: read-only, per-launch worldbook snapshot; testable in isolation */
+async function readNpcTierSources(){
+ const c=ctx(),book=charBookName(),sources=[],warnings=[];
+ const embedded=cardEntries();
+ if(book){
+  const th=W.TavernHelper||P.TavernHelper;
+  const owner=typeof c?.loadWorldInfo==='function'?c:typeof W.getWorldbook==='function'?W:typeof th?.getWorldbook==='function'?th:null;
+  const loader=owner===c?c?.loadWorldInfo:owner?.getWorldbook;
+  if(typeof loader==='function'){
+   let timer;
+   try{
+    const data=await Promise.race([Promise.resolve().then(()=>loader.call(owner,book)),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('读取人物世界书超时')),1500);})]);
+    const entries=Array.isArray(data)?data:data?.entries;
+    if(entries&&typeof entries==='object')sources.push({source:'bound-worldbook',entries});
+    else warnings.push('绑定世界书接口未返回条目；使用卡内或随包档位兜底。');
+   }catch(e){warnings.push('绑定世界书不可读；使用卡内或随包档位兜底：'+String(e?.message||e));}
+   finally{clearTimeout(timer);}
+  }else warnings.push('宿主未开放只读世界书接口；使用卡内或随包档位兜底。');
+ }
+ if(Array.isArray(embedded)&&embedded.length)sources.push({source:'embedded-worldbook',entries:embedded});
+ return {sources,warnings};
+}
+async function snapshotNpcTier(cfg){
+ if(String(cfg?.type||'').toLowerCase()==='wild')return null;
+ const {sources,warnings}=await readNpcTierSources();
+ const pos=storyPos(),mode=pos?.mode||latestState()?.state?.模式||readPkm().world?.mode||'';
+ // Unknown progress, skipped events and sandbox mode do not establish a future
+ // EP promotion. Never use cfg.event/title or the highest written tier as proof.
+ const progress=pos?{...pos,mode:sandboxActive()?'sandbox':mode}:null;
+ const snapshot=resolveNpcTier(cfg?.opponent,{sources,progress});
+ return {...snapshot,warnings:[...(snapshot.warnings||[]),...warnings]};
+}
+/* @npc-tier-end */
 function engineConfig(spec, pkm, tag) {
   const cfg = spec.cfg || {};
   const entries = playerEntries(pkm, { includeFainted: true });
@@ -8491,9 +8524,10 @@ function engineConfig(spec, pkm, tag) {
   if (doubleMode || singleMode) rules.battleMode = doubleMode ? 'double' : 'single';
   if (fmt.firstFaintLoses) rules.firstFaintLoses = true;
   if (doubleMode) rules.rule = `${rules.rule}；双打：双方各2只同时出场，双方分别为每只出战宝可梦选择行动。`;
-  const aiContext=Object.fromEntries(['ai','trainerRank','trainerClass','leagueStage','tournamentStage','stage','round','title','eventName','competition','tournamentName','tournament','league','remainingEntrants','exhibition'].filter(k=>cfg[k]!==undefined).map(k=>[k,clone(cfg[k])]));
+  const aiContext=Object.fromEntries(['ai','difficulty','trainerRank','trainerClass','leagueStage','tournamentStage','stage','round','title','eventName','competition','tournamentName','tournament','league','remainingEntrants','exhibition'].filter(k=>cfg[k]!==undefined).map(k=>[k,clone(cfg[k])]));
   aiContext.type=type;aiContext.opponent=cfg.opponent||tx.opp;
-  const out = { rules, aiContext, aiProfile:resolveTrainerAI({...cfg,type,opponent:cfg.opponent||tx.opp},pkm),
+  if(spec.npcTier)aiContext.npcTier=clone(spec.npcTier);
+  const out = { rules, aiContext, aiProfile:resolveTrainerAI({...cfg,type,opponent:cfg.opponent||tx.opp,npcTier:spec.npcTier},pkm),
     encounter: { type: fmt.wild ? 'wild' : 'trainer' }, difficulty: cfg.difficulty || K.DIFFICULTY_BY_TYPE[type] || 'normal',
     p1: { entrants: [{ name: 'host-player', party }] }, p2: { entrants: [{ name: 'host-enemy', party: enemy }] },
     host: { tag, identityKey:String(spec.key||cfg.id||tag), balls, battleItems:battleItemStock(pkm), intro: `${tx.intro}${doubleMode ? ' 双打规则：双方各2只同时出场。' : ''}`, captureContext }, ui: spec.ui || null };
@@ -8815,9 +8849,11 @@ async function launchBattle(m) {
   // Old saves may lack stable individual IDs. Persist IDs before taking battle snapshots.
   if(readPkm().party.slots.some(s=>hasMon(s)&&!s.uid))await writePkm(()=>{});
   if(modal!==m)return;
+  const npcTier=await snapshotNpcTier(m.cfg);
+  if(modal!==m||destroyed)return;
   const pkm = readPkm();
   const tag = uid();
-  const { engine, balls, type, fmt, genderCorrections } = engineConfig({ ...m.spec, cfg: m.cfg }, pkm, tag);
+  const { engine, balls, type, fmt, genderCorrections } = engineConfig({ ...m.spec, cfg: m.cfg, npcTier }, pkm, tag);
   if(genderCorrections?.length)toast('对战配置中的性别不符合物种或无法识别，已在新遭遇中校正：'+genderCorrections.join('；'),'warning');
   if (!engine.p1.entrants[0].party.length) { toast('队伍里的宝可梦都失去了战斗能力，先去宝可梦中心治疗吧。', 'warning'); closeBattle(true); return; }
   const heldSnapshots=Object.fromEntries(engine.p1.entrants[0].party.map(e=>[e.hostSlot,PKMHeldSync.snapshot(pkm.party.slots[e.hostSlot],e,heldItemId)]));
@@ -8828,7 +8864,7 @@ async function launchBattle(m) {
   const frame = PD.createElement('iframe');
   frame.setAttribute('allow', 'autoplay; fullscreen'); frame.setAttribute('allowfullscreen', ''); frame.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
   frame.style.background = '#070a14';
-  frame.src = W.PKM_BATTLE_EMBED_URL || `${BASE}index.html?embed=1&v=${BATTLE_RULES_PATCH}&ai=${AI_BUILD}&flinch=${FLINCH_PATCH}&scroll=${MOBILE_SCROLL_PATCH}&field=${FIELD_INTERACTION_VERSION}`;
+  frame.src = W.PKM_BATTLE_EMBED_URL || `${BASE}index.html?embed=1&v=${BATTLE_RULES_PATCH}&ai=${AI_BUILD}&tierwiring=${TIER_WIRING_BUILD}&flinch=${FLINCH_PATCH}&scroll=${MOBILE_SCROLL_PATCH}&field=${FIELD_INTERACTION_VERSION}`;
   stage.replaceWith(frame);
   m.frame = frame;
   setBar(m.cfg.lines?.start ? '「' + m.cfg.lines.start + '」' : '正在连接对战系统……');
@@ -8863,7 +8899,7 @@ function onEngineMessage(d) {
   if (d.type === 'PKM_BATTLE_EXIT') { closeBattle();return; }
   if (d.type === 'PKM_BATTLE_READY') {
     const v=d.payload||{},expected='20261113-comprehensive-fix-v6';
-    if(v.fieldInteractionVersion!==FIELD_INTERACTION_VERSION||v.aiVersion!==AI_BUILD||v.mobileScrollVersion!==MOBILE_SCROLL_PATCH||v.flinchPatchVersion!==FLINCH_PATCH||v.rulesPatchVersion!==BATTLE_RULES_PATCH||v.showdownCommit!==SHOWDOWN_COMMIT||v.showdownReady!==true||[v.version,v.engineVersion].some(x=>x!==BATTLE_SITE_BUILD)||[v.lifecycleVersion,v.selectionVersion].some(x=>x!==BATTLE_RULES_BUILD)||v.moveScriptsVersion!==BATTLE_SITE_BUILD||v.normalAbilityVersion!=='20261115-normal-ability-random-v2'||[v.gearVersion,v.gearDataVersion,v.genderVersion].some(x=>x!==expected)){
+    if(v.fieldInteractionVersion!==FIELD_INTERACTION_VERSION||v.aiVersion!==AI_BUILD||v.tierWiringVersion!==TIER_WIRING_BUILD||v.mobileScrollVersion!==MOBILE_SCROLL_PATCH||v.flinchPatchVersion!==FLINCH_PATCH||v.rulesPatchVersion!==BATTLE_RULES_PATCH||v.showdownCommit!==SHOWDOWN_COMMIT||v.showdownReady!==true||[v.version,v.engineVersion].some(x=>x!==BATTLE_SITE_BUILD)||[v.lifecycleVersion,v.selectionVersion].some(x=>x!==BATTLE_RULES_BUILD)||v.moveScriptsVersion!==BATTLE_SITE_BUILD||v.normalAbilityVersion!=='20261115-normal-ability-random-v2'||[v.gearVersion,v.gearDataVersion,v.genderVersion].some(x=>x!==expected)){
       m.verified=false;m.sent=false;clearTimeout(m.timer);
       setBar('对战版本不匹配或网站未完整部署，已拒绝启动旧引擎。请一起上传全部覆盖文件、刷新缓存后重试；手机返回或电脑 Esc 可退出。');return;
     }
@@ -10383,7 +10419,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, localEcologyVersion:LOCAL_ECOLOGY_VERSION, storyVersion:STORY_BUILD, aiVersion:AI_BUILD, mobileScrollVersion:MOBILE_SCROLL_PATCH, flinchPatchVersion:FLINCH_PATCH, rulesPatchVersion:'20261118-hit-lifecycle-v1', battleRulesVersion:BATTLE_RULES_PATCH, showdownCommit:SHOWDOWN_COMMIT, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: REPAIR_BUILD, bondVersion:PKMBondSync.version, base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, regionalBuild: "20261118-status-restore-v8.1", inventoryPatchVersion:INVENTORY_PATCH_VERSION, battleStartPolicyVersion:BATTLE_START_POLICY_VERSION, useRegionalDex: name => writePkm(pkm=>applyRegionalDexSwitch(pkm,name)), purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, localEcologyVersion:LOCAL_ECOLOGY_VERSION, storyVersion:STORY_BUILD, aiVersion:AI_BUILD, tierWiringVersion:TIER_WIRING_BUILD, mobileScrollVersion:MOBILE_SCROLL_PATCH, flinchPatchVersion:FLINCH_PATCH, rulesPatchVersion:'20261118-hit-lifecycle-v1', battleRulesVersion:BATTLE_RULES_PATCH, showdownCommit:SHOWDOWN_COMMIT, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: REPAIR_BUILD, bondVersion:PKMBondSync.version, base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, regionalBuild: "20261118-status-restore-v8.1", inventoryPatchVersion:INVENTORY_PATCH_VERSION, battleStartPolicyVersion:BATTLE_START_POLICY_VERSION, useRegionalDex: name => writePkm(pkm=>applyRegionalDexSwitch(pkm,name)), purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }
