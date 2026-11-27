@@ -77,7 +77,14 @@ export function coherentSet(visible,species,level,db,rng,{wild=false,usageRow=nu
  const stats=statsFor(sp,level,nature,evs);
  return{role,nature,evs,ivs:{hp:31,atk:31,def:31,spa:31,spd:31,spe:31},stats,item,moves:chosen.map(mid=>({id:mid,ppLeft:Math.max(0,(db.moves[mid]?.pp||20)-(revealed.find(m=>id(m.id)===mid)?.used||0))}))};
 }
+// 宝可梦大师: the hypothesis IS the player's real team (configuration + current state).
+function oracleWorld(view,db,rng){
+ const world=sampleWorld(view,db,rng,{setsFilledLater:true,unseen:()=>''});
+ world.teams[1]=view.oracle.team.map(p=>({...p,species:id(p.species||p.speciesId),types:[...p.types],stats:{...p.stats},stages:{...p.stages},volatile:{...p.volatile},nature:p.nature||'serious',weight:db.dex[id(p.species||p.speciesId)]?.weightkg||10,moves:p.moves.map(m=>({...m}))}));
+ world.mechanicUsed[1]={...(view.oracle.mechanicUsed||{})};world.oracle=true;return world;
+}
 export function sampleBeliefWorld(view,db,rng){
+ if(view.profile?.master&&Array.isArray(view.oracle?.team)&&view.oracle.team.length===view.opponent.length)return oracleWorld(view,db,rng);
  const used=new Set(view.opponent.map(p=>p.species).filter(Boolean));const world=sampleWorld(view,db,rng,{setsFilledLater:true,unseen:()=>{const id=partner(view,db,rng,used);if(id)used.add(id);return id;}});
  // Z/Max animations are public evidence, not permanent learned moves. Infer
  // only ALREADY OBSERVED resource use, never the player's unannounced gear.

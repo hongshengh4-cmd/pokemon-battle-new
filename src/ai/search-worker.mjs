@@ -690,9 +690,10 @@ import {sampleWorld,compatibilityReasons,engineRequest} from './model.mjs?v=2026
 import {sampleBeliefWorld} from './belief-model.mjs?v=20261118-ai-elite-v3&cmd=kanto-crown-v72';
 import {compatibilitySearch} from './compatibility.mjs?v=20261118-ai-elite-v3&cmd=kanto-crown-v72';
 import {aggregatePolicies,samplePolicy} from './foulplay-policy.mjs?v=20261118-foulplay-browser-ai-v1';
-import {REPLACEMENT_BUILD} from './replacement-policy.mjs?v=public-reserves-v71';
-import {report as circuitReport,advise,blendPolicies} from './circuit/council.mjs?v=crown-72';
+import {REPLACEMENT_BUILD} from './replacement-policy.mjs?v=public-reserves-v71&expert=human-prior-v2';
+import {report as circuitReport,advise,blendPolicies} from './circuit/council.mjs?v=crown-72&expert=human-prior-v2';
 import {isCrown,crownPolicy,CROWN_BUILD} from './circuit/crown.mjs?v=crown-72';
+import {blendRoot,ownPrior,EXPERT_LAMBDA,EXPERT_BUILD,setFoeAdaptation,foePredict} from './expert/human-prior.mjs?v=human-prior-v2';
 if(CROWN_BUILD!=='crown-review-72')throw Error('高档指挥版本不匹配');
 let readyPromise,environment;
 export async function boot(){
@@ -701,7 +702,7 @@ export async function boot(){
   const [dex,moves,learnsets]=await Promise.all(['pokedex','moves','learnsets'].map(async name=>{const r=await fetch(new URL(`../data/${name}.json?v=seven-tier-v71`,import.meta.url));if(!r.ok)throw Error(name+': HTTP '+r.status);return r.json();}));
   let native=null,catalogSets=null,wasmError=null,canonical=null,canonicalError=null,canonicalCommit=null;
   try{await init({module_or_path:new URL('./wasm/poke-search_bg.wasm?v='+NATIVE_BUILD,import.meta.url)});native=search;const raw=JSON.parse(catalog());catalogSets=Object.fromEntries(Object.entries(raw).map(([k,v])=>[k,new Set(v.map(id))]));}catch(e){wasmError=String(e.message||e);}
-  const module=await import('./canonical-search.mjs?v='+AI_BUILD+'&cmd=kanto-crown-v72&replacement='+REPLACEMENT_BUILD);
+  const module=await import('./canonical-search.mjs?v='+AI_BUILD+'&cmd=kanto-crown-v72&replacement='+REPLACEMENT_BUILD+'&expert=human-prior-v2');
    if(module.REPLACEMENT_BUILD!==REPLACEMENT_BUILD||module.SEARCH_BUILD!==AI_BUILD||module.COMMAND_BUILD!=='kanto-crown-v72')throw Error('规则前瞻模块版本不匹配');
   try{module.bootCanonical();canonical=module.canonicalSearch;canonicalCommit=module.CANONICAL_COMMIT;
   }catch(e){canonicalError=String(e.message||e);if(canonicalError.includes('版本不匹配'))throw e;}
@@ -712,9 +713,12 @@ function styleWeight(actions,view,db){const style=view.profile.style;if(style===
 export function decide(view,env,{seed=hash(JSON.stringify(view)),iterations=0,expert='balanced'}={}){
  if(!view||!Array.isArray(view.own)||!view.own.length||view.own.length>6||!Array.isArray(view.opponent)||!view.opponent.length||view.opponent.length>6)throw Error('invalid observation');
  // Never trust a caller-provided search budget. Only registered scene tiers.
- const tier=TIERS[view.profile?.tier]?view.profile.tier:'regular';
- view={...view,profile:{...view.profile,tier,label:TIERS[tier].label,settings:{...TIERS[tier]}}};
+ // 宝可梦大师 = the champion search over the player's real configuration (view.oracle); same budget as champion.
+ const rawTier=TIERS[view.profile?.tier]?view.profile.tier:'regular',master=rawTier==='master'||view.profile?.master===true&&rawTier==='champion',tier=master?'champion':rawTier;
+ view={...view,profile:{...view.profile,tier,master,label:master?'宝可梦大师':TIERS[tier].label,settings:{...TIERS[tier],label:master?'宝可梦大师':TIERS[tier].label,omniscient:master}}};if(!master)delete view.oracle;
  const {db}=env,rng=seeded(seed),settings=view.profile.settings,started=performance.now(),deadline=started+settings.milliseconds;
+ // In-battle read of this player's public habits (elite/champion use it to scale their exploitation).
+ let foeRead=null;try{foeRead=['elite','champion','ace','leader'].includes(tier)?setFoeAdaptation(view.memory):setFoeAdaptation(null);}catch(e){setFoeAdaptation(null);}
  let circuit=null,circuitError='';try{if(expert!=='native')circuit=circuitReport(view,{...db,supportedMoves:null},seed,started+Math.min(125,settings.milliseconds*.16));}catch(e){circuitError=String(e.message||e);}
  let reasons=compatibilityReasons(view,db,env.catalog);if(!env.native)reasons.push('WASM不可用：'+(env.wasmError||'not loaded'));
  if(view.legal.some(xs=>xs.some(a=>a.struggle)))reasons.push('挣扎行动兼容');
@@ -740,7 +744,9 @@ export function decide(view,env,{seed=hash(JSON.stringify(view)),iterations=0,ex
  }
  if(wantsCanonical){
   try{
-   const result=env.canonical(view,db,{seed,deadline,nativePrior:policy||[]});
+   // Human-expert prior (>=1800 ladder replays) seeds the regret-matching start; the solver still decides.
+   let seedPrior=policy||[];try{if(!view.double&&EXPERT_LAMBDA[tier]>0){const am=new Map(view.legal[0].map(x=>[actionKey(x),[x]])),hp=ownPrior(view,am,db);if(hp){const base=new Map(seedPrior.map(p=>[p.key,p.weight]));seedPrior=[...am.keys()].map(k=>({key:k,weight:Math.pow(Math.max(1e-4,base.size?(base.get(k)||0):1/am.size),.6)*Math.pow(Math.max(.01,hp.get(k)||0),.4)}));}}}catch(e){reasons.push('高分先验跳过：'+String(e.message||e));}
+   const result=env.canonical(view,db,{seed,deadline,nativePrior:seedPrior});
    if(result.build!==AI_BUILD||result.commandVersion!=='kanto-crown-v72'||result.replacementBuild!==REPLACEMENT_BUILD||result.commit!==env.canonicalCommit)throw Error('规则前瞻构建标识不匹配');
    if(!result.policy?.length)throw Error('规则前瞻未返回策略');
    rootStudy=result.rootStudy;canonicalInfo=result.info;const usable=(policy||[]).filter(x=>result.actionMap.has(x.key));
@@ -765,13 +771,18 @@ export function decide(view,env,{seed=hash(JSON.stringify(view)),iterations=0,ex
  // Canonical root guards/tempo costs were incorporated BEFORE solving the
  // simultaneous game. Do not multiply its equilibrium distribution afterward
  // or trim it to a visit-share window: genuine mixed strategies need support.
- let tacticalNotes=[];
+ let tacticalNotes=[],expertInfo=null;
+ // Non-canonical tiers: geometric blend with the learned human-expert policy (not a number buff).
+ if(!canonicalInfo&&!view.firstFaintLoses){try{const lam=EXPERT_LAMBDA[tier]||0,r=blendRoot(policy,actionMap,view,db,lam);if(r.used){policy=r.policy;expertInfo={build:EXPERT_BUILD,lambda:lam,top:r.top};}}catch(e){reasons.push('高分先验跳过：'+String(e.message||e));}}
  if(!canonicalInfo){const guarded=tacticalPolicy(policy,actionMap,view,db);policy=guarded.policy;tacticalNotes=guarded.notes;}
  else tacticalNotes=['双方同时决策；跨隐藏假设共享己方根策略','特殊机制与行动顺序由固定版Showdown执行',...canonicalInfo.notes];
+ if(foeRead)tacticalNotes.push(`对手习惯读取：${foeRead.n} 回合，换人倾向 ${foeRead.beta>0?'+':''}${foeRead.beta}，出招集中度 ${foeRead.a}，重复出招 ${foeRead.rho>0?'+':''}${foeRead.rho}；读招力度 ×${foeRead.alphaScale}`);
+ let nextRead=null;try{if(['elite','champion','ace','leader'].includes(tier))nextRead=foePredict(view,db);}catch(e){}
+ if(expertInfo)tacticalNotes.push(`高分对局先验 λ=${expertInfo.lambda}`);else if(canonicalInfo?.humanModel)tacticalNotes.push(`高分对局应对模型：读招 α=${canonicalInfo.humanModel.alpha}`);
  const routed=expert==='native'&&!canonicalInfo?{policy,why:'独立原生专家：按 Foul Play 跨假设访问占比合成'}:advise(policy,actionMap,view,circuit,db);policy=routed.policy;if(routed.why)tacticalNotes.push(routed.why);if(circuitError)reasons.push('伤害复核跳过：'+circuitError);
  const reviewed=isCrown(tier)?crownPolicy(view,db,policy,actionMap,rootStudy,circuit):null;if(reviewed)policy=reviewed.policy;
  const key=samplePolicy(policy,reviewed?{window:0,mistake:0}:canonicalInfo?{window:0,mistake:settings.mistake}:settings,rng),actions=actionMap.get(key);if(!actions)throw Error('no legal AI decision');
- return{replacementBuild:REPLACEMENT_BUILD,commandVersion:'kanto-crown-v72',build:AI_BUILD,mode,actions,root:policy.map(p=>({key:p.key,weight:p.weight})),info:{mode,expert,...(reviewed?{crown:{...reviewed.info,selected:key}}:{}),circuit:circuit?{worlds:circuit.n,calcCalls:circuit.calls,sources:circuit.source,verdict:routed.why}:null,tacticsBuild:TACTICS_BUILD,tacticalNotes,tier,label:settings.label,worlds:canonicalInfo?.worlds||worlds,nativeWorlds:worlds,visits:totalVisits,nodes,elapsed:Math.round(performance.now()-started),canonical:canonicalInfo?{commit:env.canonicalCommit,...canonicalInfo}:null,reasons:[...new Set(reasons)].slice(0,12),policy:policy.slice(0,12).map(p=>({key:p.key,weight:Math.round(p.weight*10000)/10000}))}};
+ return{replacementBuild:REPLACEMENT_BUILD,commandVersion:'kanto-crown-v72',build:AI_BUILD,mode,actions,root:policy.map(p=>({key:p.key,weight:p.weight})),info:{mode,expert,humanPrior:expertInfo,foeRead,foePredict:nextRead,...(reviewed?{crown:{...reviewed.info,selected:key}}:{}),circuit:circuit?{worlds:circuit.n,calcCalls:circuit.calls,sources:circuit.source,verdict:routed.why}:null,tacticsBuild:TACTICS_BUILD,tacticalNotes,tier,master:master?{oracle:!!view.oracle,team:view.oracle?.team?.length||0}:null,label:settings.label,worlds:canonicalInfo?.worlds||worlds,nativeWorlds:worlds,visits:totalVisits,nodes,elapsed:Math.round(performance.now()-started),canonical:canonicalInfo?{commit:env.canonicalCommit,...canonicalInfo}:null,reasons:[...new Set(reasons)].slice(0,12),policy:policy.slice(0,12).map(p=>({key:p.key,weight:Math.round(p.weight*10000)/10000}))}};
 }
 if(typeof self!=='undefined'&&typeof self.postMessage==='function'&&typeof document==='undefined'){
  self.onmessage=async event=>{

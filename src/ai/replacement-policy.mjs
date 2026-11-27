@@ -6,6 +6,7 @@
  * project's existing public Dex. Damage/speed below are ordering ESTIMATES;
  * the unchanged pinned Showdown engine alone validates and resolves choices.
  */
+import {replacementPrior} from './expert/human-prior.mjs?v=human-prior-v2';
 import {effectiveness} from './tactical-policy.mjs?v=20261118-ai-elite-v3';
 export const REPLACEMENT_BUILD='public-reserves-v71';
 const id=x=>String(x??'').toLowerCase().replace(/[^a-z0-9]/g,'');
@@ -174,6 +175,7 @@ export function scoreReplacement(view,request,slot,index,db){
 }
 const planKey=actions=>actions.map(a=>a.kind==='switch'?`${a.slot}:${a.index}${a.revive?'r':''}`:`${a.slot}:pass`).join('|');
 export function rankReplacementPlans(view,request,db,{limit=48}={}){
+ let hp=null;try{if(!view.double&&view.profile?.tier&&view.profile.tier!=='wild'&&request.slots?.length===1&&request.slots[0].kind==='switch')hp=replacementPrior(view,db,[...new Set(request.slots[0].candidates||[])],request.slots[0].slot||0);}catch{}
  if(!Array.isArray(view?.own)||!Array.isArray(view?.opponent)||!Array.isArray(request?.slots))throw Error('替补请求缺少公开观察或候选');
  const total=request.totalSlots||view.active[0].length||1,slots=Array.from({length:total},(_,slot)=>request.slots.find(s=>s.slot===slot)||{slot,kind:'pass',candidates:[]}),out=[];
  const initialSwitches=Number.isInteger(request.switchesLeft)?request.switchesLeft:slots.filter(s=>s.kind==='switch').length,initialPasses=Number.isInteger(request.passesLeft)?request.passesLeft:0;
@@ -184,6 +186,7 @@ export function rankReplacementPlans(view,request,db,{limit=48}={}){
   for(const index of [...new Set(s.candidates||[])]){
    if(!Number.isInteger(index)||index<0||index>=view.own.length||(request.reserved||[]).includes(index)||s.kind!=='revive'&&used.has(index)||s.kind!=='revive'&&switches<=0)continue;
    const value=scoreReplacement(view,request,s,index,db);if(!Number.isFinite(value.score))continue;
+   if(hp&&hp.has(index)){const bonus=12*Math.log(Math.max(.03,hp.get(index))*hp.size);value.score+=bonus;value.expertBonus=Math.round(bonus*10)/10;}
    const duplicate=s.kind==='revive'&&actions.some(a=>a.revive&&a.index===index),next=new Set(used);if(s.kind!=='revive')next.add(index);
    visit(at+1,[...actions,{kind:'switch',index,slot:s.slot,...(s.kind==='revive'?{revive:true}:{})}],next,Math.max(0,switches-1),passes,score+value.score-(duplicate?100:0),[...details,value]);
   }

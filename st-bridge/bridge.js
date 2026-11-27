@@ -9030,11 +9030,18 @@ function onEngineMessage(d) {
       const ev=(r.effort||[]).map(x=>`${x.name} ${x.changes.map(c=>`${K.STAT_ZH[c.stat]}+${c.gain}`).join('、')}`).join('；');
       setSettlementNotice(m,[`${r.outcomeZh}：结果已保存。`,xp?'经验：'+xp:'',ev?'努力值：'+ev:'',r.evolutionBalls?`脱壳忍者进化额外消耗：精灵球×${r.evolutionBalls}`:'',notice?'注意：'+notice:'',r.batched?'返回后可在附近列表结束刷级并回剧情。':'返回后可发送结果继续剧情。'].filter(Boolean).join('\n'),!!notice);
       if(notice)toast(notice,'warning');
+      postBattleRewards(m,r);
       const b = m.el.querySelector('[data-op=close]'); if (b) b.textContent = '返回剧情 ›';
       if (m.sess) { m.sess.status = 'ended'; m.sess.summary = r.summary; entryStatus(m.sess); }
     }).catch(err => { m.settling=false;LOG('写回失败', err);setSettlementNotice(m,'结果未保存：'+(err?.message||err),true);setBar('结果写回失败：' + (err?.message || err)); toast('对战结果写回变量失败：' + (err?.message || err), 'error'); });
   }
 }
+// settle-v3：把真实写入存档的经验／努力值／奖金回传给战斗页，用于结算动画（只读展示，不影响结算本身）。
+function postBattleRewards(m,r){try{const view={version:'settle-v3',saved:true,
+ experience:(r.experience||[]).map(x=>({name:x.name,exp:x.exp,from:x.from,to:x.to,entered:!!x.entered,share:x.share,evolutions:(x.evolutions||[]).map(e=>e.to||e.species||e.name).filter(Boolean),learned:(x.learnedMoves||[]).slice(),pending:(x.pendingMoves||[]).slice(),...(x.view||{})})),
+ effort:(r.effort||[]).map(x=>({name:x.name,changes:x.changes,total:x.total,...(x.view||{})})),
+ prize:r.prize?.amount||0,warnings:(r.warnings||[]).slice()};
+ m.frame?.contentWindow?.postMessage({type:'PKM_BATTLE_REWARDS',hostTag:m.tag,payload:view},'*');}catch(e){LOG('结算回传失败',e);}}
 const OUTCOME_ZH = { victory: '胜利', defeat: '败北', captured: '收服成功', escaped:'逃跑成功', draw: '平局/中止' };
 const ESCAPE_REASON_ZH = { wildFled: '野生宝可梦逃走', forceSwitch: '野生宝可梦被赶走', blownAway: '被赶出战斗' };
 function monFromCapture(cap, enemy, cfgEnemy, pkm) {
@@ -9260,7 +9267,7 @@ function awardBattleEffort(pkm,payload,outcome,battleType,startingUids=null){
   const mon=pkm.party.slots[i];
   // 升级进化可能先产生脱壳忍者；只奖励开战前已在队伍中的 UID。
   if(!hasMon(mon)||(Array.isArray(startingUids)&&(!startingUids[i]||String(mon.uid||'')!==startingUids[i])))continue;
-  const changes=addEffortYield(mon,defeated);if(changes.length)gains.push({name:monName(mon),changes,total:K.STAT_KEYS.reduce((n,k)=>n+Number(mon.stats_meta?.evs?.[k]||0),0)});
+  const changes=addEffortYield(mon,defeated);if(changes.length){const rec={name:monName(mon),changes,total:K.STAT_KEYS.reduce((n,k)=>n+Number(mon.stats_meta?.evs?.[k]||0),0)};Object.defineProperty(rec,'view',{value:{slot:i,evs:{...mon.stats_meta.evs}},enumerable:false});gains.push(rec);}
  }
  return gains;
 }
@@ -9271,7 +9278,7 @@ function awardBattleExperience(pkm, payload, outcome, battleType, eventId='自�
   const participated=new Set((payload.playerTeam||[])
     .filter(p=>p.participated!==false&&Number.isInteger(Number(p.hostSlot)))
     .map(p=>Number(p.hostSlot)));
-  const award=(mon,gain,entered)=>{
+  const award=(mon,gain,entered,slot=null)=>{
     if(!hasMon(mon)||gain<=0)return;
     const oldLv=Math.max(1,Math.min(100,Math.floor(Number(mon.lv)||5)));
     const oldStats=monStats(mon),oldMax=Number(mon.maxHp)>0?Number(mon.maxHp):(oldStats?.hp||1);
@@ -9293,14 +9300,18 @@ function awardBattleExperience(pkm, payload, outcome, battleType, eventId='自�
       }
       mon.lv=newLv;
     }else mon.lv=newLv;
-    gained.push({name:monName(mon),species:mon.species||mon.name,exp:gain,from:oldLv,to:newLv,entered,share:entered?'全额':'50%',evolutions:evolutionRecords,learnedMoves,pendingMoves,learnsetUnavailable});
+    const rec={name:monName(mon),species:mon.species||mon.name,exp:gain,from:oldLv,to:newLv,entered,share:entered?'全额':'50%',evolutions:evolutionRecords,learnedMoves,pendingMoves,learnsetUnavailable};
+    // settle-v3：结算画面用的经验条数据，不可枚举，不会写进 <pkm_result> 正文。
+    const thresholds=[];for(let l=oldLv;l<=Math.min(100,newLv+1);l++)thresholds.push(experienceThreshold(mon,l));
+    Object.defineProperty(rec,'view',{value:{slot,expFrom:saved,expTo:total,thresholds,statsFrom:oldStats||null},enumerable:false,writable:true});
+    gained.push(rec);
   };
   if(battleType==='wild'){
     // 野外：经验不按参战人数瓜分。出场者各得完整等级公式经验，队伍其余成员各得一半。
-    pkm.party.slots.forEach((mon,i)=>{if(!hasMon(mon))return;const entered=participated.has(i);award(mon,entered?baseGain:Math.max(1,Math.floor(baseGain/2)),entered);});
+    pkm.party.slots.forEach((mon,i)=>{if(!hasMon(mon))return;const entered=participated.has(i);award(mon,entered?baseGain:Math.max(1,Math.floor(baseGain/2)),entered,i);});
   }else{
     // 训练家／NPC 战：与野外一致，实际出场者各得全额，队伍内未出场者各得 50%；不需持有任何道具。
-    pkm.party.slots.forEach((mon,i)=>{if(!hasMon(mon))return;const entered=participated.has(i);award(mon,entered?baseGain:Math.max(1,Math.floor(baseGain/2)),entered);});
+    pkm.party.slots.forEach((mon,i)=>{if(!hasMon(mon))return;const entered=participated.has(i);award(mon,entered?baseGain:Math.max(1,Math.floor(baseGain/2)),entered,i);});
   }
   for(const mon of sideMons)if(pkm.party.slots.some(s=>!hasMon(s))){placeMon(pkm,mon);if(!pkm.dex.caught.includes(mon.species))pkm.dex.caught.push(mon.species);addSeen(pkm,mon.species,eventId||'自由');}
   return gained;
@@ -9479,6 +9490,7 @@ async function applyResult(m, payload) {
       const captureReservation=outcome==='captured'&&pkm.party.slots.some(s=>!hasMon(s))?1:0;
       xpGains=awardBattleExperience(pkm,rewardPayload,outcome,m.type,(cfg.event&&cfg.event!=='自由'?cfg.event:'自由'),captureReservation);
       evGains=awardBattleEffort(pkm,rewardPayload,outcome,m.type,m.partyUids);
+      for(const x of xpGains)if(x.view&&Number.isInteger(x.view.slot)&&hasMon(pkm.party.slots[x.view.slot]))x.view.statsTo=monStats(pkm.party.slots[x.view.slot]);
       evolutionBalls=xpGains.flatMap(x=>x.evolutions||[]).filter(x=>x.ballUsed==='精灵球').length;
       if(won){
         if(EFFORT_YIELDS_ERROR)rewardWarnings.push('努力值表未加载，本场未增加努力值；请检查配套站点的努力值数据。');
@@ -9573,10 +9585,10 @@ async function applyResult(m, payload) {
   const text = `<pkm_result>${JSON.stringify({...res, experience:xpGains,effort:evGains})}</pkm_result>\n${human}`;
   if(m.type==='wild'){
     const pendingCount=unsettledWild(readPkm(),findStat()?.id??-1).length;
-    return {summary:result.summary,outcomeZh:OUTCOME_ZH[outcome]||'结束',text,batched:true,pendingCount,experience:xpGains,effort:evGains,evolutionBalls,warnings:rewardWarnings};
+    return {summary:result.summary,outcomeZh:OUTCOME_ZH[outcome]||'结束',text,batched:true,pendingCount,experience:xpGains,effort:evGains,evolutionBalls,warnings:rewardWarnings,prize:prizeAward};
   }
   fillInput(text);
-  return { summary: result.summary, outcomeZh: OUTCOME_ZH[outcome] || '结束', text, experience:xpGains,effort:evGains,evolutionBalls,warnings:rewardWarnings };
+  return { summary: result.summary, outcomeZh: OUTCOME_ZH[outcome] || '结束', text, experience:xpGains,effort:evGains,evolutionBalls,warnings:rewardWarnings,prize:prizeAward };
 }
 function fillInput(text) {
   const ta = PD.getElementById('send_textarea'); if (!ta) return;
@@ -10613,7 +10625,7 @@ async function start() {
     if (raw && [...(raw.party?.slots || []), ...(raw.party?.box || [])].some(m => hasMon(m) && (persistentFormTarget(m) || JSON.stringify(m.ability ?? null) !== JSON.stringify(singleAbility(m))))) writePkm(() => {}).catch(e => LOG('旧存档特性规范化失败', e));
   });
   LOG('修复版已加载：徽章显示兼容、跟随宝可梦漫游与生态叫声、队伍栏与精灵球位置持久、覆盖层全屏');
-  P.PKMKanto = { __owner: instance, commandVersion:COMMAND_BUILD,replacementVersion:'public-reserves-v71',officialNamesVersion:OFFICIAL_NAMES.version, opponentTrainingVersion:'tier-pokemon-ev-v71', featureVersion:FEATURE_BUILD, localEcologyVersion:LOCAL_ECOLOGY_VERSION, storyVersion:STORY_BUILD, aiVersion:AI_BUILD, tierWiringVersion:TIER_WIRING_BUILD, mobileScrollVersion:MOBILE_SCROLL_PATCH, flinchPatchVersion:FLINCH_PATCH, rulesPatchVersion:'20261118-hit-lifecycle-v1', battleRulesVersion:BATTLE_RULES_PATCH, showdownCommit:SHOWDOWN_COMMIT, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: REPAIR_BUILD, bondVersion:PKMBondSync.version, base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, regionalBuild: "20261118-status-restore-v8.1", inventoryPatchVersion:INVENTORY_PATCH_VERSION, battleStartPolicyVersion:BATTLE_START_POLICY_VERSION, useRegionalDex: name => writePkm(pkm=>applyRegionalDexSwitch(pkm,name)), purchaseItems, refresh: refreshAll };
+  P.PKMKanto = { __owner: instance, masterTierVersion:'pokemon-master-v1', commandVersion:COMMAND_BUILD,replacementVersion:'public-reserves-v71',officialNamesVersion:OFFICIAL_NAMES.version, opponentTrainingVersion:'tier-pokemon-ev-v71', featureVersion:FEATURE_BUILD, localEcologyVersion:LOCAL_ECOLOGY_VERSION, storyVersion:STORY_BUILD, aiVersion:AI_BUILD, tierWiringVersion:TIER_WIRING_BUILD, mobileScrollVersion:MOBILE_SCROLL_PATCH, flinchPatchVersion:FLINCH_PATCH, rulesPatchVersion:'20261118-hit-lifecycle-v1', battleRulesVersion:BATTLE_RULES_PATCH, showdownCommit:SHOWDOWN_COMMIT, worldbookStoryPolicy:'date-key-autostart-v1', johtoMapVersion: '20261113-johto-map-1', version: VERSION, fixVersion: REPAIR_BUILD, bondVersion:PKMBondSync.version, base: BASE, mountDex, installBagDrag, healAtCenter, recordMapPoint, canHealAtCenter, mapPointText, speciesSprite:(id)=>localSprite(PERSISTENT_SPECIES[id]?.front||'')||null, openBattle: spec => openBattle(spec), openPanel, togglePanel, closePanel, read: readPkm, regionalBuild: "20261118-status-restore-v8.1", inventoryPatchVersion:INVENTORY_PATCH_VERSION, battleStartPolicyVersion:BATTLE_START_POLICY_VERSION, useRegionalDex: name => writePkm(pkm=>applyRegionalDexSwitch(pkm,name)), purchaseItems, refresh: refreshAll };
   listen(P, 'message', onHostMessage);
   const chatEl = PD.getElementById('chat');
   if (chatEl) { const mo = new P.MutationObserver(() => { clearTimeout(mo._t); mo._t = setTimeout(scanSetup, 60); }); mo.observe(chatEl, { childList: true, subtree: true }); cleanups.push(() => mo.disconnect()); }

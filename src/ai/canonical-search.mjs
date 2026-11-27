@@ -38,6 +38,8 @@ export {bootCanonical,CANONICAL_COMMIT,REPLACEMENT_BUILD};
 export const SEARCH_BUILD='20261118-ai-elite-v3', COMMAND_BUILD='kanto-crown-v72';
 if(RUNTIME_COMMAND!==COMMAND_BUILD||REPLACEMENT_BUILD!=='public-reserves-v71')throw Error('规则推演与联赛替补版本不匹配');
 import {isCrown,replyPriors,studyRoots} from './circuit/crown.mjs?v=crown-72';
+import {simReplyPrior,exploitMix,exploitAlpha,crownReadWeight} from './expert/human-prior.mjs?v=human-prior-v2';
+import {valueBlend} from './expert/value-model.mjs?v=value-v1';
 const keyOf=xs=>xs.map(actionKey).join('|');
 const normalized=xs=>{const sum=xs.reduce((n,x)=>n+Math.max(0,x),0);return sum>0?xs.map(x=>Math.max(0,x)/sum):xs.map(()=>1/xs.length);};
 const dot=(a,b)=>a.reduce((n,x,i)=>n+x*b[i],0);
@@ -155,7 +157,7 @@ function rootCandidates(b,view,db,nativePrior){
 }
 export function canonicalSearch(view,db,{seed=hash(JSON.stringify(view)),deadline=performance.now()+view.profile.settings.milliseconds,nativePrior=[],maxWorlds=view.profile.settings.worlds,maxRefinements=Infinity}={}){
  bootCanonical();const started=performance.now(),rng=seeded(seed^0x83171c29),notes=new Set(),settings=view.profile.settings;
- const ctx={deadline,depth:Math.max(1,Math.min(4,settings.lookahead||2)),firstFaintLoses:!!view.firstFaintLoses,nodes:0,penalties:new Map(),matchCache:new Map()};
+ const ctx={deadline,depth:Math.max(1,Math.min(4,settings.lookahead||2)),firstFaintLoses:!!view.firstFaintLoses,nodes:0,penalties:new Map(),matchCache:new Map(),valueBlend:view.double?0:valueBlend(view.profile.tier)};
  const upper=isCrown(view.profile.tier),fullDepth=ctx.depth;ctx.duelTail=upper;ctx.duelTails=0;if(upper)ctx.depth=Math.min(2,ctx.depth);
  const fullDb={...db,supportedMoves:null},records=[];let roots=null,incomplete=0,refined=0,failures=0,checkpoint=null,rescued=false;
  // At least two complete common-opponent matrices before deeper refinement.
@@ -173,7 +175,17 @@ export function canonicalSearch(view,db,{seed=hash(JSON.stringify(view)),deadlin
    let opp=rankedJointActions(b,1,{perSlot:upper&&!view.double?12:6,joints:upper&&!view.double?12:(view.double?6:7)});
    if(upper&&!view.double&&opp.length>7){const take=opp.slice(0,6);const reply=opp.find(z=>z.actions.some(a=>a.kind==='switch')&&!take.some(x=>x.actions.some(a=>a.kind==='switch')));take.push(reply||opp[6]);opp=take;}
    if(!opp.length)throw Error('canonical opponent has no legal action');
-   const record={snapshot:saveSimulation(b),seed:(seed+i*104729)>>>0,opponent:opp.map(x=>x.actions),replyPrior:upper?replyPriors(opp.map(x=>x.score)):null,matrix:[],samples:1};
+   // Human-expert opponent model: make sure the replies strong ladder players actually choose are columns,
+   // and remember their predicted frequencies for the "read" mix after solving.
+   let qh=null;const alpha=exploitAlpha(view.profile.tier);
+   if(alpha&&!view.double&&!view.firstFaintLoses){try{const pool=rankedJointActions(b,1,{perSlot:16,joints:24}),qp=simReplyPrior(b,1,pool.map(x=>x.actions),fullDb);
+    if(qp){const has=new Set(opp.map(x=>keyOf(x.actions)));let added=0;for(const [x] of pool.map((x,j)=>[x,qp[j]]).sort((u,v)=>v[1]-u[1]).slice(0,3)){if(added<2&&!has.has(keyOf(x.actions))){opp.push(x);has.add(keyOf(x.actions));added++;}}qh=simReplyPrior(b,1,opp.map(x=>x.actions),fullDb);}
+   }catch(error){notes.add('高分应对模型跳过：'+String(error.message||error).slice(0,100));}}
+   // Crown tiers: the reply model used by the crown review is the plausibility heuristic blended with
+   // the ladder-human model (already re-shaped by this player's in-battle read). Security floor unchanged.
+   let replyPrior=upper?replyPriors(opp.map(x=>x.score)):null;
+   const hRead=crownReadWeight();if(replyPrior&&qh&&qh.length===replyPrior.length&&hRead>0){const h=hRead;replyPrior=replyPrior.map((x,j)=>(1-h)*x+h*qh[j]);const z=replyPrior.reduce((n,x)=>n+x,0);replyPrior=replyPrior.map(x=>x/z);}
+   const record={snapshot:saveSimulation(b),seed:(seed+i*104729)>>>0,opponent:opp.map(x=>x.actions),replyPrior,matrix:[],samples:1,qh};
    b.destroy();b=null;
    // Shuffle work order using the private SEARCH seed, not the live battle
    // PRNG. All rows and columns still finish before accepting this world.
@@ -201,8 +213,11 @@ export function canonicalSearch(view,db,{seed=hash(JSON.stringify(view)),deadlin
   }catch(error){if(error instanceof BudgetStop){incomplete++;break;}notes.add('深层样本被弃用：'+String(error.message||error).slice(0,140));}
  }
  const game=solveBeliefGame(records.map(r=>r.matrix),{iterations:1600,prior:roots.map(r=>r.prior)});
- let policy=roots.map((root,i)=>({key:root.key,weight:game.policy[i]})).filter(p=>p.weight>=.004);
- if(!policy.length)policy=[{key:roots[game.policy.indexOf(Math.max(...game.policy))].key,weight:1}];
+ let finalPolicy=game.policy,humanModel=null;const alphaH=exploitAlpha(view.profile.tier);
+ if(alphaH&&!rescued&&records.every(r=>r.qh&&r.qh.length===r.opponent.length)){const mix=exploitMix(game.policy,records.map(r=>r.matrix),records.map(r=>r.qh),alphaH);
+  if(mix){const dom=new Set(game.dominatedRows||[]);finalPolicy=mix.policy.map((x,i)=>dom.has(i)?0:x);humanModel={alpha:+alphaH.toFixed(3),worlds:records.length,readBest:roots[mix.values.indexOf(Math.max(...mix.values))]?.key};}}
+ let policy=roots.map((root,i)=>({key:root.key,weight:finalPolicy[i]})).filter(p=>p.weight>=.004);
+ if(!policy.length)policy=[{key:roots[finalPolicy.indexOf(Math.max(...finalPolicy))].key,weight:1}];
  const sum=policy.reduce((n,p)=>n+p.weight,0);policy=policy.map(p=>({...p,weight:p.weight/sum})).sort((a,b)=>b.weight-a.weight||a.key.localeCompare(b.key));
- return{build:SEARCH_BUILD,commandVersion:COMMAND_BUILD,replacementBuild:REPLACEMENT_BUILD,commit:CANONICAL_COMMIT,rootStudy:upper?studyRoots(roots,records,game):null,policy,actionMap:new Map(roots.map(r=>[r.key,r.actions])),info:{worlds:records.length,nodes:ctx.nodes,depth:upper&&!refined?(rescued?1:Math.min(2,fullDepth)):ctx.depth,refinedWorlds:refined,...(upper?{duelExtensions:ctx.duelTails}:{}),checkpointUsed:rescued,incompleteWorlds:incomplete,rootActions:roots.length,opponentActions:records.map(r=>r.opponent.length),value:Math.round(game.value*10000)/10000,exploitability:Math.round(game.exploitability*10000)/10000,elapsed:Math.round(performance.now()-started),notes:[...notes].slice(0,8)}};
+ return{build:SEARCH_BUILD,commandVersion:COMMAND_BUILD,replacementBuild:REPLACEMENT_BUILD,commit:CANONICAL_COMMIT,rootStudy:upper?studyRoots(roots,records,game):null,policy,actionMap:new Map(roots.map(r=>[r.key,r.actions])),info:{humanModel,valueBlend:ctx.valueBlend||0,worlds:records.length,nodes:ctx.nodes,depth:upper&&!refined?(rescued?1:Math.min(2,fullDepth)):ctx.depth,refinedWorlds:refined,...(upper?{duelExtensions:ctx.duelTails}:{}),checkpointUsed:rescued,incompleteWorlds:incomplete,rootActions:roots.length,opponentActions:records.map(r=>r.opponent.length),value:Math.round(game.value*10000)/10000,exploitability:Math.round(game.exploitability*10000)/10000,elapsed:Math.round(performance.now()-started),notes:[...notes].slice(0,8)}};
 }

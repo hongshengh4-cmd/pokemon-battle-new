@@ -67,6 +67,9 @@
         }
       };
       const b=this._ps=new PS.Battle({format,seed:seedOf(opts.seed),strictChoices:false,send:()=>{}});
+      // Optional anime command layer (singles only). Absent opts.anime => not installed, 100% PS.
+      this.anime=null;this._animeSaved=null;
+      if(opts.anime&&!this.double&&root.AnimeMode)this._animeSetup(opts.anime);
       // PS emits one or three protocol lines per add(). Read them immediately,
       // while state corresponds to the event, to preserve native HP animations.
       for(const method of ['add','addMove']){
@@ -272,9 +275,9 @@
         case '-fail': this.say(`${name} 的招式失败了！`);break;
         case '-immune': this.say(`对 ${name} 没有效果……`);break;
         case '-miss': this.anim('miss',{...pos,target:target?this._animPos(target):undefined});this.say(`${name} 的攻击没有命中！`);break;
-        case '-supereffective': this.say('效果绝佳！');break;
+        case '-supereffective': this.say('效果绝佳！');if(this.anime&&p)this._animeGain(p._side,1);break;
         case '-resisted': this.say('效果不理想……');break;
-        case '-crit': this._c6Contact=null;this.say('击中了要害！');break;
+        case '-crit': this._c6Contact=null;this.say('击中了要害！');if(this.anime&&p)this._animeGain(p._side,1);break;
         case '-nothing': this.say('但是什么也没有发生！');break;
         case '-notarget': this.say('没有可攻击的目标，招式失败了！');break;
         case '-mustrecharge': this.say(`${name} 下一回合需要休息！`);break;
@@ -314,6 +317,8 @@
           }
           if(this._lastMoveAnim){this._lastMoveAnim.prepare=false;this._lastMoveAnim.cancelled=false;if(target)this._lastMoveAnim.targets=[this._animPos(target)];}break;
         case '-message': case 'message':this.say(a[2]);break;
+        case 'turn':if(this.anime&&Number(a[2])>1){this._animeGain(0,1);this._animeGain(1,1);}break;
+        case '-anime':if(this.anime){const t=root.AnimeMode.describe(a[2],/^p[12][a-z]?: /.test(a[3]||'')?sourceName(a[3]):(this._byIdent(a[3])?.name||''),a.slice(4));if(t)this.say(t);}break;
         case 'win':this.say(a[2]==='我方'?'战斗胜利！':'眼前一片漆黑……');break;
         case 'tie':if(!this.outcome)this.say('双方同时失去战斗能力，本场平局。');break;
         case 'error':this.lastRuleError=a[2];break;
@@ -448,6 +453,7 @@
       // One trainer bag item per turn; reject before any partial effect/stock mutation.
       if(actions.filter(a=>a?.kind==='item').length>1){this.say('同一训练家每回合最多使用一次背包道具，请为另一出战位选择招式或换人。');return this.log.slice(start);}
       for(let slot=0;slot<actions.length;slot++){const reason=this.actionReason(this.cur(0,slot),actions[slot]);if(reason){this.say(reason);return this.log.slice(start);}}
+      if(this.anime&&action?.anime){const reason=this.animeReason(action.anime,action);if(reason){this.say(reason);return this.log.slice(start);}}
       // Ask the unchanged public-information AI before applying player items.
       const enemy=this._enemyActions();
       if(!this._submit(0,actions)){this.say('行动校验未通过：'+(this._ps.sides[0].choice.error||'请重新选择。'));this._ps.sides[0].clearChoice();return this.log.slice(start);}
@@ -459,10 +465,58 @@
       for(let slot=0;slot<actions.length;slot++)if(actions[slot]?.kind==='item'){
         if(!this.useTrainerItem(actions[slot].id,slot)){this._ps.sides.forEach(s=>s.clearChoice());this.say('道具未生效，本回合未推进。');return this.log.slice(start);}
       }
+      if(this.anime)this._animeCommit(action,enemy);
       this.turnMarks.push(start);this._completedTurns++;this.turnCount=this._completedTurns;
       this._ps.commitChoices();this._replacementChoices.clear();this._readProtocol();this._syncFromPS();this._pumpReplacements();return this.log.slice(start);
     }
     turnDouble(actions){return this.turn({kind:'double',actions});}
+    // ---- Anime command layer: validation is public & deterministic; effects run inside PS volatiles.
+    // 对手指令能力按档位：馆主及以上才有（AnimeMode.TIER_CMD）；野生宝可梦永远没有。
+    _animeSetup(o){
+      const AM=root.AnimeMode,b=this._ps,env=AM.ENV[o.env]?o.env:'plain';
+      const tc=this.encounterType==='wild'?null:AM.tierCmd(o.tier);
+      const bond=[o.bond?.[0]??60,o.bond?.[1]??tc?.bond??55].map(x=>Math.max(5,Math.min(95,Math.round(Number(x)||50))));
+      this.anime={version:AM.VERSION,env,bond,tier:o.tier||null,foeCmd:!!tc,foeSkill:tc?.skill||'',spirit:[AM.SPIRIT_START,tc?tc.start:0],used:[0,0],endure:[new Set(),new Set()],last:[null,null],aiRate:o.aiRate??1};
+      const A=this.anime;AM.install(b,{env,on:()=>this.anime===A||!!this.anime,bondOf:q=>(this.anime||A).bond[q.side.n]});
+      return A;
+    }
+    // 对战中途切换（技能栏顶部开关）：从下一回合起生效。关闭后再打开会恢复本场原来的斗志与已用次数，不能靠反复开关刷新斗志。
+    setAnime(o){
+      if(this.double||!root.AnimeMode)return false;
+      if(!o){if(this.anime){this._animeSaved=this.anime;this.anime=null;for(const s of this._ps.sides)for(const q of s.active)if(q?.volatiles?.animesoaked)q.removeVolatile('animesoaked');}return true;}
+      if(this.anime)return true;
+      if(this._animeSaved){this.anime=this._animeSaved;this._animeSaved=null;return true;}
+      this._animeSetup(o);return true;
+    }
+    animeReason(cmd,action){
+      const A=this.anime,AM=root.AnimeMode;if(!A||!cmd)return '';const c=AM.CMDS[cmd];if(!c)return '未知指令。';
+      const me=this._ps?.sides[0].active[0];if(!me||me.fainted)return '当前没有可以接受指令的宝可梦。';
+      if(A.spirit[0]<c.cost)return `斗志不足（需要 ${c.cost}，当前 ${A.spirit[0]}）。`;
+      if(action&&action.kind!=='move')return '训练家指令只能配合招式使用。';
+      if(cmd==='power'&&action?.kind==='move'){const n=this.cur(0),m=n?.moves[action.index];const d=m&&this._ps.dex.moves.get(m.id);if(action.struggle||!d||d.category==='Status')return '「全力一击」只能配合攻击招式使用。';}
+      if(c.once&&A.endure[0].has(this.cur(0)))return '这只宝可梦本场已经用过「坚持住！」。';
+      return '';
+    }
+    _animeCommit(action,enemy){
+      const A=this.anime,AM=root.AnimeMode;A.last=[null,null];
+      const pc=action?.anime&&!this.animeReason(action.anime,action)?action.anime:null;
+      const foeN=this.cur(1),foeA=enemy?.[0],foeMove=foeA?.kind==='move'&&!foeA.struggle?foeN?.moves[foeA.index]?.id:null;
+      let ec=null;
+      if(foeA?.kind==='move'&&A.foeCmd&&this.encounterType!=='wild'&&(A.aiRate>=1||this._ps.random(0x10000)/0x10000<A.aiRate)){
+        // 公开信息：玩家在场宝可梦本场已经公开使用过的招式（_aiPublicMoves）；不读玩家本回合的指令或招式。
+        const seen=(this.cur(0)?._aiPublicMoves||[]).map(x=>x.id);
+        ec=AM.aiCommand(this._ps,1,{tier:A.tier,spirit:A.spirit[1],env:A.env,moveId:foeMove,bond:A.bond[1],revealed:seen,endureUsed:A.endure[1].has(foeN),rng:()=>this._ps.random(0x10000)/0x10000});
+        if(ec==='power'&&(!foeMove||this._ps.dex.moves.get(foeMove).category==='Status'))ec=null;
+      }
+      for(const [side,cmd] of [[0,pc],[1,ec]]){
+        if(!cmd)continue;const c=AM.CMDS[cmd],n=this.cur(side),nm=root.PKMOfficialNames?.displayName?.(n)||n?.name||'宝可梦';
+        if(!AM.apply(this._ps,side,cmd))continue;
+        A.spirit[side]-=c.cost;A.used[side]++;A.last[side]=cmd;if(c.once)A.endure[side].add(n);
+        const shout=cmd==='terrain'?AM.ENV[A.env].shout(nm):cmd==='dodge'?`${nm}，躲开！`:cmd==='power'?`${nm}，全力一击！`:`${nm}，坚持住！`;
+        this.say(`${side===0?'我方训练家':'对手训练家'}：「${shout}」`);
+      }
+    }
+    _animeGain(side,n){const A=this.anime;if(!A||side==null||(side===1&&!A.foeCmd))return;A.spirit[side]=Math.min(root.AnimeMode.SPIRIT_MAX,A.spirit[side]+n);}
     _enemyReplacementRequest(){
       const s=this._ps.sides[1],force=s.activeRequest?.forceSwitch||[],reserved=[...s.choice.switchIns].map(i=>slotOf(s.pokemon[i])).filter(Number.isInteger);
       return{totalSlots:s.active.length,switchesLeft:s.choice.forcedSwitchesLeft,passesLeft:s.choice.forcedPassesLeft,reserved,slots:s.active.map((q,slot)=>{

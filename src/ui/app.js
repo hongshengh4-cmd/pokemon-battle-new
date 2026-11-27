@@ -3,8 +3,10 @@ if(window.parent!==window)document.addEventListener('keydown',e=>{if(e.key==='Es
 import {localSprite,shinySprite,installSpriteRecovery} from '../../st-bridge/sprite-recovery.js?v=1.3.31';
 installSpriteRecovery(document);
 import {planOmitted,exhibition} from '../ai/circuit/prep.mjs?v=crown-72';
-import {BrowserBattleAI,showAIStatus,AI_BUILD,TIER_WIRING_BUILD,COMMAND_BUILD,REPLACEMENT_BUILD,resolveTrainerAI} from '../ai/browser-ai.mjs?v=npc-tier-wiring-v1&replacement=public-reserves-v71&cmd=kanto-crown-v72&features=seven-tier-v71';
+import {BrowserBattleAI,showAIStatus,AI_BUILD,TIER_WIRING_BUILD,COMMAND_BUILD,REPLACEMENT_BUILD,resolveTrainerAI} from '../ai/browser-ai.mjs?v=npc-tier-wiring-v1&replacement=public-reserves-v71&cmd=kanto-crown-v72&features=seven-tier-v71&expert=human-prior-v2';
 import {mountOfficialCatalog} from './official-catalog.mjs?v=seven-tier-v71';
+import {summarizeBattle,battleGrade} from './battle-summary.mjs?v=settle-v3';
+import {loadRewardTables,estimateRewards,levelProgress,expAtProgress,STAT_KEYS as REWARD_STATS,STAT_ZH as REWARD_STAT_ZH} from './battle-rewards.mjs?v=settle-v3';
 import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-test-controls.mjs?v=ai-test-ui-v2-compact&cmd=kanto-crown-v72&features=seven-tier-v71';
 /* Browser UI + SillyTavern host bridge (postMessage). Engine lives in PKMBattle. */
 (function () {
@@ -128,7 +130,8 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
   const BATTLE_BGM_VOLUME_KEY = 'pkmKantoBattleBgmVolume';
   const BATTLE_BGM_MAX_GAIN = 0.38;
   const readBattleBgmVolume = () => { try { const n = Number(localStorage.getItem(BATTLE_BGM_VOLUME_KEY)); return localStorage.getItem(BATTLE_BGM_VOLUME_KEY) == null || !Number.isFinite(n) ? 50 : Math.max(0, Math.min(100, n)); } catch (_) { return 50; } };
-  let battleMusicLevel = readBattleBgmVolume() / 100, battleMusicVolume = battleMusicLevel * BATTLE_BGM_MAX_GAIN, battleMusicRamp = 0;
+  // 局内不再提供音量调节：固定 50%（原音轨的 19%）。
+  let battleMusicLevel = 0.5, battleMusicVolume = battleMusicLevel * BATTLE_BGM_MAX_GAIN, battleMusicRamp = 0;
   let battleMusicAudio = null, battleMusicPlaying = false, battleMusicTrack = null, battleMusicQueue = [], battleMusicLast = '';
   function rampBattleMusicVolume(target, duration = 130) {
     if (!battleMusicAudio) return;
@@ -177,14 +180,16 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
       button.title = `正在播放：${track.name}（点击暂停）`; button.setAttribute('aria-label', `暂停战斗音乐：${track.name}`);
     } catch (_) {
       battleMusicPlaying = false; button.textContent = '♪'; button.classList.remove('is-playing');
-      button.title = `浏览器未能自动播放：${track.name}；点击重试`; button.setAttribute('aria-label', '重试战斗音乐');
+      button.title = `浏览器未能自动播放：${track.name}；点击重试`; button.setAttribute('aria-label', '重试战斗音乐'); retryBattleMusicOnGesture();
     }
   }
+  // 默认开启：浏览器拦截自动播放时，在下一次点击／触摸时自动重试。
+  function retryBattleMusicOnGesture() { document.addEventListener('pointerdown', () => { if (!battleMusicPlaying && battle && battle.winner === null) void startBattleMusic(); }, { once: true, capture: true }); }
   async function startBattleMusic() {
     if (battleMusicPlaying || !battleMusicAudio) return;
     if (battleMusicTrack) {
       try { await battleMusicAudio.play(); battleMusicPlaying = true; const b = $('battle-music-toggle'); b.textContent = '♫'; b.classList.add('is-playing'); b.title = `正在播放：${battleMusicTrack.name}（点击暂停）`; }
-      catch (_) { $('battle-music-toggle').title = '浏览器未能自动播放，请点击音乐键'; }
+      catch (_) { $('battle-music-toggle').title = '浏览器未能自动播放'; retryBattleMusicOnGesture(); }
     } else await playNextBattleMusic();
   }
   function pauseBattleMusic() {
@@ -208,7 +213,70 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
   }
   initBattleMusic();
   const normId = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  let battle = null, moveCache = {}, selectedMechanic = null, animating = false;
+  let battle = null, moveCache = {}, selectedMechanic = null, animating = false, selectedAnime = null;
+  // ---- 动漫指挥（anime-command-v2）：开关在技能栏最上方；选择记在本浏览器，下一场自动沿用上一场的模式。
+  // 规则仍由 Showdown 内核结算；对手只有馆主及以上档位会下指令，野生宝可梦永远不会。
+  const ANIME_KEY = 'pkm-anime-mode-v1';
+  const animeLocal = () => { try { return localStorage.getItem(ANIME_KEY) === '1'; } catch (_) { return false; } };
+  const animeHasPref = () => { try { return localStorage.getItem(ANIME_KEY) !== null; } catch (_) { return false; } };
+  let animeScene = null;
+  function animeDouble() { animeScene = { double: true }; return null; }
+  function animeOptions(cfg, team, tier, force) {
+    const AM = window.AnimeMode; if (!AM) return null;
+    const c = cfg?.anime ?? cfg?.rules?.anime;
+    animeScene = { cfg, team, tier, forcedOff: c === false };
+    if (c === false) return null;
+    const on = force ?? (animeHasPref() ? animeLocal() : !!c);
+    if (!on) return null;
+    const hap = team.length ? team.reduce((s, p) => s + (typeof p.happiness === 'number' ? p.happiness : 160), 0) / team.length : 160;
+    const o = typeof c === 'object' && c ? c : {};
+    return { env: AM.inferEnv({ ...(cfg || {}), ...(o.env ? { animeEnv: o.env } : {}) }), tier: tier === 'wild' ? null : (tier || null),
+      bond: [o.bond ?? Math.round(35 + hap / 255 * 55), o.foeBond], aiRate: o.aiRate ?? 1 };
+  }
+  function setAnimePreference(on) {
+    try { localStorage.setItem(ANIME_KEY, on ? '1' : '0'); } catch (_) {}
+    if (battle && battle.winner === null && !battle.double && !animeScene?.forcedOff && typeof battle.setAnime === 'function') {
+      battle.setAnime(on ? animeOptions(animeScene?.cfg || null, animeScene?.team || [], animeScene?.tier, true) : null);
+    }
+    if (!on) selectedAnime = null;
+    render();
+  }
+  { const chk = $('chk-anime'); if (chk) { chk.checked = animeLocal(); chk.onchange = () => setAnimePreference(chk.checked); } }
+  function renderAnimeBar() {
+    const strip = $('anime-strip'), bar = $('anime-bar'), chk = $('chk-anime'), foeTag = $('anime-foe'); if (!strip || !bar || !chk) return;
+    const AM = window.AnimeMode, A = battle?.anime;
+    const show = !!battle && !!AM && menuView === 'fight' && battle.winner === null && !battle.double; // 双打不支持，直接不显示
+    strip.hidden = !show;
+    if (!show) { if (!A || menuView === 'fight') selectedAnime = null; return; }
+    const blocked = battle.double ? '双打不支持动漫指挥' : animeScene?.forcedOff ? '本场剧情设定为不使用动漫指挥' : '';
+    const lock = animating || battle.pendingSwitch !== null;
+    chk.checked = !blocked && !!A;
+    chk.disabled = !!blocked || animating;
+    strip.title = blocked || (A ? '动漫指挥：开启（下一场自动沿用）' : '动漫指挥：关闭（下一场自动沿用）。勾选后从下一回合起生效，双方都可以下指令。');
+    strip.classList.toggle('on', !!A); strip.classList.toggle('blocked', !!blocked);
+    bar.hidden = !A; if (foeTag) foeTag.hidden = true;
+    if (!A) { selectedAnime = null; bar.innerHTML = ''; return; }
+    const pips = (n, foe) => `<span class="ab-pips${foe ? ' foe' : ''}">${Array.from({ length: AM.SPIRIT_MAX }, (_, i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('')}</span>`;
+    if (selectedAnime && battle.animeReason(selectedAnime, null)) selectedAnime = null;
+    const E = AM.ENV[A.env], nm = id => id ? (id === 'terrain' ? E.cmdName : AM.CMDS[id].zh) : '—', last = A.last || [];
+    const foeLabel = A.foeCmd ? (AM.TIER_CMD[A.tier]?.label || '对手') : '';
+    const foeInfo = A.foeCmd ? `对手（${foeLabel}）斗志 ${A.spirit[1]}/${AM.SPIRIT_MAX} · ${A.foeSkill}` : battle.encounterType === 'wild' ? '野生宝可梦不会下指令' : '这个档位的对手不会下指令（馆主及以上才会）';
+    const info = `地形：${E.zh}\n${E.lines.join('\n')}\n我方斗志 ${A.spirit[0]}/${AM.SPIRIT_MAX}（每回合+1；被效果绝佳/要害命中+1）\n${foeInfo}${last[0] || last[1] ? `\n上回合：我方 ${nm(last[0])} · 对手 ${nm(last[1])}` : ''}`;
+    bar.innerHTML = `<span class="ab-side" title="">${pips(A.spirit[0])}</span>`;
+    bar.querySelector('.ab-side').title = info;
+    for (const c of Object.values(AM.CMDS)) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'ab-cmd';
+      const name = c.id === 'terrain' ? E.cmdName : c.zh, why = battle.animeReason(c.id, null);
+      b.innerHTML = `<span class="ab-ic" aria-hidden="true">${c.icon}</span><span class="ab-nm">${name}</span><span class="ab-cost">${c.cost}</span>`;
+      b.setAttribute('aria-label', `${name}（斗志 ${c.cost}）`);
+      b.title = `${name} · 斗志 ${c.cost}\n${c.id === 'terrain' ? E.lines.join('\n') : c.desc}${why ? '\n— ' + why : ''}`;
+      b.setAttribute('aria-pressed', String(selectedAnime === c.id)); b.disabled = lock || (!!why && selectedAnime !== c.id);
+      b.onclick = () => { selectedAnime = selectedAnime === c.id ? null : c.id; commandMessage = selectedAnime ? `已准备指令「${name}」：再选择一个招式（${c.short || ''}）。` : ''; render(); };
+      bar.appendChild(b);
+    }
+    if (foeTag) { foeTag.hidden = false; foeTag.title = foeInfo; foeTag.className = 'anime-foe' + (A.foeCmd ? '' : ' none');
+      foeTag.innerHTML = A.foeCmd ? `<span class="af-lb">${foeLabel}</span>${pips(A.spirit[1], true)}` : `<span class="af-lb">${battle.encounterType === 'wild' ? '野生·无指令' : '对手无指令'}</span>`; }
+  }
   // 野生战斗"逃离"的不同原因：玩偶 / 野生宝可梦瞬间移动逃走 / 被吼叫·吹飞赶走
   function escapeTitle() {
     const r = battle?.escapeReason;
@@ -1296,6 +1364,271 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
     if (animating) document.querySelectorAll('.mechanic-slot button, #moves button, #switches button, #ball-list button').forEach(b => { b.disabled = true; });
     $('action-card').classList.toggle('double-actions',!!battle.double);
     $('action-card').setAttribute('aria-busy', String(animating));
+    renderAnimeBar();
+  }
+  // ---------- 胜利与结算界面（settle-v3）：只读战斗结果，不改任何战斗状态 ----------
+  let lastLaunch = 'start';
+  for (const [id, kind] of [['btn-start','start'],['league-start','league'],['btn-wild','wild'],['btn-next-wild','wild']]) $(id)?.addEventListener('click', () => { lastLaunch = kind; }, true);
+  function settleSprite(p) {
+    const box = document.createElement('span'); box.className = 'settle-sprite';
+    try {
+      p = appearancePokemon(p);
+      const mapped = SPRITES[normId(p.speciesId)] || null, mappedUrl = mapped?.front ? localSprite(p.shiny ? shinySprite(mapped.front) : mapped.front) : null;
+      let urls = spriteAttempts(p, false); if (mappedUrl) urls = [mappedUrl, ...urls.filter(u => u !== mappedUrl)];
+      const rank = u => u === mappedUrl ? 0 : /\/sprites\/gen5\//.test(u) ? 1 : /\/sprites\/ani\//.test(u) ? 2 : 3;
+      urls = urls.filter(u => !spriteFailed.has(u) && !/-back\//.test(u)).sort((x, y) => rank(x) - rank(y));
+      if (!urls.length) { box.textContent = '？'; return box; }
+      let i = 0; const img = new Image(); img.alt = displayPokemonName(p); img.decoding = 'async';
+      img.onerror = () => { i++; if (i < urls.length) img.src = urls[i]; else { img.remove(); box.textContent = '？'; } };
+      img.src = urls[0]; box.appendChild(img);
+    } catch (_) { box.textContent = '？'; }
+    return box;
+  }
+  function closeSettlement() { const el = $('battle-settle'); if (el) { el.classList.add('closing'); setTimeout(() => el.remove(), 260); } }
+  function countUp(el, to, ms = 900) {
+    const start = performance.now(), n = Math.max(0, Math.round(to));
+    const tick = t => { const k = Math.min(1, (t - start) / ms), e = 1 - Math.pow(1 - k, 3); el.textContent = String(Math.round(n * e)); if (k < 1) requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  }
+
+  // ---------- settle-v3：经验值／努力值增加动画 ----------
+  // 角色卡模式显示角色卡真实写入存档的数值（PKM_BATTLE_REWARDS）；独立网页模式按同一公式本地预览，不写入任何数据。
+  window.addEventListener('message', ev => {
+    const d = ev.data || {};
+    if (d.type !== 'PKM_BATTLE_REWARDS' || !d.payload || !battle || (hostTag && d.hostTag !== hostTag)) return;
+    battle._rewards = { ...d.payload, saved: true };
+    const el = $('battle-settle'); if (el && el._settleBattle === battle) renderSettleRewards(el, battle, battle._rewards);
+  });
+  function settleEarns(b, isWild) { return b.outcome === 'captured' ? isWild : (b.winner === 0 && b.outcome !== 'escaped'); }
+  function wireSettleRewards(el, b, { captured, win, isWild }) {
+    el._settleBattle = b;
+    if (!settleEarns(b, isWild)) return;
+    const head = el.querySelector('.settle-rewards-head'); head.hidden = false;
+    head.innerHTML = '<span class="settle-rw-title">获得经验值</span><span class="settle-rw-wait">正在结算经验值与努力值…</span>';
+    if (b._rewards || b._rewardsLocal) { const v = b._rewards || b._rewardsLocal; setTimeout(() => renderSettleRewards(el, b, v), b._rewardsAnimated ? 0 : 1350); return; }
+    const local = () => loadRewardTables().then(tables => {
+      if (b._rewards || !el.isConnected) return;
+      const view = estimateRewards(b, tables, { outcome: captured ? 'captured' : 'victory', isWild, dex: PKMBattle._dex, calcStats: PKMBattle.calcStats, name: displayPokemonName });
+      view.estimated = hostMode; b._rewardsLocal = view;
+      renderSettleRewards(el, b, view);
+    }).catch(e => console.warn('[settle rewards]', e));
+    // 角色卡模式：等待角色卡回传真实结果；旧版角色卡不回传时 8 秒后改用估算。
+    if (hostMode) setTimeout(() => { if (!b._rewards && el.isConnected) local(); }, 8000);
+    else setTimeout(local, 1350);
+  }
+  function renderSettleRewards(el, b, view) {
+    if (!el.isConnected || el._rewardsDone === view) return;
+    const again = !!el._rewardsDone; el._rewardsDone = view;
+    const animate = !again && !b._rewardsAnimated && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    b._rewardsAnimated = true;
+    const head = el.querySelector('.settle-rewards-head'); head.hidden = false; head.textContent = '';
+    const xs = view.experience || [], evs = view.effort || [];
+    const best = Math.max(0, ...xs.map(x => Number(x.exp) || 0));
+    const mk = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+    head.append(mk('span', 'settle-rw-title', '获得经验值'));
+    const total = mk('b', 'settle-rw-exp', '+0'); head.append(total);
+    if (animate) settleCount(total, best, 1100, v => `+${v.toLocaleString()}`); else total.textContent = `+${best.toLocaleString()}`;
+    head.append(mk('span', 'settle-rw-share', '出场全额 · 未出场 50%'));
+    const evSum = evs.length ? evs[0].changes.reduce((n, c) => n + c.gain, 0) : 0;
+    if (evSum) head.append(mk('span', 'settle-rw-ev', `努力值 +${evSum}`));
+    if (view.prize) head.append(mk('span', 'settle-rw-prize', `奖金 ¥${Number(view.prize).toLocaleString()}`));
+    head.append(mk('span', 'settle-rw-tag ' + (view.saved ? 'saved' : 'preview'), view.saved ? '已写入存档' : view.estimated ? '估算 · 角色卡未回传' : '独立模式 · 预览不存档'));
+    const rows = new Map([...el.querySelectorAll('.settle-mon')].map(r => [r.dataset.slot, r]));
+    const extra = [];
+    xs.forEach((x, k) => {
+      const row = rows.get(String(x.slot));
+      if (!row) { extra.push(x); return; }
+      const ev = evs.find(e => String(e.slot) === String(x.slot));
+      settleGainRow(row, x, ev, animate, 250 + k * 140);
+    });
+    // 有努力值但没有经验记录（满级）的成员
+    for (const e of evs) if (!xs.some(x => String(x.slot) === String(e.slot))) { const row = rows.get(String(e.slot)); if (row) settleGainRow(row, null, e, animate, 250); }
+    // 未上场但在队伍里的伙伴（角色卡模式：队伍全员获得经验）
+    el.querySelector('.settle-bench')?.remove();
+    if (extra.length) {
+      const bench = mk('div', 'settle-bench'); bench.append(mk('span', 'settle-foes-label', '队伍其他成员'));
+      for (const x of extra) {
+        const ev = evs.find(e => String(e.slot) === String(x.slot));
+        const chip = mk('span', 'settle-bench-chip' + (x.to > x.from ? ' up' : ''));
+        chip.append(mk('b', '', x.name), mk('span', '', ` +${x.exp} EXP`));
+        if (x.to > x.from) chip.append(mk('em', '', ` Lv.${x.from}→${x.to}`));
+        if (ev) chip.append(mk('small', '', ' ' + ev.changes.map(c => `${REWARD_STAT_ZH[c.stat]}+${c.gain}`).join(' ')));
+        bench.append(chip);
+      }
+      el.querySelector('.settle-team').after(bench);
+    }
+    if (view.warnings?.length) { const w = mk('p', 'settle-rw-warn', view.warnings.join(' ')); head.after(w); }
+  }
+  function settleCount(node, to, ms, fmt = v => String(v)) {
+    const start = performance.now(), n = Math.max(0, Math.round(to));
+    const tick = t => { const k = Math.min(1, (t - start) / ms), e = 1 - Math.pow(1 - k, 3); node.textContent = fmt(Math.round(n * e)); if (k < 1) requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  }
+  function settleGainRow(row, x, ev, animate, delay) {
+    const box = row.querySelector('.settle-gain'); if (!box) return;
+    box.hidden = false; box.textContent = '';
+    const mk = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+    const lvEl = row.querySelector('.settle-lv');
+    if (x) {
+      const line = mk('div', 'settle-exp');
+      const label = mk('span', 'settle-exp-label', 'EXP');
+      const bar = mk('div', 'settle-exp-bar'); const fill = mk('i'); bar.append(fill);
+      const gain = mk('b', 'settle-exp-gain', '+0');
+      line.append(label, bar, gain); box.append(line);
+      const sub = mk('div', 'settle-exp-sub'); box.append(sub);
+      const t = x.thresholds || [], from = levelProgress(x.expFrom, t), to = levelProgress(x.expTo, t);
+      const setPos = pos => {
+        const lvNow = x.from + Math.min(Math.floor(pos + 1e-9), x.to - x.from);
+        const frac = lvNow >= 100 ? 1 : pos - (lvNow - x.from);
+        fill.style.width = `${(Math.max(0, Math.min(1, frac)) * 100).toFixed(1)}%`;
+        if (lvEl && lvEl.dataset.lv !== String(lvNow)) {
+          const first = lvEl.dataset.lv == null; lvEl.dataset.lv = String(lvNow); lvEl.textContent = `Lv.${lvNow}`;
+          if (!first && lvNow > x.from) settleLevelUp(row, lvNow);
+        }
+      };
+      const finish = () => {
+        setPos(to); gain.textContent = `+${Number(x.exp).toLocaleString()}`;
+        const next = x.to < 100 && t[x.to - x.from + 1] != null ? t[x.to - x.from + 1] - x.expTo : 0;
+        sub.textContent = x.to >= 100 ? '已达最高等级' : `下一级还需 ${Math.max(0, next).toLocaleString()} 经验${x.entered ? '' : ' · 未出场 50%'}`;
+        if (x.to > x.from) { const tag = mk('span', 'lvup-tag', `Lv.${x.from}→${x.to}`); sub.prepend(tag); }
+        const extras = [];
+        if (x.to > x.from && x.statsFrom && x.statsTo) {
+          const st = mk('div', 'settle-lvup-stats');
+          st.append(mk('span', 'settle-lvup-tag', `Lv.${x.from}→${x.to}`));
+          for (const k of REWARD_STATS) { const d = (x.statsTo[k] || 0) - (x.statsFrom[k] || 0); if (!d) continue; const c = mk('span', 'settle-stat-up s-' + k); c.append(mk('small', '', REWARD_STAT_ZH[k]), mk('b', '', `${x.statsTo[k]}`), mk('em', '', `+${d}`)); st.append(c); }
+          extras.push(st);
+        }
+        const notes = [...(x.evolutions || []).map(n => `进化为 ${n}！`), ...(x.learned || []).map(n => `学会了 ${n}`), ...(x.pending || []).map(n => `想学 ${n}（请在角色卡中处理）`)];
+        if (notes.length) { const n = mk('div', 'settle-gain-notes'); notes.forEach(s => n.append(mk('span', '', s))); extras.push(n); }
+        extras.forEach((n, k) => { box.append(n); if (animate) n.style.animationDelay = `${k * 120}ms`; });
+        if (ev) settleEvChips(box, ev, animate);
+      };
+      lvEl && delete lvEl.dataset.lv; setPos(from);
+      if (!animate) { finish(); return; }
+      const levels = Math.max(0, to - from), ms = 900 + 650 * Math.min(4, Math.floor(to) - Math.floor(from));
+      setTimeout(() => {
+        row.classList.add('gaining');
+        const start = performance.now();
+        const tick = now => {
+          const k = Math.min(1, (now - start) / ms), e = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+          setPos(from + levels * e); gain.textContent = `+${Math.round(x.exp * e).toLocaleString()}`;
+          if (k < 1) requestAnimationFrame(tick); else { row.classList.remove('gaining'); finish(); }
+        };
+        requestAnimationFrame(tick);
+      }, delay);
+    } else if (ev) settleEvChips(box, ev, animate);
+  }
+  function settleLevelUp(row, lv) {
+    row.classList.remove('lvup'); void row.offsetWidth; row.classList.add('lvup');
+    const pop = document.createElement('span'); pop.className = 'settle-lvup-pop'; pop.textContent = 'LEVEL UP!';
+    row.appendChild(pop); setTimeout(() => pop.remove(), 1500);
+  }
+  function settleEvChips(box, ev, animate) {
+    const wrap = document.createElement('div'); wrap.className = 'settle-ev';
+    const lab = document.createElement('span'); lab.className = 'settle-ev-label'; lab.textContent = '努力值'; wrap.append(lab);
+    ev.changes.forEach((c, k) => {
+      const chip = document.createElement('span'); chip.className = 'settle-ev-chip s-' + c.stat; if (animate) chip.style.animationDelay = `${120 + k * 110}ms`;
+      chip.textContent = `${REWARD_STAT_ZH[c.stat]} +${c.gain}`; chip.title = `${REWARD_STAT_ZH[c.stat]} 努力值 ${c.total}/252`; wrap.append(chip);
+    });
+    const tot = document.createElement('span'); tot.className = 'settle-ev-total'; tot.textContent = `${ev.total}/510`; tot.title = '努力值合计'; wrap.append(tot);
+    if (!animate) wrap.classList.add('still');
+    box.append(wrap);
+  }
+  function maybeShowSettlement() {
+    if (!battle || battle.winner === null || animating || battle._settleShown || window.PKMPreview) return;
+    if (battle.outcome === 'escaped') return;
+    battle._settleShown = true; const ref = battle;
+    setTimeout(() => { if (battle === ref) showSettlement(ref); }, 650);
+  }
+  function showSettlement(b) {
+    $('battle-settle')?.remove();
+    const host = document.querySelector('.battle-screen'); if (!host) return;
+    let sum; try { sum = summarizeBattle(b); } catch (e) { console.warn('[settle]', e); sum = null; }
+    const captured = b.outcome === 'captured', draw = b.outcome === 'draw' || b.winner === -1, win = !draw && (captured || b.winner === 0);
+    const kind = captured ? 'capture' : draw ? 'draw' : win ? 'victory' : 'defeat';
+    const isWild = b.encounterType === 'wild', foe = b.cur(1) || b.teams[1][0];
+    const prof = b.aiProfile || {}, foeName = isWild ? `野生的${displayPokemonName(foe)}` : String(prof.opponent && prof.opponent !== '对手' ? prof.opponent : ($('e-side-label')?.textContent || '对手'));
+    const tierTag = !isWild && prof.label ? prof.label : '';
+    const el = document.createElement('div'); el.id = 'battle-settle'; el.className = `settle settle-${kind}`; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', '战斗结算');
+    const kicker = {victory: 'VICTORY', defeat: 'DEFEAT', draw: 'DRAW', capture: 'GOTCHA!'}[kind];
+    const title = {victory: '胜利！', defeat: '败北……', draw: '平局', capture: '收服成功！'}[kind];
+    const sub = captured ? `${displayPokemonName(foe)} 成为了新的伙伴` : draw ? '双方同时倒下，请人工裁定' : win ? `击败了 ${foeName}` : `输给了 ${foeName}`;
+    const grade = kind === 'victory' && sum ? battleGrade(sum) : null;
+    const elapsed = b._startedAt ? Math.max(0, Math.round((Date.now() - b._startedAt) / 1000)) : 0;
+    const mmss = elapsed ? `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}` : '—';
+    el.innerHTML = `<div class="settle-backdrop"></div><div class="settle-rays" aria-hidden="true"></div><div class="settle-confetti" aria-hidden="true">${'<i></i>'.repeat(kind === 'victory' || kind === 'capture' ? 28 : 0)}</div>
+      <div class="settle-stage">
+        <header class="settle-hero"><span class="settle-kicker">${kicker}</span><h2 class="settle-title">${title}</h2><p class="settle-sub"></p></header>
+        <section class="settle-card">
+          <div class="settle-top">
+            ${grade ? `<div class="settle-grade grade-${grade.grade}" title="评价分 ${grade.score}：剩余体力 60 + 未倒下 25 + 速度 15"><b>${grade.grade}</b><small>评价</small></div>` : ''}
+            <div class="settle-meta"><span class="settle-chip-tag"></span><span>第 <b>${sum ? sum.turns : b.turnCount}</b> 回合结束</span><span>用时 <b>${mmss}</b></span><span>${b.double ? '双打' : '单打'} ${b.teams[0].length}v${b.teams[1].length}</span></div>
+          </div>
+          <div class="settle-stats"></div>
+          <div class="settle-rewards-head" hidden></div>
+          <div class="settle-team"></div>
+          <div class="settle-foes"><span class="settle-foes-label">${captured ? '新伙伴' : win ? '击败的对手' : '对手队伍'}</span><div class="settle-foes-row"></div></div>
+          <p class="settle-note"></p>
+          <div class="settle-actions"></div>
+        </section>
+      </div>`;
+    el.querySelector('.settle-sub').textContent = sub;
+    el.querySelectorAll('.settle-confetti i').forEach((c, k) => { const r = Math.random; c.style.cssText = `--x:${(r() * 100).toFixed(1)}%;--delay:${(r() * 1.6).toFixed(2)}s;--dur:${(2.6 + r() * 2.2).toFixed(2)}s;--rot:${Math.round(r() * 720 - 360)}deg;--c:${['#ffd166','#ff6b9a','#5ee7df','#a78bfa','#fff3b0','#7ae582'][k % 6]};--w:${6 + Math.round(r() * 6)}px`; });
+    el.querySelector('.settle-chip-tag').textContent = [typeLabel || (isWild ? '野生遭遇' : '训练家对战'), tierTag].filter(Boolean).join(' · ');
+    // 统计卡片
+    const stats = el.querySelector('.settle-stats');
+    const S = sum?.side?.[0], T = sum?.side?.[1];
+    const chips = [['击倒', sum ? sum.fainted[1] : 0, '只'], ['造成伤害', S?.dealt || 0, ''], ['会心一击', S?.crits || 0, '次'], ['效果绝佳', S?.se || 0, '次'], ['承受伤害', T ? (sum.side[0].taken) : 0, '']];
+    for (const [k, v, unit] of chips) {
+      const c = document.createElement('div'); c.className = 'settle-stat';
+      const n = document.createElement('b'); n.textContent = '0'; const u = document.createElement('small'); u.textContent = unit;
+      const l = document.createElement('span'); l.textContent = k; const row = document.createElement('div'); row.append(n, u);
+      c.append(row, l); stats.appendChild(c); setTimeout(() => countUp(n, sum?.exact || k === '击倒' ? v : 0), 700);
+      if (!sum?.exact && k !== '击倒') n.textContent = '—';
+    }
+    // 我方队伍
+    const team = el.querySelector('.settle-team');
+    b.teams[0].forEach((p, i) => {
+      const m = sum?.mons?.[0]?.[i] || {}, ratio = p.maxHp ? Math.max(0, p.hp) / p.maxHp : 0, down = p.fainted || p.hp <= 0;
+      const row = document.createElement('div'); row.className = 'settle-mon' + (down ? ' down' : '') + (sum?.mvp === i && win ? ' mvp' : ''); row.dataset.slot = String(p.hostSlot ?? i);
+      row.style.setProperty('--d', `${900 + i * 90}ms`);
+      const info = document.createElement('div'); info.className = 'settle-mon-info';
+      const nm = document.createElement('strong'); nm.textContent = displayPokemonName(p);
+      const lv = document.createElement('small'); lv.className = 'settle-lv'; lv.textContent = `Lv.${p.level}`;
+      const head = document.createElement('div'); head.className = 'settle-mon-head'; head.append(nm, lv);
+      if (sum?.mvp === i && win) { const crown = document.createElement('em'); crown.className = 'settle-mvp'; crown.textContent = 'MVP'; head.appendChild(crown); }
+      const bar = document.createElement('div'); bar.className = 'settle-hp'; const fill = document.createElement('i'); fill.className = ratio <= .2 ? 'crit' : ratio <= .5 ? 'low' : ''; fill.style.setProperty('--w', `${(ratio * 100).toFixed(1)}%`); bar.appendChild(fill);
+      const line = document.createElement('div'); line.className = 'settle-mon-line';
+      line.textContent = down ? '失去战斗能力' : `体力 ${Math.max(0, p.hp)}/${p.maxHp}`;
+      info.append(head, bar, line);
+      const nums = document.createElement('div'); nums.className = 'settle-mon-nums';
+      nums.innerHTML = `<span><b></b><small>击倒</small></span><span><b></b><small>伤害</small></span>`;
+      const bs = nums.querySelectorAll('b'); bs[0].textContent = String(m.kos || 0); bs[1].textContent = sum?.exact ? String(m.dealt || 0) : '—';
+      const gainBox = document.createElement('div'); gainBox.className = 'settle-gain'; gainBox.hidden = true;
+      row.append(settleSprite(p), info, nums, gainBox); team.appendChild(row);
+    });
+    // 对手
+    const foes = el.querySelector('.settle-foes-row');
+    b.teams[1].forEach(p => { const down = p.fainted || p.hp <= 0; const f = document.createElement('span'); f.className = 'settle-foe' + (down ? ' down' : ''); f.title = `${displayPokemonName(p)} Lv.${p.level}${down ? ' · 已倒下' : ''}`; f.appendChild(settleSprite(p)); foes.appendChild(f); });
+    if (captured) { el.querySelector('.settle-foes').classList.add('caught'); const tag = document.createElement('b'); tag.className = 'settle-caught-name'; tag.textContent = `${displayPokemonName(foe)} Lv.${foe.level}`; foes.appendChild(tag); }
+    // 说明与按钮
+    const note = el.querySelector('.settle-note');
+    note.textContent = hostMode ? (captured ? '收服结果已回传角色卡。' : '对战结果已回传角色卡，奖金与后续由剧情结算。') + '手机返回／电脑按 Esc 退出后继续。'
+      : captured ? `${displayPokemonName(foe)} 已收入仓库${worldStore.error ? '（当前仅临时保存，请导出）' : ''}。` : '';
+    note.hidden = !note.textContent;
+    const actions = el.querySelector('.settle-actions');
+    const btn = (text, cls, fn) => { const x = document.createElement('button'); x.type = 'button'; x.className = cls; x.textContent = text; x.onclick = fn; actions.appendChild(x); return x; };
+    if (!hostMode) {
+      if (isWild) { btn('下一次野生遭遇', 'settle-primary', () => { closeSettlement(); $('btn-next-wild').click(); }); btn('查看仓库', 'settle-ghost', () => { closeSettlement(); $('btn-end-box').click(); }); }
+      else btn(win ? '再来一场' : '再次挑战', 'settle-primary', () => { closeSettlement(); (lastLaunch === 'league' ? $('league-start') : $('btn-start')).click(); });
+    }
+    btn('查看战场', 'settle-ghost', closeSettlement).focus?.();
+    host.appendChild(el);
+    wireSettleRewards(el, b, { captured, win, isWild });
+    requestAnimationFrame(() => { if (EMBED) return; const r = host.getBoundingClientRect(); if (r.top < -40 || r.top > innerHeight * 0.35) host.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); });
+    requestAnimationFrame(() => el.classList.add('open'));
+    const endRow = document.querySelector('#command-end > div');
+    if (endRow && !$('btn-settle-reopen')) { const r = document.createElement('button'); r.type = 'button'; r.id = 'btn-settle-reopen'; r.textContent = '查看结算'; r.onclick = () => { if (battle && battle.winner !== null && battle.outcome !== 'escaped') showSettlement(battle); }; endRow.prepend(r); }
   }
   const BATTLE_ITEM_NAMES={xattack:'力量强化',xdefense:'防御强化',xspatk:'特攻强化',xspdef:'特防强化',xspeed:'速度强化',xaccuracy:'命中强化',guardspec:'能力防守',direhit:'击中要害',pokemondoll:'宝可梦玩偶'};
   const BATTLE_ITEM_DESC={xattack:'我方当前宝可梦攻击提高 2 级',xdefense:'我方当前宝可梦防御提高 2 级',xspatk:'我方当前宝可梦特攻提高 2 级',xspdef:'我方当前宝可梦特防提高 2 级',xspeed:'我方当前宝可梦速度提高 2 级',xaccuracy:'我方当前宝可梦命中提高 2 级',guardspec:'防止我方能力被对手降低，持续 5 回合',direhit:'提高击中要害率，持续至离场',pokemondoll:'立即从野生战斗中逃走'};
@@ -1676,6 +2009,7 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
       const sm = { id: 'struggle', ...(PKMBattle._moves?.struggle || { name: 'Struggle', type: 'Normal', category: 'Physical', basePower: 50, accuracy: true, pp: 1, priority: 0, target: 'normal' }), ppLeft: 1, pp: 1 };
       moves.appendChild(moveCell(b, () => ({ move: sm, base: sm, user: me, foe: foeNow, name: '挣扎', foeName: foeNow ? displayPokemonName(foeNow) : '', usable: !b.disabled, onUse: useIt })));
     }
+    renderAnimeBar();
     const sw = $('switches');
     sw.innerHTML = '';
     battle.teams[0].forEach((p, i) => {
@@ -1706,14 +2040,14 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
     });
     const res = $('result');
     if (over) {
-      res.classList.remove('hidden');
+      res.classList.toggle('hidden', battle.outcome !== 'escaped' && !window.PKMPreview);
       res.textContent = battle.outcome === 'captured' ? '收服成功！' : battle.outcome === 'escaped' ? escapeTitle() : battle.outcome === 'draw' ? '双方同时倒下，请人工裁定' : battle.winner === 0 ? '🏆 胜利！' : '💀 败北……';
     } else if (battle.pendingSwitch !== null) {
       res.classList.remove('hidden');
       res.textContent = battle.selectionKind() === 'revive' ? '复生祈祷：请选择一只失去战斗能力的队友' : battle.double ? `请为${battle.pendingSwitch + 1}号位选择替补` : '请选择下一只宝可梦出战';
     } else res.classList.add('hidden');
     renderDoubleControls();
-    renderBalls(); renderBattleItems(); renderCommands();
+    renderBalls(); renderBattleItems(); renderCommands(); maybeShowSettlement();
   }
 
   function renderDoubleControls() {
@@ -1935,6 +2269,10 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
     if (!battle || animating || battle.winner !== null || battle.pendingSwitch !== null) return;
     const reason = battle.actionReason(battle.cur(0), a);
     if (reason) { commandMessage = reason; renderCommands(); return; }
+    if (battle.anime && selectedAnime) {
+      if (a.kind === 'move') { const why = battle.animeReason(selectedAnime, a); if (why) { commandMessage = why; renderCommands(); return; } a = { ...a, anime: selectedAnime }; }
+      selectedAnime = null;
+    }
     animating = true; commandMessage = ''; renderCommands();
     const battleRef = battle;
     await browserAI.prepare(battleRef); // No selected action is passed to AI.
@@ -2252,7 +2590,7 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
         if (!window.PKMGender.allowed(p.speciesId,p.gender)) p.gender=window.PKMGender.roll(p.speciesId);
       }
       if (doubleMode && (playerTeam.filter(p => !p.fainted).length < 2 || enemyTeam.filter(p => !p.fainted).length < 2)) throw new Error('双打模式需要双方各至少两只尚未失去战斗能力的宝可梦。');
-      battle = new PKMBattle.Battle(playerTeam, enemyTeam, { double: doubleMode, firstFaintLoses: cfg.rules?.firstFaintLoses === true, difficulty, weather, weatherTurns: typeof wt !== 'undefined' ? wt : 0,
+      battle = new PKMBattle.Battle(playerTeam, enemyTeam, { double: doubleMode, firstFaintLoses: cfg.rules?.firstFaintLoses === true, difficulty, weather, weatherTurns: typeof wt !== 'undefined' ? wt : 0, anime: doubleMode ? animeDouble() : animeOptions(cfg, playerTeam, encounterType === 'wild' ? 'wild' : buildingProfile?.tier),
         encounterType, balls: worldStore.state.balls, itemStock:cfg.host?.battleItems||{}, seed: cfg.seed, captureContext:cfg.host?.captureContext||{} });
       if (environment.terrain) battle.setTerrain(environment.terrain, environment.terrainTurns);
       if (cfg.ui?.openBalls && battle.encounterType === 'wild') menuView = 'balls';
@@ -2272,9 +2610,10 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
       }
       if (isWild) doubleMode = false;
       if (doubleMode && (playerTeam.filter(p => !p.fainted).length < 2 || enemyTeam.filter(p => !p.fainted).length < 2)) { alert('双打模式需要双方各至少两只宝可梦。'); return; }
-      battle = new PKMBattle.Battle(playerTeam, enemyTeam, { double: doubleMode, difficulty, encounterType: isWild ? 'wild' : 'trainer', balls: worldStore.state.balls });
+      battle = new PKMBattle.Battle(playerTeam, enemyTeam, { double: doubleMode, difficulty, encounterType: isWild ? 'wild' : 'trainer', balls: worldStore.state.balls, anime: doubleMode ? animeDouble() : animeOptions(null, playerTeam, isWild ? 'wild' : buildingProfile?.tier) });
     }
     if(buildWarnings.length)battle.log.unshift(...[...new Set(buildWarnings)]);
+    battle._startedAt=Date.now();$('battle-settle')?.remove();document.querySelectorAll('.cfx-ball,.cfx-layer,.cfx-caption').forEach(n=>n.remove());
     battle.opponentTraining={version:OPPONENT_TRAINING.version,tier:buildingProfile.tier,members:enemyTeam.map(p=>p._opponentTraining||null)};
     const trained=battle.opponentTraining.members;const how=t=>t.source==='explicit'?'手填保留':t.source==='wild-zero'?'野生未训练':'按档培养';
     const totals=trained.reduce((a,t)=>{const k=how(t);a[k]=(a[k]||0)+1;return a;},{});
@@ -2293,7 +2632,7 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
     const sideEl = $('e-side-label');
     if (sideEl) sideEl.textContent = String((cfg && cfg.rules?.sideLabel) || (battle.encounterType === 'wild' ? '野生' : '敌方')).slice(0, 6);
     after();
-    if (EMBED && !window.PKMPreview) void startBattleMusic();
+    if (!window.PKMPreview) void startBattleMusic();
     if (theaterOn()) { const ref = battle; animating = true; renderCommands(); document.querySelector('.arena')?.classList.add('ps-intro'); requestAnimationFrame(() => getTheater().intro().catch(err => console.warn('[ps-theater]', err)).finally(() => { if (battle === ref) { animating = false; after(); } })); }
     else if (!window.PKMPreview) requestAnimationFrame(() => {
       if (battle.double) { [0, 1].forEach(slot => { setTimeout(() => playSendOut(1, slot), slot * 180); setTimeout(() => playSendOut(0, slot), 300 + slot * 180); }); }

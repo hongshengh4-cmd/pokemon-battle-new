@@ -28,13 +28,19 @@ SOFTWARE.
 // SPDX-License-Identifier: MIT
 // Main-thread coordinator. The worker is a separate message endpoint. Only
 // observation() is sent, never a Battle, roster save, RNG, or player command.
-import {AI_BUILD,TIERS,resolveTrainerAI,TIER_WIRING_BUILD} from './profile.mjs?v=npc-tier-wiring-v1&cmd=kanto-crown-v72';
+import {AI_BUILD,TIERS,searchTier,resolveTrainerAI,TIER_WIRING_BUILD} from './profile.mjs?v=npc-tier-wiring-v1&cmd=kanto-crown-v72';
 import {observation,rememberPublic,legalActions,quickChoice,actionKey,hash,seeded,replacementObservation,publicAppearance} from './battle-view.mjs?v=20261118-ai-elite-v3&cmd=kanto-crown-v72';
 import {COMMAND_BUILD} from './entry-command.mjs?v=kanto-crown-v72';
-import {chooseReserve} from './circuit/council.mjs?v=crown-72';
+import {settleFoeRead,armFoeRead} from './expert/foe-reads.mjs?v=foe-reads-v1';
+// The league remembers how YOU play: public reads carry over between battles on this device
+// (Elite Four -> Champion). Only model candidates/logits and which public action you took; no team data.
+const FOE_READS_KEY='pkm-ai-foe-reads-v1';
+function loadFoeReads(){try{const x=JSON.parse(globalThis.localStorage?.getItem(FOE_READS_KEY)||'null');return Array.isArray(x?.reads)?x.reads.filter(r=>r&&typeof r.k==='string'&&Array.isArray(r.cands)).slice(-16):[];}catch(_){return [];}}
+function saveFoeReads(reads){try{globalThis.localStorage?.setItem(FOE_READS_KEY,JSON.stringify({v:1,reads:reads.slice(-24)}));}catch(_){}}
+import {chooseReserve} from './circuit/council.mjs?v=crown-72&expert=human-prior-v2';
 import {laneCount,fuse} from './circuit/lanes.mjs?v=crown-72';
 export {AI_BUILD,resolveTrainerAI,TIER_WIRING_BUILD,COMMAND_BUILD};
-import {REPLACEMENT_BUILD,rankReplacementPlans,chooseReplacementPlan} from './replacement-policy.mjs?v=public-reserves-v71';
+import {REPLACEMENT_BUILD,rankReplacementPlans,chooseReplacementPlan} from './replacement-policy.mjs?v=public-reserves-v71&expert=human-prior-v2';
 export {REPLACEMENT_BUILD};
 export function profileForBattle(cfg,difficulty,enemyKey){
  if(cfg?.aiProfile?.version===AI_BUILD&&cfg.aiProfile.wiringVersion===TIER_WIRING_BUILD&&TIERS[cfg.aiProfile.tier]){
@@ -47,7 +53,7 @@ export function profileForBattle(cfg,difficulty,enemyKey){
  return resolveTrainerAI({...context,type,opponent:context.opponent||cfg?.rules?.opponent||owner?.name||(cfg?'对手':enemyKey)||'对手',trainerRank:context.trainerRank??owner?.trainerRank,ai:context.ai||cfg?.ai||owner?.ai,difficulty:cfg?.aiContext?cfg.aiContext.difficulty:context.difficulty??difficulty});
 }
 export class BrowserBattleAI{
- constructor({workerFactory=()=>new Worker(new URL('./search-worker.mjs?v='+AI_BUILD+'&cmd='+COMMAND_BUILD+'&replacement='+REPLACEMENT_BUILD,import.meta.url),{type:'module',name:'Pokémon AI'}),timeout=3000,bootTimeout=20000}={}){
+ constructor({workerFactory=()=>new Worker(new URL('./search-worker.mjs?v='+AI_BUILD+'&cmd='+COMMAND_BUILD+'&replacement='+REPLACEMENT_BUILD+'&expert=human-prior-v2',import.meta.url),{type:'module',name:'Pokémon AI'}),timeout=3000,bootTimeout=20000}={}){
   this.aux=[];this.workerFactory=workerFactory;this.timeout=timeout;this.bootTimeout=bootTimeout;this.worker=null;this.pending=new Map();this.serial=0;this.readyPromise=null;this.states=new WeakMap();
   const buffer=new Uint32Array(1);globalThis.crypto?.getRandomValues?.(buffer);this.salt=buffer[0]||hash(String(Date.now()));
  }
@@ -78,23 +84,25 @@ export class BrowserBattleAI{
   if(b.rulesEngine?.id==='pokemon-showdown'&&(globalThis.PKMBattle?.replacementVersion!==REPLACEMENT_BUILD||globalThis.PKMBattle?.commandVersion!==COMMAND_BUILD))throw Error('补位AI与实战适配器版本不匹配，请完整覆盖运行文件并刷新。');
   if(!TIERS[profile?.tier])profile=resolveTrainerAI({});profile={...profile,settings:{...TIERS[profile.tier]}};
   if(this.activeBattle&&this.activeBattle!==b)this._reset(Error('已切换新对战'));this.activeBattle=b;
-  const state={profile,onStatus,key:null,promise:null,result:null,turn:-1,active:null,memory:{at:b.turnCount,switchRuns:[0,0],recent:[]},planned:new Map()};this.states.set(b,state);
+  const state={profile,onStatus,key:null,promise:null,result:null,turn:-1,active:null,memory:{at:b.turnCount,switchRuns:[0,0],recent:[],foeReads:[]},foeMem:{pending:null,reads:loadFoeReads()},planned:new Map()};state.memory.foeReads=state.foeMem.reads.slice(-24);this.states.set(b,state);
   b.aiProfile=profile;b.aiInfo={mode:'ready',tier:profile.tier,label:profile.label,build:AI_BUILD};
   b.aiController={consume:(slot,reserved)=>this.consume(b,slot,reserved),replacement:()=>this.replacement(b),replacements:request=>this.replacements(b,request),replacementFailure:reason=>this.replacementFailure(b,reason)};
   b.aiObserver={see:p=>{if(p?._side===0)rememberPublic(p)}};
   for(const p of b.activeMons(0))rememberPublic(p);
-  onStatus(b.aiInfo,profile);this._configureLanes(profile.tier);void this.warm();return state;
+  onStatus(b.aiInfo,profile);this._configureLanes(searchTier(profile.tier));void this.warm();return state;
  }
  _syncMemory(b,s){
   if(!s||b.turnCount<=s.memory.at)return;
   const switched=[false,false],recent=[],consecutive=b.turnCount===s.memory.at+1;
+  // Resolved turn -> public record of what the player chose (for the elite/champion in-battle read).
+  try{if(consecutive&&!b.double){if(settleFoeRead(s.foeMem,b._ps,0))saveFoeReads(s.foeMem.reads);}else s.foeMem.pending=null;}catch(_){s.foeMem.pending=null;}
   for(const [slot,p]of s.planned){
    if(p.turn!==s.memory.at||!consecutive)continue;
    if(p.action.kind==='switch'&&b.activeSlots[1][slot]===p.action.index&&p.from!==p.action.index&&b.teams[1][p.from]?.hp>0){switched[slot]=true;recent.push({turn:p.turn,slot,kind:'switch',from:p.from,to:p.action.index});}
    else if(p.action.kind==='move')recent.push({turn:p.turn,slot,kind:'move',index:p.action.index});
   }
   const switchRuns=switched.map((yes,slot)=>yes?(s.memory.switchRuns[slot]||0)+1:0);
-  s.memory={at:b.turnCount,switchRuns,recent:[...s.memory.recent,...recent].filter(r=>b.turnCount-r.turn<=4).slice(-12)};s.planned.clear();
+  s.memory={at:b.turnCount,switchRuns,recent:[...s.memory.recent,...recent].filter(r=>b.turnCount-r.turn<=4).slice(-12),foeReads:s.foeMem.reads.slice(-24)};s.planned.clear();
  }
  async prepare(b){
   const s=this.states.get(b);if(!s||b.winner!==null||b.pendingSwitch!==null||b._turnState)return null;
@@ -117,6 +125,7 @@ export class BrowserBattleAI{
   const legal=legalActions(b,1,slot,reserved);let action;
   if(s?.result&&s.turn===b.turnCount&&s.active===b.activeSlots[1].join(',')){
    const candidate=s.result.actions[slot];if(candidate)action=legal.find(a=>actionKey(a)===actionKey(candidate));
+   if(action&&slot===0&&s.result.info?.foePredict)try{armFoeRead(s.foeMem,s.result.info.foePredict,b._ps);}catch(_){}
   }
   if(!action){action=quickChoice(b,slot,reserved,s?.memory);b.aiInfo={mode:'emergency',tier:s?.profile.tier,label:s?.profile.label,reasons:['同步安全策略：无可用的本回合搜索结果'],build:AI_BUILD};s?.onStatus(b.aiInfo,s.profile)}
   if(s)s.planned.set(slot,{turn:b.turnCount,from:b.activeSlots[1][slot],action:{kind:action.kind,index:action.index}});
@@ -135,7 +144,7 @@ export class BrowserBattleAI{
     try{const pick=chooseReserve(view,db,ids,move,seed,base),row=near.find(x=>x.actions[0].index===pick);if(row&&pick!==base){row.score=safe[0].score+.01;plans.sort((a,b)=>b.score-a.score||a.key.localeCompare(b.key));row.details[0].reasons.push('联赛复核：依据公开配装假设，在合法近优后备中改选');}review={candidates:ids.length,changed:!!row&&pick!==base};}catch{review={candidates:ids.length,unavailable:true};}
    }
   }
-  const plan=chooseReplacementPlan(plans,profile,{rng:seeded(seed^this.salt)});
+  const plan=chooseReplacementPlan(plans,view.profile,{rng:seeded(seed^this.salt)});
   // A pending ordinary-turn result must never be reused across an interrupted
   // switch/revive phase. No player replacement choice is accepted here.
   if(s){s.key=null;s.result=null;s.promise=null;}
@@ -158,5 +167,5 @@ export function showAIStatus(element,info,profile){
  if(!element)return;const mode=info.mode||'ready',labels={ready:'剧情AI · 就绪',thinking:'剧情AI · 后台思考中', 'poke-engine':'Foul Play策略 · poke-engine搜索','hybrid-search':'WASM＋Showdown · 联合前瞻','showdown-search':'Showdown规则 · 多假设前瞻',compatibility:'兼容AI · 近似前瞻',emergency:'安全AI · 临时降级'};
  element.dataset.mode=mode;element.textContent=`${profile.label} · 联赛指挥 v7.2${info.lanes>1?' ×'+info.lanes:''} · ${labels[mode]||mode}`;
  const intent={teaching:'指导赛',restrained:'收敛实力',casual:'非认真对战',serious:'认真对战'}[profile.intent]||'';
- element.title=['指挥策略：联赛指挥 v7.2（公开信息）',info.lanes?`本回合 ${info.lanes} 条独立搜索；按完整联合行动合票`:'' ,info.crown?`高档指挥：${info.crown.fused?'多路策略合并':info.crown.worlds+' 组规则矩阵'}；${info.crown.guarded||0} 个公开风险项；不读取对手指令`:'',info.circuit?`联赛复核：${info.circuit.worlds} 个假设／${info.circuit.calcCalls} 次伤害查询；配装来源 ${Object.keys(info.circuit.sources).join('、')}（F=对战工厂，R=随机单打，D=随机双打，local=自定义兜底）`:'',info.circuit?.verdict||'',`人物档位：${TIERS[profile.storyTier]?.label||profile.label} → 本场：${profile.label}（${intent}）`,`档位来源：${profile.source||'默认'}`,profile.reason?`配置理由：${profile.reason}`:'',profile.characterName?`人物资料：${profile.characterName} / ${profile.characterTier||profile.characterTierStatus||'未指定'} / ${profile.characterTierSource||'—'}`:'',...(profile.tierWarnings||[]),info.worlds?`${info.worlds}组公开信息假设；${info.visits||0}次MCTS访问；${info.nodes||0}次规则推演；${info.elapsed||0}毫秒`:'',...(info.reasons||[]),'开战时的敌方缺省努力值由培养模块生成；回合中不改面板，不读取玩家未公开指令。双打和特殊机制不等同于原版Foul Play。'].filter(Boolean).join('\n');
+ element.title=[info.master?.oracle?`宝可梦大师：已读取你的完整配置（${info.master.team} 只宝可梦的招式、道具、特性、性格／努力值／个体值、太晶属性、未出场队员与当前状态），每个推演世界都是真实队伍；不读取你本回合的指令，也不读取随机数`:'指挥策略：联赛指挥 v7.2（公开信息）',info.lanes?`本回合 ${info.lanes} 条独立搜索；按完整联合行动合票`:'' ,info.crown?`高档指挥：${info.crown.fused?'多路策略合并':info.crown.worlds+' 组规则矩阵'}；${info.crown.guarded||0} 个公开风险项；不读取对手指令`:'',info.humanPrior?`高分对局先验：Showdown 天梯 ≥1800 对局学习的出招模型，λ=${info.humanPrior.lambda}${info.humanPrior.top?`；高手倾向 ${String(info.humanPrior.top.key).replace(/^move:(\d+).*/,(_,i)=>`第${+i+1}个招式`).replace(/^switch:(\d+)/,(_,i)=>`换上${+i+1}号队员`)}（${Math.round(info.humanPrior.top.p*100)}%）`:''}`:info.canonical?.humanModel?`高分对局读招：按天梯≥1800玩家的应对习惯做最优反制，混合度 α=${info.canonical.humanModel.alpha}`:'',info.canonical?.valueBlend?`局势评估：${info.canonical.valueBlend>=1?"采用":`${Math.round(info.canonical.valueBlend*100)}% 融合`}从 1.28 万场天梯≥1800 对局胜负中学习的局势估值`:'',info.foeRead?`对手习惯读取：已观察你 ${info.foeRead.n} 次公开选择（换人倾向 ${info.foeRead.beta>0?'+':''}${info.foeRead.beta}，抢伤害倾向 ${info.foeRead.gamma>0?'+':''}${info.foeRead.gamma}，重复出招 ${info.foeRead.rho>0?'+':''}${info.foeRead.rho}），读招力度 ×${info.foeRead.alphaScale}`:'',info.circuit?`联赛复核：${info.circuit.worlds} 个假设／${info.circuit.calcCalls} 次伤害查询；配装来源 ${Object.keys(info.circuit.sources).join('、')}（F=对战工厂，R=随机单打，D=随机双打，local=自定义兜底）`:'',info.circuit?.verdict||'',`人物档位：${TIERS[profile.storyTier]?.label||profile.label} → 本场：${profile.label}（${intent}）`,`档位来源：${profile.source||'默认'}`,profile.reason?`配置理由：${profile.reason}`:'',profile.characterName?`人物资料：${profile.characterName} / ${profile.characterTier||profile.characterTierStatus||'未指定'} / ${profile.characterTierSource||'—'}`:'',...(profile.tierWarnings||[]),info.worlds?`${info.worlds}组公开信息假设；${info.visits||0}次MCTS访问；${info.nodes||0}次规则推演；${info.elapsed||0}毫秒`:'',...(info.reasons||[]),'开战时的敌方缺省努力值由培养模块生成；回合中不改面板，不读取玩家未公开指令。双打和特殊机制不等同于原版Foul Play。'].filter(Boolean).join('\n');
 }

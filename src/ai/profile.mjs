@@ -42,7 +42,11 @@ export const TIERS=Object.freeze(Object.assign(Object.create(null),{
  ace:Object.freeze({label:'精英',milliseconds:5000,worlds:12,mistake:0,window:.75,nativeDepth:2,canonical:true,lookahead:3}),
  elite:Object.freeze({label:'天王',milliseconds:7000,worlds:16,mistake:0,window:.75,nativeDepth:2,canonical:true,lookahead:4}),
  champion:Object.freeze({label:'冠军',milliseconds:9000,worlds:20,mistake:0,window:.75,nativeDepth:2,canonical:true,lookahead:4}),
+ // 宝可梦大师: the champion search with the player's COMPLETE configuration (moves, item, ability, nature/EVs/IVs/stats,
+ // Tera type, unrevealed bench, exact HP/status). Never the player's pending command, never battle RNG.
+ master:Object.freeze({label:'宝可梦大师',milliseconds:9000,worlds:20,mistake:0,window:.75,nativeDepth:2,canonical:true,lookahead:4,omniscient:true,base:'champion'}),
 }));
+export const searchTier=t=>TIERS[t]?.base||t;
 const clean=x=>typeof x==='string'||typeof x==='number'?String(x).trim().slice(0,240):'';
 const norm=x=>clean(x).toLowerCase().replace(/[\s_\-·•]/g,'');
 const order=Object.keys(TIERS),higher=(a,b)=>order.indexOf(a)>=order.indexOf(b)?a:b;
@@ -66,7 +70,9 @@ function roleTier(text){const s=clean(text);if(!s||denied(s))return null;
  if(/精英训练家|ace\s*trainer|elite\s*trainer/i.test(s))return'ace';
  if(/馆主|gym\s*leader/i.test(s))return'leader';
  if(/资深|老练|veteran/i.test(s))return'veteran';
- if(/新手|新人|初学|刚出发|novice|rookie/i.test(s))return'novice';return tierOf(s);
+ if(/新手|新人|初学|刚出发|novice|rookie/i.test(s))return'novice';
+ // 宝可梦大师只认人物档案的“当前实力档位”或本场显式 ai.tier；头衔/职业/愿望（如“立志成为宝可梦大师”）不授予。
+ const t=tierOf(s);return t==='master'?null:t;
 }
 const stageAliases=new Map([
  ['quarterfinal','quarterfinal'],['quarterfinals','quarterfinal'],['roundof8','quarterfinal'],['top8','quarterfinal'],['八强','quarterfinal'],['八强赛','quarterfinal'],['四分之一决赛','quarterfinal'],['1/4决赛','quarterfinal'],
@@ -138,5 +144,5 @@ export function resolveTrainerAI(cfg={},pkm={}){
  if(competitive)tier=higher(storyTier,'ace');
  return{version:AI_BUILD,wiringVersion:TIER_WIRING_BUILD,tier,storyTier,characterTier:character?.tier||null,characterName:character?.name||null,characterTierSource:character?.source||null,characterTierStatus:character?.status||null,tierWarnings,requestedIntent,intentReason,label:TIERS[tier].label,style:styles.has(ai.style)?ai.style:'balanced',intent:competitive?'serious':intent,source,reason:clean(ai.reason),opponent:who||'对手',leagueStage:competitive?leagueStage:null,minimumTier:competitive?'ace':null,settings:{...TIERS[tier]}};
 }
-export const STORY_AI_PROMPT='【对手AI·读取当前人物档位并写入配置】已有明确当前档位的训练家 <pkm_battle> 必须写 ai:{"tier":"novice|regular|veteran|leader|ace|elite|champion","style":"balanced|aggressive|defensive|setup|disruptive","intent":"serious","reason":"本场已成立的当前实力依据"}。对应新人=novice、普通训练家=regular、资深=veteran、馆主=leader、精英训练家=ace、天王=elite、冠军=champion；elite 仍专指天王，不是 ace。不要把整段人物介绍或未来档位填入 tier。生成前读取该角色“当前实力档位”；EPxxx后档位只在该事件已完成且未跳过、非沙盒时采用，不能提前取最高档；沙盒无已确认进度时保留基础当前档位，本场明确变化须给出显式 tier 和剧情依据。身份/职务不等于实力档位：用户给柳伯、大木博士等指定的天王档不能因馆主/博士头衔改低。默认 serious；只有剧情已明确指导/收敛/非认真且确实允许本场降档时，才写 intent:"teaching|restrained|casual"、allowTierReduction:true 和 intentReason:"明确剧情理由"，不能仅因练习/切磋标题或缺字段自动降档；这不改人物自身档位。正式联盟八强/半决赛/决赛写 type:"league" 和 leagueStage:"quarterfinal|semifinal|final"，最低 ace，已成立的天王/冠军保留更高档且认真对战；大会冠军不自动等于地区冠军，愿望、传闻、挑战过冠军不构成头衔。difficulty 只为旧版兼容，不能代替或覆盖人物当前档位。本场显式 ai.tier 优先于人物兜底，必须与当前设定一致，不能夹带旧的默认档；无档位人物不虚构强度。不得按玩家等级、胜负需求或戏份升降档，不改队伍数值，不预定胜负，不授予额外机制，不读取玩家未公开招式/道具/本回合行动。正文不暴露内部术语。';
+export const STORY_AI_PROMPT='【对手AI·读取当前人物档位并写入配置】已有明确当前档位的训练家 <pkm_battle> 必须写 ai:{"tier":"novice|regular|veteran|leader|ace|elite|champion|master","style":"balanced|aggressive|defensive|setup|disruptive","intent":"serious","reason":"本场已成立的当前实力依据"}。对应新人=novice、普通训练家=regular、资深=veteran、馆主=leader、精英训练家=ace、天王=elite、冠军=champion、宝可梦大师=master；elite 仍专指天王，不是 ace。master 是最高档，只用于人物档案“当前实力档位”明确写了宝可梦大师的人；“立志成为宝可梦大师”之类的愿望、称号、名气都不算。不要把整段人物介绍或未来档位填入 tier。生成前读取该角色“当前实力档位”；EPxxx后档位只在该事件已完成且未跳过、非沙盒时采用，不能提前取最高档；沙盒无已确认进度时保留基础当前档位，本场明确变化须给出显式 tier 和剧情依据。身份/职务不等于实力档位：用户给柳伯、大木博士等指定的天王档不能因馆主/博士头衔改低。默认 serious；只有剧情已明确指导/收敛/非认真且确实允许本场降档时，才写 intent:"teaching|restrained|casual"、allowTierReduction:true 和 intentReason:"明确剧情理由"，不能仅因练习/切磋标题或缺字段自动降档；这不改人物自身档位。正式联盟八强/半决赛/决赛写 type:"league" 和 leagueStage:"quarterfinal|semifinal|final"，最低 ace，已成立的天王/冠军保留更高档且认真对战；大会冠军不自动等于地区冠军，愿望、传闻、挑战过冠军不构成头衔。difficulty 只为旧版兼容，不能代替或覆盖人物当前档位。本场显式 ai.tier 优先于人物兜底，必须与当前设定一致，不能夹带旧的默认档；无档位人物不虚构强度。不得按玩家等级、胜负需求或戏份升降档，不改队伍数值，不预定胜负，不授予额外机制，除宝可梦大师档按设定知晓玩家队伍的完整配置外，不读取玩家未公开招式/道具；任何档位都不读取玩家本回合行动。正文不暴露内部术语。';
 export const STORY_MECHANIC_PROMPT='【对手机制必须落到配置】仅当剧情已确立对手有对应资格/装备时，在 <pkm_battle> 的 team 对应宝可梦对象中写入实际配置，不能只在正文里提到机制。示例：超级进化 mechanic:"mega",megaForm:"steelixmega",item:"steelixite"；Ｚ招式 mechanic:"z",zType:"Electric",item:"electriumz"；极巨化 mechanic:"dynamax"（超极巨可另写 dynamaxForm:"gmax"）；太晶化 mechanic:"tera",teraType:"Fire"。megaForm 必须是该物种合法形态，Ｚ纯晶必须匹配实际可用招式；不能凭空给无资格的对手装备或额外机制。缺少形态/属性等信息时先补明已成立的设定，不猜测赠送。写入的是本场使用资格，由AI选择合法且有收益的时机；未实际回传前正文不要把尚未执行的机制、招式和胜负写成已发生。';

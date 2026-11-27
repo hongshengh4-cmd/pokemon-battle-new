@@ -1,0 +1,65 @@
+/* SPDX-License-Identifier: MIT
+   捕获演出 v2（capture-fx-v2）：只追加样式，不改 styles.css。 */
+.cfx-layer { position: absolute; inset: 0; z-index: 27; pointer-events: none; overflow: visible; }
+.cfx-ball { position: absolute; left: 0; top: 0; z-index: 28; pointer-events: none; will-change: transform; transform-origin: 50% 50%; }
+.cfx-spin { position: absolute; inset: 0; transform-origin: 50% 92%; filter: drop-shadow(0 2px 1.5px rgba(30, 18, 40, .35)); }
+.cfx-spin svg { display: block; overflow: visible; }
+.cfx-ball .cb-top { transform-box: view-box; transform-origin: 8px 50px; transition: transform .16s cubic-bezier(.3, 1.6, .5, 1); }
+.cfx-ball.open .cb-top { transform: rotate(-118deg); transition-duration: .2s; }
+.cfx-ball.burst .cb-top { transform: rotate(-150deg) translate(-6px, -10px); transition-duration: .12s; }
+.cfx-ball.open .cfx-spin::after, .cfx-ball.burst .cfx-spin::after {
+  content: ""; position: absolute; left: 12%; right: 12%; top: 40%; height: 22%; border-radius: 50%;
+  background: radial-gradient(ellipse, #fff 0, #ffd6d6 40%, rgba(255, 70, 70, 0) 75%); filter: blur(1px);
+}
+.cfx-ball.snap .cfx-spin { animation: cfx-snap .22s ease-out; }
+@keyframes cfx-snap { 0% { filter: drop-shadow(0 0 0 #fff) brightness(2.2); } 100% { filter: drop-shadow(0 2px 1.5px rgba(30, 18, 40, .35)) brightness(1); } }
+.cfx-ball.squash .cfx-spin { transform: scale(1.12, .86) !important; transition: transform .06s; }
+.cfx-ball .cb-light { transition: fill .12s; }
+.cfx-ball.blink .cb-light { fill: #ff4d4d; stroke: #ff9a9a; filter: drop-shadow(0 0 3px #ff3b3b); }
+.cfx-ball.locked .cb-light { fill: #ffef7a; animation: cfx-lock 1s ease-out forwards; }
+@keyframes cfx-lock { 0% { fill: #fff; } 35% { fill: #ffe35c; } 100% { fill: #d9d4dc; } }
+.cfx-ball.locked .cfx-spin { animation: cfx-locked 1.2s ease forwards; }
+@keyframes cfx-locked { 0% { filter: drop-shadow(0 0 10px #ffe779) brightness(1.25); } 100% { filter: drop-shadow(0 2px 1.5px rgba(30, 18, 40, .35)) brightness(.92); } }
+
+.cfx-shadow { position: absolute; left: 0; top: 0; width: 40px; height: 9px; border-radius: 50%; background: radial-gradient(ellipse, rgba(30, 24, 40, .55), rgba(30, 24, 40, 0) 70%); transform-origin: 50% 50%; }
+@media (max-width: 680px) { .cfx-shadow { width: 30px; height: 7px; } }
+.cfx-trail { position: absolute; border-radius: 50%; translate: -50% -50%; opacity: .5; filter: blur(1.5px); animation: cfx-trail .34s ease-out forwards; mix-blend-mode: screen; }
+@keyframes cfx-trail { to { opacity: 0; scale: .2; } }
+.cfx-layer:has(~ .cfx-ball.ball-masterball) .cfx-trail { box-shadow: 0 0 10px #e9579c; }
+.cfx-ring { position: absolute; width: 18px; height: 18px; translate: -50% -50%; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 12px #fff, 0 0 22px #ffd36b; animation: cfx-ring .38s ease-out forwards; }
+@keyframes cfx-ring { 0% { scale: .3; opacity: 1; } 100% { scale: 4.2; opacity: 0; } }
+.cfx-beam {
+  position: absolute; height: 46px; margin-top: -23px; transform-origin: 0 50%;
+  background: linear-gradient(90deg, rgba(255, 255, 255, .95), rgba(255, 110, 110, .85) 40%, rgba(255, 60, 60, .0));
+  clip-path: polygon(0 44%, 100% 0, 100% 100%, 0 56%); filter: blur(1.5px); mix-blend-mode: screen;
+  animation: cfx-beam-in .18s ease-out;
+}
+.cfx-beam.out { opacity: 0; transition: opacity .25s; }
+@keyframes cfx-beam-in { from { opacity: 0; } to { opacity: 1; } }
+.cfx-ghost-wrap { position: absolute; transform-origin: 50% 50%; }
+.cfx-ghost { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+.cfx-spark { position: absolute; width: 6px; height: 6px; border-radius: 50%; translate: -50% -50%; background: #fff; box-shadow: 0 0 8px #ff5a5a, 0 0 3px #fff; opacity: 0; animation: cfx-spark .5s ease-in forwards; }
+@keyframes cfx-spark { 0% { opacity: 0; transform: translate(0, 0) scale(1.2); } 25% { opacity: 1; } 100% { opacity: 0; transform: translate(var(--tx), var(--ty)) scale(.3); } }
+.cfx-dust { position: absolute; width: 12px; height: 8px; border-radius: 50%; translate: -50% -50%; background: radial-gradient(ellipse, rgba(170, 150, 120, .6), rgba(170, 150, 120, 0) 70%); animation: cfx-dust .5s ease-out forwards; }
+@keyframes cfx-dust { 0% { opacity: .9; transform: translate(0, 0) scale(.6); } 100% { opacity: 0; transform: translate(var(--dx), -6px) scale(1.8); } }
+.cfx-halo { position: absolute; width: 30px; height: 30px; translate: -50% -50%; border-radius: 50%; border: 3px solid #ffe36b; box-shadow: 0 0 16px #ffd23f, inset 0 0 10px #fff3b0; animation: cfx-halo 1s ease-out forwards; }
+@keyframes cfx-halo { 0% { scale: .4; opacity: 1; } 100% { scale: 3.4; opacity: 0; } }
+.cfx-star { position: absolute; translate: -50% -50%; font-size: 20px; line-height: 1; color: #ffe16b; text-shadow: 0 0 8px #ffcf3a, 0 0 2px #fff; opacity: 0; animation: cfx-star 1.1s cubic-bezier(.2, 1.2, .4, 1) forwards; }
+@keyframes cfx-star { 0% { opacity: 0; transform: translate(0, 0) scale(.2) rotate(0); } 25% { opacity: 1; } 70% { opacity: 1; transform: translate(var(--sx), var(--sy)) scale(1.15) rotate(120deg); } 100% { opacity: 0; transform: translate(var(--sx), calc(var(--sy) - 10px)) scale(.8) rotate(160deg); } }
+.cfx-flash { position: absolute; width: 40px; height: 40px; translate: -50% -50%; border-radius: 50%; background: radial-gradient(circle, #fff 0, rgba(255, 255, 255, .9) 30%, rgba(255, 120, 120, .4) 55%, rgba(255, 255, 255, 0) 72%); animation: cfx-flash .45s ease-out forwards; }
+@keyframes cfx-flash { 0% { scale: .3; opacity: 1; } 100% { scale: 6; opacity: 0; } }
+
+/* 捕获提示：文字 + 三格摇晃进度 */
+.cfx-caption { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
+.cfx-pips { display: inline-flex; gap: 5px; }
+.cfx-pips i { width: 10px; height: 10px; border-radius: 50%; background: rgba(255, 255, 255, .25); box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, .55); transition: background .15s, transform .15s; }
+.cfx-pips i.on { background: #ff5d6c; box-shadow: 0 0 6px #ff5d6c, inset 0 0 0 1.5px #fff; transform: scale(1.15); }
+
+/* 投球菜单：悬停时小球摇一摇 */
+.ball-choice:not(:disabled):hover .mini-ball, .ball-choice:not(:disabled):focus-visible .mini-ball { animation: cfx-wobble .55s ease-in-out; }
+@keyframes cfx-wobble { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-18deg); } 55% { transform: rotate(14deg); } 80% { transform: rotate(-6deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ball-choice .mini-ball { animation: none !important; }
+  .cfx-star, .cfx-halo, .cfx-flash, .cfx-ring { display: none; }
+}

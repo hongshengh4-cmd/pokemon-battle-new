@@ -2,7 +2,7 @@
 // Identity / tier wiring only. No battle decision, stats, budget or hidden data.
 export const TIER_WIRING_BUILD='npc-tier-wiring-v1';
 export const NPC_TIER_SOURCE_SHA256='bc9accf4f42bdeeb6e1c592a6dc81b20ec624737d320a430885c30771a0fe145';
-const aliases={wild:'wild','野生':'wild',novice:'novice',beginner:'novice',rookie:'novice','新手':'novice','新人':'novice','初学者':'novice',regular:'regular',normal:'regular','普通':'regular','普通训练家':'regular',veteran:'veteran',experienced:'veteran','资深':'veteran','资深训练家':'veteran',leader:'leader',gymleader:'leader','馆主':'leader','道馆馆主':'leader',ace:'ace',acetrainer:'ace',elitetrainer:'ace','精英':'ace','精英训练家':'ace','大会冠军':'ace','联盟大会冠军':'ace',elite:'elite',elitefour:'elite','天王':'elite','四天王':'elite',champion:'champion','冠军':'champion','地区冠军':'champion','联盟冠军':'champion'};
+const aliases={wild:'wild','野生':'wild',novice:'novice',beginner:'novice',rookie:'novice','新手':'novice','新人':'novice','初学者':'novice',regular:'regular',normal:'regular','普通':'regular','普通训练家':'regular',veteran:'veteran',experienced:'veteran','资深':'veteran','资深训练家':'veteran',leader:'leader',gymleader:'leader','馆主':'leader','道馆馆主':'leader',ace:'ace',acetrainer:'ace',elitetrainer:'ace','精英':'ace','精英训练家':'ace','大会冠军':'ace','联盟大会冠军':'ace',elite:'elite',elitefour:'elite','天王':'elite','四天王':'elite',champion:'champion','冠军':'champion','地区冠军':'champion','联盟冠军':'champion',master:'master',pokemonmaster:'master','宝可梦大师':'master','神奇宝贝大师':'master','精灵宝可梦大师':'master'};
 const text=x=>typeof x==='string'||typeof x==='number'?String(x).trim().slice(0,240):'';
 const norm=x=>text(x).normalize('NFKC').toLowerCase().replace(/[\s_\-·•]/g,'');
 const simple=x=>Object.hasOwn(aliases,norm(x))?aliases[norm(x)]:null;

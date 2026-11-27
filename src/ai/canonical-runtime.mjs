@@ -32,7 +32,8 @@ SOFTWARE.
 import {positionalValue} from './circuit/position.mjs?v=crown-72';
 import PS from './vendor/showdown-search.mjs?v=20261118-ai-elite-v3';
 import {id,actionKey,hash,seeded} from './battle-view.mjs?v=20261118-ai-elite-v3&cmd=kanto-crown-v72';
-import {REPLACEMENT_BUILD,rankReplacementPlans,chooseReplacementPlan,scoreReplacement} from './replacement-policy.mjs?v=public-reserves-v71';
+import {REPLACEMENT_BUILD,rankReplacementPlans,chooseReplacementPlan,scoreReplacement} from './replacement-policy.mjs?v=public-reserves-v71&expert=human-prior-v2';
+import {learnedValue} from './expert/value-model.mjs?v=value-v1';
 export {REPLACEMENT_BUILD};
 export const RUNTIME_COMMAND='kanto-crown-v72';
 export const CANONICAL_COMMIT='5b88c476113d51a939bddbcd00b5cd182a5d8058';
@@ -406,9 +407,11 @@ export function settleReplacements(b,{firstFaintLoses=false,max=8}={}){
  }
  if(!b.ended&&b.requestState==='switch'&&!firstFaintLoses)throw Error('AI模拟替换未收敛');
 }
-export function evaluateSimulation(b,{firstFaintLoses=false,matchCache=null}={}){
+export function evaluateSimulation(b,{firstFaintLoses=false,matchCache=null,valueBlend=0}={}){
  if(firstFaintLoses){const gone=b.sides.map((s,i)=>s.pokemon.filter(p=>p.fainted).length>(b._aiFaintBaseline?.[i]||0));if(gone[0]||gone[1])return gone[0]===gone[1]?0:gone[0]?-1:1;}
  if(b.ended)return b.winner===b.sides[0].name?1:b.winner===b.sides[1].name?-1:0;
+ // Full learned value: skip the (damage-calc heavy) hand evaluation entirely -> more nodes per time budget.
+ if(valueBlend>=1&&b.gameType==='singles'){try{return .94*learnedValue(b);}catch(_){}}
  const values=b.sides.map(s=>{
   let value=0;
   for(const p of s.pokemon){if(!alive(p))continue;value+=100+70*p.hp/p.maxhp;
@@ -428,6 +431,9 @@ export function evaluateSimulation(b,{firstFaintLoses=false,matchCache=null}={})
   if(s.sideConditions.reflect)value+=5;if(s.sideConditions.lightscreen)value+=5;if(s.sideConditions.auroraveil)value+=8;if(s.sideConditions.tailwind)value+=5;
   return value;
  });
- return Math.tanh((values[0]-values[1]+positionalValue(b,expectedDamage,matchCache))/170)*.94;
+ const hand=Math.tanh((values[0]-values[1]+positionalValue(b,expectedDamage,matchCache))/170)*.94;
+ // Elite/champion: blend with the position value learned from >=1800 ladder game outcomes (singles only).
+ if(valueBlend>0&&b.gameType==='singles'){try{return (1-valueBlend)*hand+valueBlend*.94*learnedValue(b);}catch(_){}}
+ return hand;
 }
 export {PS};

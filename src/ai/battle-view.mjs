@@ -117,16 +117,32 @@ function fieldView(field){
  }
  return out;
 }
+// ---------- 宝可梦大师 (master tier): full read of the player's configuration ----------
+// The master searches exactly like the champion, but every hypothesis world is the player's REAL team.
+// Only configuration and current state cross: never the pending command, never the battle RNG.
+export const MASTER_BUILD='master-oracle-v1';
+export const isMasterProfile=p=>p?.tier==='master'||!!p?.settings?.omniscient||p?.master===true;
+function masterProfile(profile){return{...profile,tier:'champion',master:true,label:'宝可梦大师',settings:{...profile.settings,omniscient:true}};}
+function fullSnapshot(p){
+ return{species:p.speciesId,level:p.level,hpPercent:p.hp>0?Math.ceil(p.hp/p.maxHp*100):0,types:[...p.types],status:p.status||null,stages:{...p.stages},moves:p.moves.map(m=>({id:m.id,used:Math.max(0,(Number(m.pp)||0)-(Number(m.ppLeft)||0))})),ability:p.ability||null,item:p.item||null,itemKnown:true,isMega:!!p.isMega,terastallized:!!p.terastallized,dynamaxed:!!p.dynamaxed,dynamaxTurns:p.dynamaxed?p.dynamaxTurns:0,volatile:safeVolatile(p,true),lastMove:p._aiPublicLastMove||p._lastMoveId||null,protectStreak:p._aiPublicProtectStreak||p._protectStreak||0,rocksWitness:p._c6Rocks||null,circuitOrder:copy(p._c6Order)||null,circuitUsed:[...(p._c6GearUsed||[])],seenThisStay:[...(p._cmdPublicUsed||[])],oracle:true};
+}
+function withMaster(view,b){
+ if(!isMasterProfile(view.profile))return view;
+ view.profile=masterProfile(view.profile);
+ view.opponent=b.teams[0].map(fullSnapshot);
+ view.oracle={build:MASTER_BUILD,team:b.teams[0].map(own),mechanicUsed:copy(b.mechanicUsed?.[0]||{})};
+ return view;
+}
 export function observation(b,profile,memory={}){
  for(const p of b.activeMons(0))rememberPublic(p);
- return{profile:{...profile,settings:{...profile.settings}},memory:copy(memory),turn:b.turnCount,double:!!b.double,firstFaintLoses:!!b.firstFaintLoses,own:b.teams[1].map(own),opponent:b.teams[0].map(p=>copy(p._aiPublicSnapshot)||{unseen:true}),active:[b.activeSlots[1].slice(),b.activeSlots[0].slice()],field:fieldView(b.field),weather:b.weather||null,weatherId:b.weatherId||null,weatherTurns:b.weatherTurns,mechanicUsed:[copy(b.mechanicUsed[1]),{}],encounterType:b.encounterType,legal:Array.from({length:b.double?2:1},(_,slot)=>practicalMenu(b.cur(1,slot),legalActions(b,1,slot)))};
+ return withMaster({profile:{...profile,settings:{...profile.settings}},memory:copy(memory),turn:b.turnCount,double:!!b.double,firstFaintLoses:!!b.firstFaintLoses,own:b.teams[1].map(own),opponent:b.teams[0].map(p=>copy(p._aiPublicSnapshot)||{unseen:true}),active:[b.activeSlots[1].slice(),b.activeSlots[0].slice()],field:fieldView(b.field),weather:b.weather||null,weatherId:b.weatherId||null,weatherTurns:b.weatherTurns,mechanicUsed:[copy(b.mechanicUsed[1]),{}],encounterType:b.encounterType,legal:Array.from({length:b.double?2:1},(_,slot)=>practicalMenu(b.cur(1,slot),legalActions(b,1,slot)))},b);
 }
 // Separate phase boundary: never query normal move legality during a forced
 // replacement. Refresh ONLY currently active public appearances, even fainted;
 // never refresh a benched opponent's private regeneration/status/item changes.
 export function replacementObservation(b,profile){
  for(const i of b.activeSlots[0]){const p=b.teams[0][i];if(p)rememberPublic(p);}
- return{profile:{...profile,settings:{...profile?.settings}},turn:b.turnCount,double:!!b.double,firstFaintLoses:!!b.firstFaintLoses,encounterType:b.encounterType,weatherTurns:b.weatherTurns,mechanicUsed:[copy(b.mechanicUsed[1]),{}],own:b.teams[1].map(own),opponent:b.teams[0].map(p=>copy(p._aiPublicSnapshot)||{unseen:true}),active:[b.activeSlots[1].slice(),b.activeSlots[0].slice()],field:fieldView(b.field),weather:b.weather||null,weatherId:b.weatherId||null};
+ return withMaster({profile:{...profile,settings:{...profile?.settings}},turn:b.turnCount,double:!!b.double,firstFaintLoses:!!b.firstFaintLoses,encounterType:b.encounterType,weatherTurns:b.weatherTurns,mechanicUsed:[copy(b.mechanicUsed[1]),{}],own:b.teams[1].map(own),opponent:b.teams[0].map(p=>copy(p._aiPublicSnapshot)||{unseen:true}),active:[b.activeSlots[1].slice(),b.activeSlots[0].slice()],field:fieldView(b.field),weather:b.weather||null,weatherId:b.weatherId||null},b);
 }
 // Emergency fallback deliberately uses species/type and displayed HP only.
 // In particular it never calls estimateDamage against the actual private foe.

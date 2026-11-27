@@ -4,7 +4,7 @@
  */
 (function(root){'use strict';
  const VERSION='tier-pokemon-ev-v71',KEYS=Object.freeze(['hp','atk','def','spa','spd','spe']);
- const RULES=Object.freeze(Object.fromEntries(Object.entries({wild:[0,0],novice:[2,96],regular:[4,192],veteran:[6,320],leader:[8,420],ace:[10,510],elite:[12,510],champion:[14,510]}).map(([k,[rate,cap]])=>[k,Object.freeze({rate,cap})])));
+ const RULES=Object.freeze(Object.fromEntries(Object.entries({wild:[0,0],novice:[2,96],regular:[4,192],veteran:[6,320],leader:[8,420],ace:[10,510],elite:[12,510],champion:[14,510],master:[14,510]}).map(([k,[rate,cap]])=>[k,Object.freeze({rate,cap})])));
  const empty=()=>Object.fromEntries(KEYS.map(k=>[k,0])),sum=v=>Object.values(v).reduce((a,b)=>a+b,0),id=s=>String(s??'').toLowerCase().replace(/[^a-z0-9]/g,''),clamp=(n,lo,hi)=>Math.min(hi,Math.max(lo,n));
  // Seven trainer ranks, and the level of THIS Pokémon only. No owner level, player data or RNG.
  function amount(level,tier='regular'){const rule=Object.hasOwn(RULES,tier)?RULES[tier]:null;if(!rule)throw Error('未知的敌方档位：'+tier);const L=Number(level);if(!Number.isInteger(L)||L<1||L>100)throw Error('宝可梦等级须为 1～100 的整数。');return {tier,level:L,rate:rule.rate,cap:rule.cap,budget:Math.min(rule.cap,L*rule.rate)};}
