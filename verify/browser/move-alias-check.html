@@ -1,0 +1,20 @@
+<!doctype html><meta charset="utf-8"><title>招式译名兼容检查</title>
+<style>body{font:14px/1.5 system-ui,"Noto Sans SC",sans-serif;margin:20px;background:#f6f7fb;color:#222}h1{font-size:20px}table{border-collapse:collapse;background:#fff}td,th{border:1px solid #ddd;padding:4px 10px}th{background:#eef}.ok{color:#0a7a2f}.bad{color:#c0392b}#q{font-size:16px;padding:6px 10px;width:340px}.card{background:#fff;padding:12px 16px;border-radius:8px;margin:12px 0;box-shadow:0 1px 3px #0001}</style>
+<script src="../../src/data/official-names.js?v=seven-tier-v71"></script>
+<script src="../../src/data/move-aliases.js?v=move-alias-v1"></script>
+<script src="../../src/engine/name-policy.js?v=seven-tier-v71&moves=move-alias-v1"></script>
+<h1>招式译名兼容检查（Showdown ID 对齐）</h1>
+<div class="card" id="sum"></div>
+<div class="card">试输入任意招式名：<input id="q" placeholder="例：冰凍牙 / Stealth Rock / 觉醒力量(火) / eq"> <b id="r"></b></div>
+<div class="card"><table id="t"><tr><th>输入</th><th>Showdown ID</th><th>官方简中显示</th></tr></table></div>
+<div class="card" id="err"></div>
+<script>
+const P=PKMOfficialNames,A=PKMMoveAliasData;
+const cases=['冰凍牙','七星奪魂腿','十萬伏特','迴轉攻','居合斩','一字斩','鬼面','吸收','觉醒力量(火)','火属性觉醒力量','Hidden Power [Ice]','大字爆','勁力','破壞死光','影子球','隱形岩','Stealth Rock','sr','eq','10,000,000 Volt Thunderbolt','U-turn','诅咒','自爆','鬼火','空气斩','急凍光線','神鳥特攻','魚躍龍門','看破','十万伏特（Thunderbolt）','Faint Attack','Vice Grip','嚎叫'];
+const t=document.getElementById('t');
+for(const c of cases){const id=P.resolve('moves',c);t.insertAdjacentHTML('beforeend',`<tr><td>${c}</td><td class="${id?'ok':'bad'}">${id||'✘ 无法识别'}</td><td>${id?P.name('moves',id):'—'}</td></tr>`);}
+document.getElementById('sum').innerHTML=`兼容表 <b>${A.version}</b>：中文别名 <b>${Object.keys(A.zh).length}</b> 条，英文/Showdown 键 <b>${Object.keys(A.en).length}</b> 条，歧义旧译（不猜测）<b>${Object.keys(A.ambiguous).length}</b> 条。官方招式 ${Object.keys(P.data.names.moves).length} 个全部可用 Showdown ID / 英文名 / 简中名解析。`;
+const q=document.getElementById('q'),r=document.getElementById('r');
+q.oninput=()=>{const v=q.value.trim();if(!v){r.textContent='';return;}const id=P.resolve('moves',v);r.className=id?'ok':'bad';r.textContent=id?`→ ${id}（${P.name('moves',id)}）`:'✘ 无法识别';};
+try{P.normalizeMoves(['嚎叫','十万伏特','乱写的招'])}catch(e){document.getElementById('err').innerHTML='<b>无法识别时的提示示例：</b><br>'+e.message;}
+</script>

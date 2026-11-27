@@ -1,0 +1,107 @@
+<!doctype html><meta charset="utf-8"><style>
+#pkm-care-confirm{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0007}
+#pkm-care-confirm .care-card{background:#f3f6fc;color:#243756;border:2px solid #9aaac3;border-radius:12px;width:420px;padding:18px;font:13px/1.8 system-ui}
+#pkm-care-confirm h3{margin:0 0 15px}#pkm-care-confirm .care-line{display:flex;align-items:center;gap:8px}#pkm-care-confirm small{display:block;font-size:10px;opacity:.65;margin-top:12px}
+#pkm-care-confirm .acts{display:flex;justify-content:flex-end;gap:10px}#pkm-care-confirm button{padding:8px 18px;border-radius:8px;border:1px solid #b6c5dc;cursor:pointer}#pkm-care-confirm .blue{background:#2f6fe0;color:#fff}#pkm-care-confirm button:disabled{opacity:.4}
+#log{position:fixed;top:0;left:0;background:#000;color:#0f0;padding:6px;z-index:9;font:14px monospace}</style><div id="log"></div><script>window.onerror=(m,s,l,c,e)=>{document.getElementById('log').textContent+='ERR '+m+' @'+l;};</script><script>
+const PD=document,isObj=v=>!!v&&typeof v==='object'&&!Array.isArray(v),esc=s=>String(s).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+const K={STAT_KEYS:['hp','atk','def','spa','spd','spe'],STAT_ZH:{hp:'HP',atk:'攻击',def:'防御',spa:'特攻',spd:'特防',spe:'速度'}};
+const CARE_HP={},CARE_STATUS={},CARE_ALL_STATUS=new Set(),CARE_FULL_HP=new Set(),CARE_ALIAS={},CARE_FRIENDSHIP_PENALTY=new Set(),FRIENDSHIP_DEFAULT=70,DIRECT_ITEM_EVOLUTIONS={},SPECIAL_ITEM_EVOLUTIONS={};
+let pendingCare=null;const toast=m=>log('toast:'+m),log=m=>document.getElementById('log').textContent+=m+'  ';
+const mon={uid:'u1',species:'坚果哑铃',name:'坚果哑铃',lv:50,hp:100,maxHp:100,stats_meta:{evs:{hp:0,atk:0,def:100,spa:0,spd:0,spe:0},ev_earned:100}};
+const PKM={party:{slots:[mon]},player:{bag:{'防御增强剂':61}}};
+const readPkm=()=>PKM,isFollowing=()=>true,isPPItem=()=>false,hasItemEvolution=()=>false,heldItemId=()=> '',isDirectUseItem=n=>isCareItem(n),panelHpInfo=m=>({hp:m.hp,max:m.maxHp}),monStats=()=>({hp:100}),monName=m=>m.name,itemIcon=()=>'🧪',spriteImg=()=>'🐛',HELD_ITEM_ZH_BY_ID={};
+function directItemEvolutionInfo(){return null}
+async function applyCare(){const op=pendingCare;log('applyCare quantity='+op.quantity+' preview='+careBatchInfo(op.name,mon,PKM,op.quantity).used);document.getElementById('pkm-care-confirm').remove();}
+const CARE_VITAMINS={'HP增强剂':'hp','攻击增强剂':'atk','防御增强剂':'def','特攻增强剂':'spa','特防增强剂':'spd','速度增强剂':'spe'};
+
+function careHasConfusion(mon){return mon?.confused===true||mon?.confusion===true||/混乱/.test(String(mon?.status||''));}
+
+function careFriendshipLoss(mon,item){if(!CARE_FRIENDSHIP_PENALTY.has(item))return 0;const v=Number(mon?.friendship?.official);return(Number.isFinite(v)?Math.max(0,Math.min(255,v)):FRIENDSHIP_DEFAULT)<200?5:10;}
+
+const CARE_REVIVE_HALF=new Set(['活力碎片']);
+
+const CARE_REVIVE_FULL=new Set(['活力块','复活草']);
+
+function canonicalCareItem(name){const raw=String(name??'').trim();return Object.prototype.hasOwnProperty.call(CARE_ALIAS,raw)?CARE_ALIAS[raw]:raw;}
+
+function isCareItem(name){const n=canonicalCareItem(name);return Object.hasOwn(CARE_HP,n)||Object.hasOwn(CARE_STATUS,n)||CARE_ALL_STATUS.has(n)||CARE_FULL_HP.has(n)||CARE_REVIVE_HALF.has(n)||CARE_REVIVE_FULL.has(n)||Object.hasOwn(CARE_VITAMINS,n);}
+
+function careStatusKey(value){const s=String(value??'').trim().toLowerCase();if(!s)return'';if(/濒死|倒下|失去战斗能力|faint/.test(s))return'faint';if(/中毒|剧毒|poison|toxic/.test(s))return'poison';if(/麻痹|瘫痪|paraly/.test(s))return'paralysis';if(/灼伤|烧伤|烫伤|burn/.test(s))return'burn';if(/冰冻|冻结|冻伤|freeze|frozen/.test(s))return'freeze';if(/睡眠|睡着|沉睡|sleep/.test(s))return'sleep';return'';}
+
+function careInfo(name,mon,pkm){
+ const h=panelHpInfo(mon),max=h.max||monStats(mon)?.hp||1,n=canonicalCareItem(name),status=careStatusKey(mon.status),faint=!!h.faint||status==='faint';
+ const hp=faint?0:Math.max(0,Number(h.hp??max)||0);let nextHp=hp,nextStatus=mon.status??null,revive=false,cured=false,curedConfusion=false,healed=0,valid=false,reason='该道具对当前目标无效果。';
+ if(n==='神奇糖果'){const lv=Math.max(1,Math.min(100,Math.floor(Number(mon.lv)||5)));return{hp,max,heal:0,nextHp,nextStatus,revive,cured,valid:!faint&&lv<100,reason:faint?'濒死宝可梦不能使用神奇糖果。':lv>=100?'已经达到 Lv.100。':'等级提升 1 级',status:mon.status??null,item:n,levelUp:!faint&&lv<100};}
+ if(Object.hasOwn(CARE_VITAMINS,n)){const evStat=CARE_VITAMINS[n],evs=mon.stats_meta?.evs||{},keys=K.STAT_KEYS||['hp','atk','def','spa','spd','spe'],current=Math.max(0,Math.min(252,Math.floor(Number(evs[evStat])||0))),total=keys.reduce((sum,k)=>sum+Math.max(0,Math.floor(Number(evs[k])||0)),0),evGain=Math.max(0,Math.min(10,252-current,510-total,510-effortEarned(mon)));return{hp,max,heal:0,nextHp,nextStatus,revive,cured,curedConfusion:false,evStat,evGain,evNow:current+evGain,evTotal:total+evGain,valid:evGain>0,reason:evGain?'努力值增加 '+evGain:current>=252?'该项努力值已达到 252。':total>=510?'总努力值已达到 510。':'已获得的努力值额度已满 510（还有未分配额度时，请直接在“努力值”里分配，无需增强剂）。',status:mon.status??null,item:n};}
+ if(CARE_REVIVE_HALF.has(n)||CARE_REVIVE_FULL.has(n)){  
+  if(faint){nextHp=CARE_REVIVE_HALF.has(n)?Math.max(1,Math.ceil(max/2)):max;nextStatus=null;revive=true;cured=mon.status!=null;healed=nextHp;valid=true;reason='复苏并恢复 HP';}
+  else reason='目标未濒死，复活道具不会消耗。';
+ }else if(!faint){
+  if(Object.hasOwn(CARE_HP,n)||CARE_FULL_HP.has(n)){
+   nextHp=CARE_FULL_HP.has(n)?max:Math.min(max,hp+(CARE_HP[n]||0));healed=Math.max(0,nextHp-hp);valid=healed>0;reason=valid?'恢复 HP':'目标 HP 已满。';
+  }
+  const powderConfusion=n==='万能粉'&&careHasConfusion(mon);
+  if(CARE_ALL_STATUS.has(n)&&((status&&status!=='faint')||powderConfusion)){nextStatus=null;cured=true;curedConfusion=powderConfusion;valid=true;reason=powderConfusion?'治愈异常状态/混乱': '治愈异常状态';}
+  else if(CARE_STATUS[n]&&status===CARE_STATUS[n]){nextStatus=null;cured=true;valid=true;reason='治愈'+String(mon.status||'异常状态');}
+  if(CARE_ALL_STATUS.has(n)&&!status&&!powderConfusion&&healed===0)reason='目标没有可治愈的异常状态。';
+  if(CARE_STATUS[n]&&status!==CARE_STATUS[n])reason='目标当前状态与该药品不匹配。';
+ }else reason='先使用活力碎片、活力块或复活草复苏；治疗药不能用于濒死目标。';
+ const evolution=!faint?directItemEvolutionInfo(name,mon,pkm):null;
+ if(evolution?.valid){valid=true;reason=evolution.reason;}
+ else if(evolution&&!valid)reason=evolution.reason;
+ return{hp,max,heal:healed,nextHp,nextStatus,revive,cured,curedConfusion,friendshipLoss:careFriendshipLoss(mon,n),valid,reason,status:mon.status??null,item:n,evolution};
+}
+function careBatchInfo(name,mon,pkm,requested=1){
+ const count=Math.max(1,Math.floor(Number(requested)||1)),base=careInfo(name,mon,pkm);
+ if(!isCareItem(name))return{...base,requested:1,used:base.valid?1:0};
+ const sim={...mon};if(isObj(mon.stats_meta)){sim.stats_meta={...mon.stats_meta};if(isObj(mon.stats_meta.evs))sim.stats_meta.evs={...mon.stats_meta.evs};}if(isObj(mon.friendship))sim.friendship={...mon.friendship};
+ let used=0,heal=0,friendshipLoss=0,evGain=0,revive=false,cured=false,curedConfusion=false,last=base;
+ for(let i=0;i<count;i++){
+  const ef=careInfo(name,sim,pkm);if(!ef.valid){last=ef;break;}used++;last=ef;heal+=Number(ef.heal)||0;friendshipLoss+=Number(ef.friendshipLoss)||0;evGain+=Number(ef.evGain)||0;revive=revive||!!ef.revive;cured=cured||!!ef.cured;curedConfusion=curedConfusion||!!ef.curedConfusion;
+  sim.hp=ef.nextHp;sim.maxHp=ef.max;if(ef.cured||ef.revive)sim.status=ef.nextStatus;if(ef.curedConfusion){sim.confused=false;sim.confusion=false;}
+  if(ef.evStat){if(!isObj(sim.stats_meta))sim.stats_meta={ivs:{},ev_level:0};if(!isObj(sim.stats_meta.evs))sim.stats_meta.evs={};const earnedBefore=effortEarned(sim);sim.stats_meta.evs[ef.evStat]=Math.max(0,Math.min(252,Math.floor(Number(sim.stats_meta.evs[ef.evStat])||0)+ef.evGain));sim.stats_meta.ev_earned=Math.min(510,earnedBefore+ef.evGain);}
+  if(ef.friendshipLoss){if(!isObj(sim.friendship))sim.friendship={official:FRIENDSHIP_DEFAULT};const f=Number(sim.friendship.official),current=Number.isFinite(f)?Math.max(0,Math.min(255,f)):FRIENDSHIP_DEFAULT;sim.friendship.official=Math.max(0,current-ef.friendshipLoss);}
+ }
+ const keys=K.STAT_KEYS||['hp','atk','def','spa','spd','spe'],evs=sim.stats_meta?.evs||{},evTotal=keys.reduce((sum,k)=>sum+Math.max(0,Math.floor(Number(evs[k])||0)),0);
+ return{...last,hp:base.hp,max:base.max,nextHp:sim.hp,heal,valid:used>0,reason:used?used<count?'效果已达到上限；无效余量会留在背包。':last.reason:base.reason,revive,cured,curedConfusion,friendshipLoss,evGain,evNow:base.evStat?Math.max(0,Math.floor(Number(evs[base.evStat])||0)):base.evNow,evTotal:base.evStat?evTotal:base.evTotal,used,requested:count};
+}
+function effortEarned(mon){
+ const raw=Number(mon?.stats_meta?.ev_earned),total=K.STAT_KEYS.reduce((n,k)=>n+Math.max(0,Math.min(252,Math.floor(Number(mon?.stats_meta?.evs?.[k])||0))),0);
+ if(!Number.isFinite(raw))return total;
+ return Math.min(510,Math.max(total,Math.max(0,Math.floor(raw))));
+}
+function showCare(name,id,options={}){
+ if(isPPItem(name)){showPPItemTargetMenu(name,options.dragged? id:null);return;}
+ if(PD.getElementById('pkm-kanto-modal')){toast('对战中请在对战窗口使用道具，避免与战斗结算冲突。');return;}
+ const pkm=readPkm(),mon=pkm.party.slots.find(m=>m.uid===id),evolutionItem=hasItemEvolution(name),evolutionUse=evolutionItem&&(!heldItemId(name)||options.dragged===true),directCareUse=options.dragged===true&&isCareItem(name),equipId=(evolutionUse||directCareUse)?'':heldItemId(name);if(!mon||!isFollowing(pkm,id)||(!isDirectUseItem(name)&&!equipId)||!(Number(pkm.player.bag[name])>0))return;
+ const quantityEnabled=isCareItem(name)&&!equipId&&!evolutionUse,maxQuantity=Math.max(1,Math.floor(Number(pkm.player.bag[name])||1));let selectedQuantity=1;
+ pendingCare={name,id,equipId,evolutionUse,directUse:directCareUse,quantity:1};PD.getElementById('pkm-care-confirm')?.remove();const d=PD.createElement('div');d.id='pkm-care-confirm';d.className='pkb';
+ const render=()=>{const effect=equipId?{valid:heldItemId(mon.item)!==equipId,equipment:true,reason:heldItemId(mon.item)===equipId?'目标已经携带该道具。':'装备携带道具',used:1}:quantityEnabled?careBatchInfo(name,mon,pkm,selectedQuantity):careInfo(name,mon,pkm);pendingCare={name,id,equipId,evolutionUse,directUse:directCareUse,quantity:selectedQuantity};
+  const hpText=effect.valid&&effect.nextHp!==effect.hp?` → ${effect.nextHp}/${effect.max}（+${effect.heal}）`:'';
+  const statusText=effect.valid&&effect.cured?`<p>状态：${esc(String(effect.status||'濒死'))} → 无异常</p>`:'';
+  const evolutionText=effect.evolution?.valid?`<p>进化：${esc(monName(mon))} → <b>${esc(effect.evolution.target)}</b></p>`:'';
+  const effectText=effect.equipment?`<p>本次对战携带<b>${esc(HELD_ITEM_ZH_BY_ID[equipId]||name)}</b>；${mon.item?`替换当前携带的${esc(mon.item)}（旧道具放回背包）。`:'该物品将从背包转为携带道具。'}</p>`:effect.levelUp?`<p>等级：Lv.${Number(mon.lv)||5} → Lv.${(Number(mon.lv)||5)+1}；将检查该等级招式与等级进化。</p>`:effect.evStat?`<p>${esc(K.STAT_ZH[effect.evStat]||effect.evStat)}努力值 +${effect.evGain}（该项 ${effect.evNow}/${252}，总计 ${effect.evTotal}/510）。</p>`:effect.evolution?.valid?evolutionText:`<p>HP ${effect.hp}/${effect.max}${hpText}</p>${statusText}${effect.friendshipLoss?`<p>亲密度：${Number.isFinite(Number(mon.friendship?.official))?Number(mon.friendship.official):FRIENDSHIP_DEFAULT} → ${Math.max(0,(Number.isFinite(Number(mon.friendship?.official))?Number(mon.friendship.official):FRIENDSHIP_DEFAULT)-effect.friendshipLoss)}（−${effect.friendshipLoss}）</p>`:''}`;
+  const consumed=effect.equipment?1:(Number(effect.used)||(effect.valid?1:0)),qtyControl=quantityEnabled?`<div data-care-qty-wrap style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:10px 0;font-weight:700">使用数量 <button type="button" class="ghost" data-care-step="-1" style="padding:4px 12px">−</button><input type="number" inputmode="numeric" data-care-quantity min="1" max="${maxQuantity}" step="1" value="${selectedQuantity}" style="width:72px;padding:6px;border:1px solid #b7c3d5;border-radius:8px;text-align:center"><button type="button" class="ghost" data-care-step="1" style="padding:4px 12px">＋</button><button type="button" class="ghost" data-care-step="max" style="padding:4px 10px">最大有效</button></div><small>库存 ${maxQuantity} 个。若目标提前达到效果上限，只扣实际生效数量。</small>`:'',usageText=effect.valid?`确认后实际扣除 ${consumed} 个；取消不消耗。${quantityEnabled&&consumed<selectedQuantity?`所选 ${selectedQuantity} 个中仅 ${consumed} 个生效，其余保留在背包。`:''}`:`当前使用无效：${esc(effect.reason)} 不会扣除物品。`;
+  const careHead=`<h3>${effect.equipment?'确认携带':effect.levelUp?'确认升级':effect.evStat?'确认增强':effect.evolution?.valid?'确认进化':`确认${canonicalCareItem(name)==='橙橙果'?'喂食':'使用物品'}`}</h3><div class="care-line">${itemIcon(name)}<b>${esc(name)}</b> → ${spriteImg(mon.species)}<b>${esc(monName(mon))}</b></div>`,careBody=`${effectText}<p>${usageText}</p><div class="acts"><button class="ghost" data-care="cancel">取消</button><button class="blue" data-care="confirm" ${effect.valid?'':'disabled'}>${effect.equipment?'确认携带':effect.levelUp?'确认升级':effect.evolution?.valid?'确认进化':quantityEnabled?`确认使用 ${consumed} 个`:'确认使用'}</button></div><small>确认后会同步修改宝可梦与背包存档；无效使用不扣道具。</small>`;
+  const liveCard=d.querySelector('.care-card');
+  if(liveCard&&liveCard.querySelector('[data-care-head]')){liveCard.querySelector('[data-care-head]').innerHTML=careHead;liveCard.querySelector('[data-care-body]').innerHTML=careBody;}
+  else d.innerHTML=`<div class="care-card"><div data-care-head style="display:contents">${careHead}</div>${qtyControl}<div data-care-body style="display:contents">${careBody}</div></div>`;
+ };
+ render();PD.body.append(d);let ignoreTrustedUntil=0;const qtyInput=()=>d.querySelector('[data-care-quantity]');
+ const setQty=(n,{writeInput=true}={})=>{const v=Math.max(1,Math.min(maxQuantity,Math.floor(Number(n))||1));const q=qtyInput();if(writeInput&&q&&String(q.value)!==String(v))q.value=String(v);if(v!==selectedQuantity){selectedQuantity=v;render();}else if(pendingCare)pendingCare.quantity=v;};
+ // Read the box right before confirming: a typed value must never be lost
+ // because the change event had not fired yet (touch) or swallowed the click.
+ const syncQty=()=>{const q=qtyInput();if(!q)return;const raw=String(q.value).trim();if(raw!==''&&Number.isFinite(Number(raw)))setQty(raw);};
+ d.addEventListener('input',e=>{const q=e.target.closest('[data-care-quantity]');if(!q)return;const raw=String(q.value).trim();if(raw===''||!Number.isFinite(Number(raw)))return;setQty(raw,{writeInput:false});});
+ d.addEventListener('change',e=>{const q=e.target.closest('[data-care-quantity]');if(!q)return;setQty(String(q.value).trim()===''?selectedQuantity:q.value);});
+ d.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.closest('[data-care-quantity]')){e.preventDefault();syncQty();}});
+ d.addEventListener('pointerup',e=>{if(e.pointerType!=='touch')return;const b=e.target.closest('[data-care],[data-care-step]');if(b&&!b.disabled){ignoreTrustedUntil=Date.now()+700;b.click();}});
+ d.addEventListener('click',async e=>{if(e.isTrusted&&Date.now()<ignoreTrustedUntil)return;
+  const step=e.target.closest('[data-care-step]')?.dataset.careStep;
+  if(step){syncQty();if(step==='max'){const best=careBatchInfo(name,mon,pkm,maxQuantity);setQty(Math.max(1,Number(best.used)||1));}else setQty(selectedQuantity+Number(step));return;}
+  const act=e.target.closest('[data-care]')?.dataset.care;if(act==='cancel'){pendingCare=null;d.remove();}
+  if(act==='confirm'){syncQty();const btn=d.querySelector('[data-care="confirm"]');if(btn?.disabled)return;await applyCare();}});
+}
+showCare('防御增强剂','u1',{dragged:new URLSearchParams(location.search).has('drag')});
+</script>

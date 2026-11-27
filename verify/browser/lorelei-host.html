@@ -1,0 +1,25 @@
+<!doctype html><meta charset="utf-8"><title>PKM embed host harness</title>
+<style>html,body{margin:0;height:100%}iframe{width:100%;height:100%;border:0}</style>
+<pre id="log" style="position:fixed;bottom:0;left:0;right:0;max-height:30%;overflow:auto;background:#000c;color:#0f0;margin:0;z-index:9;font-size:12px"></pre><iframe id="f" src="../../index.html?embed=1&v=test-names3"></iframe>
+<script>
+// Minimal stand-in for st-bridge: same message protocol, a 6-member party, Brock 3v3 with genderless-unknown trainer input.
+window.__msgs=[];
+const cfg={rules:{teamSize:6,playerLimit:6,enemyLimit:6,tag:'3v3',label:'3v3',rule:'道馆 3v3',battleMode:'single',typeLabel:'道馆战',opponent:'小刚',sideLabel:'小刚'},
+ encounter:{type:'trainer'},difficulty:'easy',
+ p1:{entrants:[{name:'host-player',party:[
+  {species:'波波',level:14,ability:'锐利目光（隐藏特性）',nature:'固執',item:'乱写道具',moves:['撞擊','起風'],hostSlot:0,gender:'M'},
+  {species:'喇叭芽',level:14,ability:'乱写特性',nature:'乱写性格',moves:['Vine Whip'],hostSlot:1,gender:'F'},
+  {species:'Geodude',level:16,moves:['rollout','defensecurl','tackle'],hostSlot:2,gender:'M'},
+  {species:'Jigglypuff',level:14,moves:['pound'],hostSlot:3,gender:'F'},
+  {species:'Magnemite',level:14,moves:['thundershock'],hostSlot:4,gender:'N'},
+  {species:'Snorlax',level:14,moves:['tackle'],hostSlot:5}]}]},
+ p2:{entrants:[{name:'host-enemy',party:[{species:'白海狮',level:92,ability:'厚脂肪',item:'吃剩的东西',moves:['冰冻光束','冲浪','再来一次','剧毒']},
+ {species:'刺甲贝',level:93,ability:'连续攻击',item:'王者之证',moves:['破壳','冰锥','岩石爆击','水流裂破']},
+ {species:'呆壳兽',level:93,ability:'再生力',item:'凸凸头盔',moves:['热水','精神强念','铁壁','偷懒']},
+ {species:'迷唇姐',level:94,ability:'干燥皮肤',item:'气势披带',moves:['恶魔之吻','暴风雪','精神冲击','诡计']},
+ {species:'象牙猪',level:94,ability:'厚脂肪',item:'生命宝珠',moves:['地震','冰柱坠击','冰砾','蛮力']},
+ {species:'拉普拉斯',level:96,ability:'储水',item:'突击背心',moves:['绝对零度','冷冻干燥','水炮','十万伏特']}]}]},
+ host:{tag:'harness-1',identityKey:'gym-brock-test',balls:{pokeball:3},battleItems:{},intro:'测试'}};
+addEventListener('message',e=>{const d=e.data||{};__msgs.push(d);if(d.type&&d.type!=='PKM_BATTLE_READY'){const p=document.getElementById('log');p.textContent+=d.type+' '+JSON.stringify(d.payload||d.error||d.message||'').slice(0,300)+'\n';}
+ if(d.type==='PKM_BATTLE_READY'&&!window.__sent){window.__sent=true;document.getElementById('f').contentWindow.postMessage({type:'PKM_BATTLE_CONFIG',payload:cfg},'*');}});
+</script>

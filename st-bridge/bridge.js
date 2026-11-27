@@ -1,5 +1,7 @@
 import '../src/data/official-names.js?v=seven-tier-v71';
-import '../src/engine/name-policy.js?v=seven-tier-v71';
+import '../src/data/move-aliases.js?v=move-alias-v1';
+import '../src/data/name-aliases.js?v=name-alias-v1';
+import '../src/engine/name-policy.js?v=seven-tier-v71&moves=move-alias-v1&names=name-alias-v1';
 import {COMMAND_BUILD} from './command-version.mjs?v=kanto-crown-v72';
 import {resolveTrainerAI,resolveNpcTier,TIER_WIRING_BUILD,STORY_AI_PROMPT,STORY_MECHANIC_PROMPT,AI_BUILD} from '../src/ai/profile.mjs?v=npc-tier-wiring-v1&cmd=kanto-crown-v72';
 import {localSprite,shinySprite,installSpriteRecovery,recoverSprite} from './sprite-recovery.js?v=1.3.31';
@@ -15,7 +17,7 @@ import './bond-sync.js?v=20261116-bond-guard-hotfix2';
 import '../src/engine/gear-resolve.js?v=20261118-ai-elite-v3';
 import '../src/engine/held-sync.js?v=20261113-comprehensive-fix-v6';
 import '../src/engine/ability-choice.js?v=1.3.31';
-import './ability-random.js?v=20261115-normal-ability-random-v2';
+import './ability-random.js?v=20261115-normal-ability-random-v2&names=name-alias-v1';
 import {isCenterLocation, completedTreatment} from './field-fixes.js?v=20261113-comprehensive-fix-v6';
 import {resolveLocalEcology,ecologySummary,canRetainFishingPending,LOCAL_ECOLOGY_VERSION,LOCAL_HABITAT_LABELS as HABITAT_LABELS} from './local-ecology.mjs?v=20261118-local-ecology-v1';
 import {isPPItem, ppItemInfo, ppItemBagKey, previewPPItem, applyPPItem} from './pp-items.mjs?v=20261115-pp-item-use-v1';
@@ -288,7 +290,7 @@ function indexTmCompatibility(d){
     for(const m of list)set.add(tmKey(m));
   }
 }
-const TM_COMPATIBILITY_READY=fetch(BASE+'st-bridge/tm-compatibility.json?v=20261111-tm-bulbapedia-v2',{cache:'force-cache'}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(d=>{if(!Array.isArray(d?.moveIds)||!d?.compatibility||typeof d.compatibility!=='object')throw new Error('TM兼容表结构无效');TM_COMPATIBILITY=d;TM_MOVE_ID_SET=new Set(d.moveIds.map(tmKey));indexTmCompatibility(d);LOG(`招式学习器兼容表已载入：${d.moveIds.length} 个 TM 招式 / ${Object.keys(d.compatibility).length} 个物种`);return d;}).catch(e=>{LOG('招式学习器兼容表加载失败；禁止未核实的学习机招式',e);TM_COMPATIBILITY=null;TM_MOVE_ID_SET=new Set();TM_COMPAT_INDEX=new Map();TM_NUMBERS={};return null;});
+const TM_COMPATIBILITY_READY=fetch(BASE+'st-bridge/tm-compatibility.json?v=20261127-tm-52poke-v4',{cache:'force-cache'}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(d=>{if(!Array.isArray(d?.moveIds)||!d?.compatibility||typeof d.compatibility!=='object')throw new Error('TM兼容表结构无效');TM_COMPATIBILITY=d;TM_MOVE_ID_SET=new Set(d.moveIds.map(tmKey));indexTmCompatibility(d);LOG(`招式学习器兼容表已载入：${d.moveIds.length} 个 TM 招式 / ${Object.keys(d.compatibility).length} 个物种`);return d;}).catch(e=>{LOG('招式学习器兼容表加载失败；禁止未核实的学习机招式',e);TM_COMPATIBILITY=null;TM_MOVE_ID_SET=new Set();TM_COMPAT_INDEX=new Map();TM_NUMBERS={};return null;});
 let TM_MOVE_ID_SET=new Set();
 const FRIENDSHIP_DEFAULT=0,FRIENDSHIP_MAX=255,FRIENDSHIP_EVOLUTION_THRESHOLD=160,FRIENDSHIP_STARTER_BASE=70,FRIENDSHIP_CATCH_BASE=40,FRIENDSHIP_INIT_MAX=130;
 const FRIENDSHIP_OLD_KEYS=['trust','passion','insight','devotion'];
@@ -1500,6 +1502,7 @@ function buildInjection() {
 
   const lastUser = [...c].reverse().find(m => m.is_user);
   if (lastUser && /<pkm_result>/i.test(lastUser.mes || '')) parts.push('【对战结果】玩家的上一条消息带有 <pkm_result>：按结果和其中的“战斗经过”具体描写这场对战（招式、效果、能力变化、换人与倒下的先后），不改写胜负，也不改动招式与结果；正文不写回合编号、等级与体力数值，不照搬记录句式。HP/状态、精灵球消耗、收服入队、图鉴登记已由脚本写入变量，不要重复写。');
+  {const autoWild=autoWildSettlePrompt(c,pkm);if(autoWild)parts.push(autoWild);}
   parts.push('【变量摘要（脚本生成，以此为准）】\n' + summaryText(pkm));
   parts.push(updateModeRule());
   parts.push('【正文与状态栏的记账规则】正文和实际存档必须一致，按【本轮变量更新方式】由负责的模型结算一次。只记明确发生且已确认的变化；使用道具要同时扣背包并更新对应 HP/status，脚本已经结算的项目不得重复。桥接会读取状态栏同步时间与地点；其他数据不能凭叙事假定已写入，若更新失败请核对存档。');
@@ -2663,6 +2666,98 @@ html.pkm-kanto-native-fullscreen #pkm-kanto-modal>.bar,html.pkm-kanto-pseudo-ful
  #pkm-move-learn-confirm .acts button,#pkm-move-adjust .acts button{min-height:44px;flex:1 1 42%}
 }
 
+/* 20261127 move-adjust v2: readable move cards with type / category / power / accuracy */
+#pkm-move-adjust{background:rgba(9,14,28,.62)!important;backdrop-filter:blur(3px)}
+#pkm-move-adjust .care-card.mv-card{background:#ffffff!important;color:#1b2335!important;border:0!important;border-radius:18px!important;width:min(860px,96vw)!important;max-height:min(90vh,900px)!important;max-height:min(90dvh,900px)!important;padding:0!important;display:flex!important;flex-direction:column;overflow:hidden!important;box-shadow:0 24px 70px rgba(5,10,25,.45),0 0 0 1px rgba(20,30,60,.08)!important;font:14px/1.5 system-ui,"PingFang SC","Microsoft YaHei",sans-serif!important}
+#pkm-move-adjust .mv-card *{box-sizing:border-box}
+#pkm-move-adjust .mv-hero{display:flex;align-items:center;gap:12px;padding:14px 16px 12px;background:linear-gradient(135deg,#1f3a8a 0%,#2f5fd0 55%,#4a86f0 100%);color:#fff!important;position:relative;flex:0 0 auto}
+#pkm-move-adjust .mv-hero-spr{width:64px;height:64px;border-radius:14px;background:rgba(255,255,255,.16);display:grid;place-items:center;flex:0 0 auto;box-shadow:inset 0 0 0 1px rgba(255,255,255,.25)}
+#pkm-move-adjust .mv-hero-spr img{width:60px;height:60px;object-fit:contain;image-rendering:pixelated}
+#pkm-move-adjust .mv-hero-k{font-size:12px;letter-spacing:.12em;color:rgba(255,255,255,.82)!important;font-weight:700}
+#pkm-move-adjust .mv-hero-name{font-size:20px;font-weight:800;color:#fff!important;line-height:1.25}
+#pkm-move-adjust .mv-hero-name span{font-size:13px;font-weight:700;margin-left:8px;color:rgba(255,255,255,.85)!important}
+#pkm-move-adjust .mv-hero-types{display:flex;gap:5px;margin-top:4px}
+#pkm-move-adjust .mv-hero .mv-type{box-shadow:0 0 0 1px rgba(255,255,255,.55)}
+#pkm-move-adjust .mv-x{position:absolute;top:10px;right:10px;width:34px;height:34px;border-radius:50%;border:0!important;background:rgba(255,255,255,.18)!important;color:#fff!important;font-size:22px;line-height:1;cursor:pointer;padding:0!important}
+#pkm-move-adjust .mv-x:hover{background:rgba(255,255,255,.3)!important}
+#pkm-move-adjust .mv-slots{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:12px 16px;background:#eef2fa;border-bottom:1px solid #dde3ef;flex:0 0 auto}
+#pkm-move-adjust .mv-slot{position:relative;border-radius:11px;background:#fff;padding:7px 9px 7px 30px;border:2px solid var(--tc);min-height:52px;display:flex;flex-direction:column;justify-content:center;box-shadow:0 1px 2px rgba(20,30,60,.08)}
+#pkm-move-adjust .mv-slot b{font-size:14px;color:#18213a!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#pkm-move-adjust .mv-slot small{font-size:11.5px;color:#4b5672!important}
+#pkm-move-adjust .mv-slot-n{position:absolute;left:7px;top:50%;transform:translateY(-50%);width:18px;height:18px;border-radius:50%;background:var(--tc);color:#fff!important;font-size:11px;font-weight:800;display:grid;place-items:center}
+#pkm-move-adjust .mv-slot.empty{border:2px dashed #b9c3d8;background:#f7f9fd;box-shadow:none}
+#pkm-move-adjust .mv-slot.empty b{color:#8a94ab!important}#pkm-move-adjust .mv-slot.empty small{color:#98a2b8!important}
+#pkm-move-adjust .mv-slot.empty .mv-slot-n{background:#c3cbdc}
+#pkm-move-adjust .mv-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 16px 6px;flex:0 0 auto}
+#pkm-move-adjust .mv-tabs{display:flex;flex-wrap:wrap;gap:6px;flex:1 1 auto}
+#pkm-move-adjust .mv-tab{border:1px solid #cdd5e4!important;background:#fff!important;color:#2a3550!important;border-radius:999px!important;padding:5px 12px!important;font:600 13px/1.2 inherit!important;cursor:pointer;min-height:0!important}
+#pkm-move-adjust .mv-tab em{font-style:normal;margin-left:5px;color:#6a7591!important;font-weight:700}
+#pkm-move-adjust .mv-tab.on{background:#1f3a8a!important;border-color:#1f3a8a!important;color:#fff!important}
+#pkm-move-adjust .mv-tab.on em{color:#c9d6ff!important}
+#pkm-move-adjust .mv-search{flex:1 1 180px;min-width:150px;border:1px solid #cdd5e4!important;border-radius:10px!important;padding:7px 10px!important;font:14px inherit!important;background:#f8faff!important;color:#1b2335!important}
+#pkm-move-adjust .mv-list{flex:1 1 auto;overflow:auto;padding:6px 16px 10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px;align-content:start;grid-auto-rows:max-content;-webkit-overflow-scrolling:touch;min-height:120px}
+#pkm-move-adjust .mv-row{position:relative;display:flex;align-items:stretch;border-radius:12px;background:#fff;border:1.5px solid #dbe1ec;cursor:pointer;overflow:hidden;min-height:max-content;flex-shrink:0;transition:border-color .12s,box-shadow .12s,transform .12s;margin:0!important}
+#pkm-move-adjust .mv-row[hidden]{display:none}
+#pkm-move-adjust .mv-row:hover{border-color:var(--tc);box-shadow:0 4px 14px rgba(20,30,60,.12)}
+#pkm-move-adjust .mv-row.is-on{border-color:var(--tc);box-shadow:0 0 0 2px var(--tc),0 6px 16px rgba(20,30,60,.12);background:linear-gradient(0deg,#fff,#fff),#fff}
+#pkm-move-adjust .mv-row.is-full{opacity:.55}
+#pkm-move-adjust .mv-cb{position:absolute!important;opacity:0!important;width:1px!important;height:1px!important;pointer-events:none;margin:0!important}
+#pkm-move-adjust .mv-row:focus-within{outline:2px solid #2f5fd0;outline-offset:2px}
+#pkm-move-adjust .mv-band{flex:0 0 6px;background:var(--tc)}
+#pkm-move-adjust .mv-main{flex:1 1 auto;min-width:0;padding:9px 11px 10px;display:flex;flex-direction:column;gap:6px}
+#pkm-move-adjust .mv-top{display:flex;align-items:center;flex-wrap:wrap;gap:5px;padding-right:26px}
+#pkm-move-adjust .mv-name{font-size:15.5px;font-weight:800;color:#141c30!important;margin-right:2px}
+#pkm-move-adjust .mv-type{display:inline-block;background:var(--tc);color:#fff!important;font-size:11.5px;font-weight:800;padding:1px 8px;border-radius:999px;line-height:1.55;text-shadow:0 1px 1px rgba(0,0,0,.25)}
+#pkm-move-adjust .mv-cat{font-size:11.5px;font-weight:800;padding:0 7px;border-radius:6px;line-height:1.6;border:1.5px solid}
+#pkm-move-adjust .mv-cat.cat-phy{color:#c2410c!important;border-color:#f3a16b;background:#fff4ec}
+#pkm-move-adjust .mv-cat.cat-spe{color:#1d4ed8!important;border-color:#8fb0f5;background:#eef4ff}
+#pkm-move-adjust .mv-cat.cat-sta{color:#4b5563!important;border-color:#bfc6d2;background:#f4f5f7}
+#pkm-move-adjust .mv-stab{font-size:11px;font-weight:800;color:#8a5a00!important;background:#fff3c4;border:1px solid #f0cf62;border-radius:6px;padding:0 6px;line-height:1.6}
+#pkm-move-adjust .mv-src{margin-left:auto;font-size:11.5px;font-weight:700;padding:1px 8px;border-radius:999px;line-height:1.55}
+#pkm-move-adjust .mv-src.src-cur{background:#e3f6e8;color:#17663a!important}
+#pkm-move-adjust .mv-src.src-old{background:#f1eafd;color:#5b3aa5!important}
+#pkm-move-adjust .mv-src.src-lv{background:#e6f0ff;color:#1f4fb3!important}
+#pkm-move-adjust .mv-src.src-tm{background:#fff0dc;color:#9a4d00!important}
+#pkm-move-adjust .mv-src.src-other{background:#eef0f4;color:#465066!important}
+#pkm-move-adjust .mv-check{position:absolute;top:9px;right:9px;width:22px;height:22px;border-radius:50%;border:2px solid #c3cbdb;background:#fff}
+#pkm-move-adjust .mv-row.is-on .mv-check{background:var(--tc);border-color:var(--tc)}
+#pkm-move-adjust .mv-row.is-on .mv-check::after{content:"";position:absolute;left:6px;top:2px;width:5px;height:10px;border:solid #fff;border-width:0 2.5px 2.5px 0;transform:rotate(45deg)}
+#pkm-move-adjust .mv-stats{display:flex;flex-wrap:wrap;gap:5px}
+#pkm-move-adjust .mv-stat{display:inline-flex;align-items:baseline;gap:4px;background:#f2f5fa;border:1px solid #e1e6f0;border-radius:7px;padding:2px 8px;line-height:1.45}
+#pkm-move-adjust .mv-stat i{font-style:normal;font-size:11.5px;color:#5a6580!important;font-weight:600}
+#pkm-move-adjust .mv-stat b{font-size:13.5px;color:#141c30!important;font-weight:800}
+#pkm-move-adjust .mv-stat b small{font-size:11px;color:#6a7591!important;font-weight:700}
+#pkm-move-adjust .mv-stat.pri-up{background:#e8f8ee;border-color:#b9e6c8}#pkm-move-adjust .mv-stat.pri-up b{color:#15803d!important}
+#pkm-move-adjust .mv-stat.pri-down{background:#fdeeee;border-color:#f3c4c4}#pkm-move-adjust .mv-stat.pri-down b{color:#b42318!important}
+#pkm-move-adjust .mv-desc{font-size:12.5px;line-height:1.55;color:#3a4560!important;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+#pkm-move-adjust .mv-row.is-on .mv-desc,#pkm-move-adjust .mv-row:hover .mv-desc{-webkit-line-clamp:unset}
+#pkm-move-adjust .mv-empty{grid-column:1/-1;text-align:center;color:#5a6580!important;padding:20px}
+#pkm-move-adjust .mv-help{margin:0 16px 4px;border-top:1px dashed #dbe1ec;padding-top:6px;flex:0 0 auto}
+#pkm-move-adjust .mv-help summary{cursor:pointer;color:#2f5fd0!important;font-weight:700;font-size:13px}
+#pkm-move-adjust .mv-help ul{margin:6px 0 4px;padding-left:18px;color:#36415c!important;font-size:12.5px;line-height:1.65}
+#pkm-move-adjust .mv-help b{color:#141c30!important}
+#pkm-move-adjust .mv-foot{display:flex!important;align-items:center;gap:10px;padding:10px 16px calc(12px + env(safe-area-inset-bottom));background:#f6f8fc;border-top:1px solid #dde3ef;flex:0 0 auto;flex-wrap:nowrap!important}
+#pkm-move-adjust .mv-count{margin-right:auto;color:#36415c!important;font-weight:600}
+#pkm-move-adjust .mv-count b{color:#1f3a8a!important;font-size:17px}
+#pkm-move-adjust .mv-btn{min-height:42px!important;padding:0 20px!important;border-radius:11px!important;font:700 14px inherit!important;cursor:pointer;flex:0 0 auto!important}
+#pkm-move-adjust .mv-btn.ghost{background:#fff!important;color:#2a3550!important;border:1px solid #c6cfdf!important}
+#pkm-move-adjust .mv-btn.primary{background:linear-gradient(180deg,#3b6fe6,#2552c9)!important;color:#fff!important;border:0!important;box-shadow:0 4px 12px rgba(37,82,201,.35)}
+#pkm-move-adjust .mv-btn:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:680px){
+ #pkm-move-adjust .care-card.mv-card{width:100%!important;max-height:calc(100vh - 24px)!important;max-height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important;border-radius:16px!important;padding:0!important}
+ #pkm-move-adjust .mv-slots{grid-template-columns:repeat(2,minmax(0,1fr));padding:10px 12px}
+ #pkm-move-adjust .mv-list{grid-template-columns:1fr;padding:6px 12px 10px}
+ #pkm-move-adjust .mv-tools{padding:8px 12px 4px}
+ #pkm-move-adjust .mv-help{margin:0 12px 4px}
+ #pkm-move-adjust .mv-foot{padding:10px 12px calc(10px + env(safe-area-inset-bottom))}
+ #pkm-move-adjust .mv-hero-name{font-size:18px}
+ #pkm-move-adjust .mv-stat{padding:1px 6px}
+ #pkm-move-adjust .mv-stat b{font-size:13px}
+ #pkm-move-adjust .mv-hero-spr{width:52px;height:52px}
+ #pkm-move-adjust .mv-hero-spr img{width:48px;height:48px}
+}
+
+
 `;
 function ensureHostStyle() {
   if (PD.getElementById('pkm-kanto-style')) return;
@@ -3288,14 +3383,14 @@ function dexNear(pkm, st, m) {
   const repel=pkm.world?.repel,repelAlive=isObj(repel)&&!(repelKind(repel)===GOLDEN_REPEL&&repelExpired(repel,pkm))&&(repelKind(repel)===GOLDEN_REPEL||Number(repel.remaining)>0);
   const repelNote=!repelAlive?'':(repelKind(repel)===GOLDEN_REPEL?`<div class="pk-note" style="color:#805500;background:#fff4cf;border:1px solid #e4c66d;border-radius:8px;padding:8px"><b>${esc(repel.item||GOLDEN_REPEL)}已生效：</b>以${esc(repel.targetName||"目标宝可梦")} Lv${Math.max(1,Number(repel.targetLevel)||Number(repel.minLevel)||1)}为基准；下面附近名单里的宝可梦最低 Lv${goldenSprayLevel(2,repel,pkm)}，不会低于目标。<b>时效：${esc(repelCountdown(repel,pkm))}</b>（游戏内 24 小时，随正文时间推进）。<div class="acts" style="margin-top:6px"><button class="ghost" data-repel-retarget="1">更换基准宝可梦</button><button class="ghost" data-repel-cancel="1">提前结束</button></div></div>`:`<div class="pk-note" style="color:#346047;background:#e8f5eb;border:1px solid #b9ddc2;border-radius:8px;padding:8px"><b>${esc(repel.item)}已生效：</b>附近列表已过滤低于 Lv${Math.max(1,Number(repel.minLevel)||1)} 的遭遇；剩余 ${Math.max(0,Number(repel.remaining)||0)} 步。<div class="acts" style="margin-top:6px"><button class="ghost" data-repel-cancel="1">提前结束</button></div></div>`);
   if(reason)return `${intro}${repelNote}<div class="empty">${esc(reason)}</div>`;
-  const pending = Array.isArray(pkm.wild.pendingResults) ? pkm.wild.pendingResults.length : 0;
+  const pending = unsettledWild(pkm,findStat()?.id??-1).length;
   const lockedCount=list.filter(w=>w.fishRequired&&!w.fishReady).length;
   return `${intro}${repelNote}${list.length ? list.map(w => {
     const locked=!!(w.fishRequired&&!w.fishReady), disabled=locked||!canFight;
     return `<div class="near-row near-wild ${locked?'near-fish-locked':''}" data-wild-cry="${w.key}" role="group" tabindex="0" aria-label="附近的${esc(w.species)}${locked?'，须先钓起':''}" title="${locked?'水域宝可梦需先钓获，才可进入战斗或捕捉':'点击可听叫声'}">${spriteImg(w.species, { anim: true, shiny: w.shiny })}<div class="grow"><b>${esc(w.species)}</b>${w.shiny ? '<span class="tag gold">✨</span>' : ''} <span class="muted">Lv${w.level} ${esc(genderMark(w.gender)||PKMGender.label(w.gender))}</span>${w.fishReady?'<span class="tag green">已钓获</span>':''}<br><span class="muted" style="font-size:11.5px">${w.fishReady?'刚才钓起的这次遭遇 · 可进入捕捉流程':locked?'水域遭遇 · 先钓鱼再对战 / 捕捉':esc(habitat&&habitat!=='land'?'在'+(HABITAT_LABELS[habitat]||'水域')+'中活动……':'在草丛里窸窸窣窣……')}</span></div><div class="acts"><button class="red" data-wild="${w.key}" data-mode="fight" ${disabled ? 'disabled' : ''}>对战</button><button class="blue" data-wild="${w.key}" data-mode="catch" ${disabled ? 'disabled' : ''}>捕捉</button></div></div>`;
   }).join('') : '<div class="empty">暂时没有可挑战的遭遇，刷新图鉴或稍后再看。</div>'}
     <div class="pk-note">${canFight ? `背包里的精灵球：${balls} 个。` : '队伍里没有能战斗的宝可梦，先去宝可梦中心吧。'}${water?`当前显示 ${list.length} 个附近遭遇，其中 ${lockedCount} 个尚未钓起。成功钓起的个体仍占用这六个名额之一；其他水域个体仍保持锁定。`:'点击“对战”沿用原有战斗流程，结束后自动补充附近遭遇。'}每场的变量立即结算，刷完再统一提交战斗摘要。</div>
-    ${pending ? `<div class="near-row"><div class="grow"><b>连续训练记录</b><br><span class="muted">已完成 ${pending} 场；结果和升级已暂存。</span></div><div class="acts"><button class="blue" data-wild-batch-finish="1">结束刷级并回剧情</button></div></div>` : ''}`;
+    ${pending ? `<div class="near-row"><div class="grow"><b>连续训练记录</b><br><span class="muted">已完成 ${pending} 场；结果和升级已保存。忘了点也没关系：发送下一条消息时会在后台自动结算并交给剧情。</span></div><div class="acts"><button class="blue" data-wild-batch-finish="1">结束刷级并回剧情</button></div></div>` : ''}`;
 }
 // 钓竿：破旧 Lv20 以下、好钓竿 Lv50 以下、厉害钓竿不限；超出上限的咬钩会断线。
 const FISHING_RODS=[{key:'old',zh:'破旧钓竿',cap:20},{key:'good',zh:'好钓竿',cap:50},{key:'super',zh:'厉害钓竿',cap:999}];
@@ -8929,7 +9024,7 @@ function onEngineMessage(d) {
     applyResult(m, d.payload).then(r => {
       m.settling=false;
       const notice=(r.warnings||[]).join(' ');
-      const saved=r.batched ? `${r.outcomeZh}！战斗结果、经验和升级已即时保存；附近已补充新对手。当前暂存 ${r.pendingCount} 场，想回剧情时在附近列表点“结束刷级并回剧情”。` : `${r.outcomeZh}！结果已写入变量并填进输入框——手机返回／电脑 Esc 退出后发送即可继续。`;
+      const saved=r.batched ? `${r.outcomeZh}！战斗结果、经验和升级已即时保存；附近已补充新对手。当前暂存 ${r.pendingCount} 场，想回剧情时在附近列表点“结束刷级并回剧情”；直接发送下一条消息也会自动结算。` : `${r.outcomeZh}！结果已写入变量并填进输入框——手机返回／电脑 Esc 退出后发送即可继续。`;
       setBar(saved+(notice?' 注意：'+notice:''));
       const xp=(r.experience||[]).map(x=>`${x.name} +${x.exp}（${x.share||'出场'}）${x.to>x.from?` Lv${x.from}→${x.to}`:''}`).join('；');
       const ev=(r.effort||[]).map(x=>`${x.name} ${x.changes.map(c=>`${K.STAT_ZH[c.stat]}+${c.gain}`).join('、')}`).join('；');
@@ -9029,7 +9124,9 @@ function tmNumbersOf(moveId){
   if(kanto!=null&&latest!=null&&kanto!==latest)return`TM${String(kanto).padStart(2,'0')} / 最新 TM${latest}`;
   if(kanto!=null)return`TM${String(kanto).padStart(2,'0')}`;
   if(latest!=null)return`TM${latest}`;
-  const first=Object.values(n)[0];return first!=null?`TM${first}`:'';
+  const first=Object.entries(n).find(([g])=>g!=='TR')?.[1];if(first!=null)return`TM${first}`;
+  // 只在《剑／盾》以招式记录（TR）出现的招式，按 TR 编号显示，不冒充 TM。
+  return n.TR!=null?`TR${String(n.TR).padStart(2,'0')}（剑盾招式记录）`:'';
 }
 function moveCandidates(mon,pkm){
  const out=new Map(),add=(name,source='已学会')=>{const n=String(name||'').trim(),id=moveIdOf(n);if(!id)return;if(!out.has(id))out.set(id,{id,name:OFFICIAL_NAMES.name('moves',id),source});};
@@ -9208,12 +9305,43 @@ function awardBattleExperience(pkm, payload, outcome, battleType, eventId='自�
   for(const mon of sideMons)if(pkm.party.slots.some(s=>!hasMon(s))){placeMon(pkm,mon);if(!pkm.dex.caught.includes(mon.species))pkm.dex.caught.push(mon.species);addSeen(pkm,mon.species,eventId||'自由');}
   return gained;
 }
+// 20261127 附近战斗自动结算：每场附近遭遇战记下写入时所在的楼层。只要后面已经有了新一层回复，这些记录就算“已结算”，
+// 不再显示、不再提交。玩家没点“结束刷级并回剧情”就直接发下一条消息时，生成开始时的注入会自动附上这批汇总交给剧情，
+// 回复完成后再把它们从存档的暂存列表里清掉；生成被中止或失败时记录保留，下次发送时再自动带上。
+function statSourceIdBefore(beforeId=Infinity){const c=chat();for(let i=Math.min(c.length-1,beforeId);i>=0;i--){const p=getMsgVars(i)?.stat_data?.pkm;if(p&&!isStaleInitialSnapshot(i,p))return i;}return -1;}
+function unsettledWild(pkm,sourceId){const list=Array.isArray(pkm?.wild?.pendingResults)?pkm.wild.pendingResults:[];return list.filter(x=>x&&(!Number.isInteger(x.floor)||sourceId<0||x.floor>=sourceId));}
+function wildBatchLines(items,withLog=true){return items.map((x,i)=>`${i+1}. ${x.outcome==='victory'?'胜利':x.outcome==='captured'?'收服':x.outcome==='defeat'?'败北':'中止'}：野生${x.species} Lv${x.level}，${x.turns||0}回合${(x.exp||[]).length?'；经验/升级：'+x.exp.map(g=>`${g.name} +${g.exp}经验（${g.share||'出场'}）${g.to>g.from?'，Lv'+g.from+'→Lv'+g.to:''}${g.evolutions?.length?'，进化为'+g.evolutions.map(e=>e.to).join('、'):''}${g.learnedMoves?.length?'，学会'+g.learnedMoves.join('、'):''}${g.pendingMoves?.length?'，待处理招式'+g.pendingMoves.join('、'):''}`).join('、'):''}${(x.effort||[]).length?'；努力值：'+x.effort.map(g=>`${g.name} ${g.changes.map(c=>`${c.stat}+${c.gain}`).join('、')}`).join('；'):''}${x.evolutionBalls?'；脱壳忍者进化额外消耗：精灵球×'+x.evolutionBalls:''}${(x.warnings||[]).length?'；结算提示：'+x.warnings.join(' '):''}${withLog&&x.log?'\n   经过：'+x.log:''}`).join('\n');}
+let autoWildSettle=null,autoWildToastKey='';
+function autoWildSettlePrompt(c,pkm){
+  if(generationInFlight&&generationBaseline?.type==='continue')return '';
+  const last=c[c.length-1];
+  if(last?.is_user&&/"type":"wild-training-batch"/.test(last.mes||''))return '';
+  const items=unsettledWild(pkm,statSourceIdBefore(injectionCutoff));
+  if(!items.length){if(generationInFlight)autoWildSettle=null;return '';}
+  if(generationInFlight)autoWildSettle={serial:generationSerial,count:items.length,keys:items.map(x=>x.at).filter(Boolean)};
+  return `【附近战斗·后台自动结算】玩家在上一层回复之后、发这条消息之前，在附近连续打了 ${items.length} 场野外战斗；玩家没有手动提交摘要，脚本已在后台自动结算。每场的 HP、状态、剩余 PP、经验、等级、进化、学招、努力值、精灵球消耗、收服入队和图鉴都已写入变量，以【变量摘要】为准。本轮回复先用一两句话自然交代这段训练（可以提到收服、进化或学会的新招），再回应玩家这条消息；不要逐场复述，不改写胜负，不要重复写入这些变量，也不要把它们当成本轮新发生的战斗再结算一次。\n${wildBatchLines(items,items.length<=8)}`;
+}
+function scheduleWildAutoSettleCleanup(mesid){
+  const plan=autoWildSettle;autoWildSettle=null;
+  const c=chat(),m=c[mesid];if(!m||m.is_user)return;
+  const token={chat:c,swipe:m.swipe_id??0,text:PKMBondSync.textKey(m.mes),serial:generationSerial},keys=new Set(plan?.keys||[]);
+  const drop=x=>keys.has(x?.at)||(Number.isInteger(x?.floor)&&x.floor<mesid);
+  setTimeout(()=>{
+    if(destroyed)return;
+    try{
+      const now=chat(),cur=now[mesid];
+      if(now!==token.chat||now.length-1!==mesid||!cur||(cur.swipe_id??0)!==token.swipe||PKMBondSync.textKey(cur.mes)!==token.text||generationInFlight||generationSerial!==token.serial)return;
+      if(!(readPkm().wild.pendingResults||[]).some(drop))return;
+      writePkm(pkm=>{pkm.wild.pendingResults=(pkm.wild.pendingResults||[]).filter(x=>!drop(x));}).then(()=>LOG('附近战斗已自动结算，暂存记录已清理')).catch(e=>LOG('附近战斗暂存清理跳过（不影响结果，已按楼层判定为已结算）',e));
+    }catch(e){LOG(e);}
+  },SYNC_DELAYS[SYNC_DELAYS.length-1]+1500);
+}
 async function finishWildBatch(){
-  const before=readPkm(),items=Array.isArray(before.wild.pendingResults)?before.wild.pendingResults.slice():[];
+  const before=readPkm(),items=unsettledWild(before,findStat()?.id??-1).slice();
   if(!items.length){toast('目前没有待提交的连续战斗记录。');return;}
   const ta=PD.getElementById('send_textarea');if(!ta){toast('找不到酒馆输入框；战斗变量已保存，暂时无法提交摘要。','warning');return;}
   const data={type:'wild-training-batch',count:items.length,battles:items};
-  const lines=items.map((x,i)=>`${i+1}. ${x.outcome==='victory'?'胜利':x.outcome==='captured'?'收服':x.outcome==='defeat'?'败北':'中止'}：野生${x.species} Lv${x.level}，${x.turns||0}回合${(x.exp||[]).length?'；经验/升级：'+x.exp.map(g=>`${g.name} +${g.exp}经验（${g.share||'出场'}）${g.to>g.from?'，Lv'+g.from+'→Lv'+g.to:''}${g.evolutions?.length?'，进化为'+g.evolutions.map(e=>e.to).join('、'):''}${g.learnedMoves?.length?'，学会'+g.learnedMoves.join('、'):''}${g.pendingMoves?.length?'，待处理招式'+g.pendingMoves.join('、'):''}`).join('、'):''}${(x.effort||[]).length?'；努力值：'+x.effort.map(g=>`${g.name} ${g.changes.map(c=>`${c.stat}+${c.gain}`).join('、')}`).join('；'):''}${x.evolutionBalls?'；脱壳忍者进化额外消耗：精灵球×'+x.evolutionBalls:''}${(x.warnings||[]).length?'；结算提示：'+x.warnings.join(' '):''}${x.log?'\n   经过：'+x.log:''}`).join('\n');
+  const lines=wildBatchLines(items,true);
   const text=`<pkm_result>${JSON.stringify(data)}</pkm_result>\n【战斗结果】连续野外训练汇总｜共 ${items.length} 场\n${lines}\n（各场战斗的 HP、状态、剩余 PP、经验、等级、亲密值和战绩均已即时写入变量；刷级结束不自动治疗，去宝可梦中心完成治疗后才会恢复 PP。请依据这份汇总简要描写训练过程并回到当前剧情，不要重新结算或改写胜负，也不要重复写入这些变量。）`;
   await writePkm(pkm=>{pkm.wild.pendingResults=[];});
   fillInput(text);toast(`已将 ${items.length} 场连续训练汇总到输入框；发送这一条即可回剧情。`);
@@ -9393,7 +9521,7 @@ async function applyResult(m, payload) {
     if (cfg.id && !pkm.battle.done.includes(cfg.id)) { pkm.battle.done.push(cfg.id); if (pkm.battle.done.length > 200) pkm.battle.done.splice(0, pkm.battle.done.length - 200); }
     if(m.type==='wild'){
       if(!Array.isArray(pkm.wild.pendingResults))pkm.wild.pendingResults=[];
-      pkm.wild.pendingResults.push({species:zhSpecies(cfgTeam[0]?.species||cfgTeam[0]?.name||'未知'),level:Number(cfgTeam[0]?.level)||1,outcome,turns:payload.turns||0,exp:xpGains,effort:evGains,evolutionBalls,warnings:rewardWarnings,summary,log:battleNarrative(payload,360).join(' '),at:Date.now()});
+      pkm.wild.pendingResults.push({floor:Math.max(0,chat().length-1),species:zhSpecies(cfgTeam[0]?.species||cfgTeam[0]?.name||'未知'),level:Number(cfgTeam[0]?.level)||1,outcome,turns:payload.turns||0,exp:xpGains,effort:evGains,evolutionBalls,warnings:rewardWarnings,summary,log:battleNarrative(payload,360).join(' '),at:Date.now()});
       if(pkm.wild.pendingResults.length>100)pkm.wild.pendingResults.splice(0,pkm.wild.pendingResults.length-100);
     }
     const bs = pkm.integration.battles; bs[battleHash(m.key)] = { outcome, summary, at: Date.now() };
@@ -9444,7 +9572,7 @@ async function applyResult(m, payload) {
     '（变量已写入：体力/状态、剩余PP、经验与等级、等级进化、升级学招/待替换招式、精灵球、收服入队（初始亲密值 40）、图鉴、战斗亲密值、努力值、首次赢得道馆徽章及对应1000声望、对战奖金。请按上面的逐回合战斗经过把这场对战详细写出来，不改写胜负，也不要重复写入这些变量。）'].filter(Boolean).join('\n');
   const text = `<pkm_result>${JSON.stringify({...res, experience:xpGains,effort:evGains})}</pkm_result>\n${human}`;
   if(m.type==='wild'){
-    const pendingCount=readPkm().wild.pendingResults?.length||0;
+    const pendingCount=unsettledWild(readPkm(),findStat()?.id??-1).length;
     return {summary:result.summary,outcomeZh:OUTCOME_ZH[outcome]||'结束',text,batched:true,pendingCount,experience:xpGains,effort:evGains,evolutionBalls,warnings:rewardWarnings};
   }
   fillInput(text);
@@ -9548,6 +9676,7 @@ function onMessageReceived(id,type) {
     if(sameMessage){pendingGenerationMessage={id:mesid,type,serial:generationSerial};return;}
   }
   injectionCutoff=Infinity;generationBaseline=null;pendingGenerationMessage=null;generationInFlight=false;
+  scheduleWildAutoSettleCleanup(mesid);
   PD.getElementById('pkm-plot-guard-warning')?.remove();
   syncStoryState();
   refreshInjection();refreshAll();scheduleSync(mesid);
@@ -9558,6 +9687,7 @@ function onGenerationStarted(type,options,dryRun){
   const id=lastAiId();generationBaseline={type,lastAiId:id};pendingGenerationMessage=null;
   injectionCutoff=['swipe','regenerate'].includes(type)&&id>=0?id-1:Infinity;
   refreshInjection();
+  if(autoWildSettle?.serial===generationSerial){const k=autoWildSettle.keys.join(',');if(k!==autoWildToastKey){autoWildToastKey=k;toast(`${autoWildSettle.count} 场附近战斗已在后台自动结算，汇总已交给本轮剧情。`);}}
 }
 function onGenerationAfterCommands(type,options,dryRun){
   if(['quiet','impersonate'].includes(type))return;
@@ -10032,7 +10162,7 @@ function careInfo(name,mon,pkm){
  const h=panelHpInfo(mon),max=h.max||monStats(mon)?.hp||1,n=canonicalCareItem(name),status=careStatusKey(mon.status),faint=!!h.faint||status==='faint';
  const hp=faint?0:Math.max(0,Number(h.hp??max)||0);let nextHp=hp,nextStatus=mon.status??null,revive=false,cured=false,curedConfusion=false,healed=0,valid=false,reason='该道具对当前目标无效果。';
  if(n==='神奇糖果'){const lv=Math.max(1,Math.min(100,Math.floor(Number(mon.lv)||5)));return{hp,max,heal:0,nextHp,nextStatus,revive,cured,valid:!faint&&lv<100,reason:faint?'濒死宝可梦不能使用神奇糖果。':lv>=100?'已经达到 Lv.100。':'等级提升 1 级',status:mon.status??null,item:n,levelUp:!faint&&lv<100};}
- if(Object.hasOwn(CARE_VITAMINS,n)){const evStat=CARE_VITAMINS[n],evs=mon.stats_meta?.evs||{},keys=K.STAT_KEYS||['hp','atk','def','spa','spd','spe'],current=Math.max(0,Math.min(252,Math.floor(Number(evs[evStat])||0))),total=keys.reduce((sum,k)=>sum+Math.max(0,Math.floor(Number(evs[k])||0)),0),evGain=Math.max(0,Math.min(10,252-current,510-total,510-effortEarned(mon)));return{hp,max,heal:0,nextHp,nextStatus,revive,cured,curedConfusion:false,evStat,evGain,evNow:current+evGain,evTotal:total+evGain,valid:evGain>0,reason:evGain?'努力值增加 '+evGain:current>=252?'该项努力值已达到 252。':'总努力值已达到 510。',status:mon.status??null,item:n};}
+ if(Object.hasOwn(CARE_VITAMINS,n)){const evStat=CARE_VITAMINS[n],evs=mon.stats_meta?.evs||{},keys=K.STAT_KEYS||['hp','atk','def','spa','spd','spe'],current=Math.max(0,Math.min(252,Math.floor(Number(evs[evStat])||0))),total=keys.reduce((sum,k)=>sum+Math.max(0,Math.floor(Number(evs[k])||0)),0),evGain=Math.max(0,Math.min(10,252-current,510-total,510-effortEarned(mon)));return{hp,max,heal:0,nextHp,nextStatus,revive,cured,curedConfusion:false,evStat,evGain,evNow:current+evGain,evTotal:total+evGain,valid:evGain>0,reason:evGain?'努力值增加 '+evGain:current>=252?'该项努力值已达到 252。':total>=510?'总努力值已达到 510。':'已获得的努力值额度已满 510（还有未分配额度时，请直接在“努力值”里分配，无需增强剂）。',status:mon.status??null,item:n};}
  if(CARE_REVIVE_HALF.has(n)||CARE_REVIVE_FULL.has(n)){  
   if(faint){nextHp=CARE_REVIVE_HALF.has(n)?Math.max(1,Math.ceil(max/2)):max;nextStatus=null;revive=true;cured=mon.status!=null;healed=nextHp;valid=true;reason='复苏并恢复 HP';}
   else reason='目标未濒死，复活道具不会消耗。';
@@ -10059,7 +10189,7 @@ function careBatchInfo(name,mon,pkm,requested=1){
  for(let i=0;i<count;i++){
   const ef=careInfo(name,sim,pkm);if(!ef.valid){last=ef;break;}used++;last=ef;heal+=Number(ef.heal)||0;friendshipLoss+=Number(ef.friendshipLoss)||0;evGain+=Number(ef.evGain)||0;revive=revive||!!ef.revive;cured=cured||!!ef.cured;curedConfusion=curedConfusion||!!ef.curedConfusion;
   sim.hp=ef.nextHp;sim.maxHp=ef.max;if(ef.cured||ef.revive)sim.status=ef.nextStatus;if(ef.curedConfusion){sim.confused=false;sim.confusion=false;}
-  if(ef.evStat){if(!isObj(sim.stats_meta))sim.stats_meta={ivs:{},ev_level:0};if(!isObj(sim.stats_meta.evs))sim.stats_meta.evs={};sim.stats_meta.evs[ef.evStat]=Math.max(0,Math.min(252,Math.floor(Number(sim.stats_meta.evs[ef.evStat])||0)+ef.evGain));sim.stats_meta.ev_earned=Math.min(510,effortEarned(sim)+ef.evGain);}
+  if(ef.evStat){if(!isObj(sim.stats_meta))sim.stats_meta={ivs:{},ev_level:0};if(!isObj(sim.stats_meta.evs))sim.stats_meta.evs={};const earnedBefore=effortEarned(sim);sim.stats_meta.evs[ef.evStat]=Math.max(0,Math.min(252,Math.floor(Number(sim.stats_meta.evs[ef.evStat])||0)+ef.evGain));sim.stats_meta.ev_earned=Math.min(510,earnedBefore+ef.evGain);}
   if(ef.friendshipLoss){if(!isObj(sim.friendship))sim.friendship={official:FRIENDSHIP_DEFAULT};const f=Number(sim.friendship.official),current=Number.isFinite(f)?Math.max(0,Math.min(255,f)):FRIENDSHIP_DEFAULT;sim.friendship.official=Math.max(0,current-ef.friendshipLoss);}
  }
  const keys=K.STAT_KEYS||['hp','atk','def','spa','spd','spe'],evs=sim.stats_meta?.evs||{},evTotal=keys.reduce((sum,k)=>sum+Math.max(0,Math.floor(Number(evs[k])||0)),0);
@@ -10069,17 +10199,33 @@ function showCare(name,id,options={}){
  if(isPPItem(name)){showPPItemTargetMenu(name,options.dragged? id:null);return;}
  if(PD.getElementById('pkm-kanto-modal')){toast('对战中请在对战窗口使用道具，避免与战斗结算冲突。');return;}
  const pkm=readPkm(),mon=pkm.party.slots.find(m=>m.uid===id),evolutionItem=hasItemEvolution(name),evolutionUse=evolutionItem&&(!heldItemId(name)||options.dragged===true),directCareUse=options.dragged===true&&isCareItem(name),equipId=(evolutionUse||directCareUse)?'':heldItemId(name);if(!mon||!isFollowing(pkm,id)||(!isDirectUseItem(name)&&!equipId)||!(Number(pkm.player.bag[name])>0))return;
- const quantityEnabled=directCareUse,maxQuantity=Math.max(1,Math.floor(Number(pkm.player.bag[name])||1));let selectedQuantity=1;
+ const quantityEnabled=isCareItem(name)&&!equipId&&!evolutionUse,maxQuantity=Math.max(1,Math.floor(Number(pkm.player.bag[name])||1));let selectedQuantity=1;
  pendingCare={name,id,equipId,evolutionUse,directUse:directCareUse,quantity:1};PD.getElementById('pkm-care-confirm')?.remove();const d=PD.createElement('div');d.id='pkm-care-confirm';d.className='pkb';
  const render=()=>{const effect=equipId?{valid:heldItemId(mon.item)!==equipId,equipment:true,reason:heldItemId(mon.item)===equipId?'目标已经携带该道具。':'装备携带道具',used:1}:quantityEnabled?careBatchInfo(name,mon,pkm,selectedQuantity):careInfo(name,mon,pkm);pendingCare={name,id,equipId,evolutionUse,directUse:directCareUse,quantity:selectedQuantity};
   const hpText=effect.valid&&effect.nextHp!==effect.hp?` → ${effect.nextHp}/${effect.max}（+${effect.heal}）`:'';
   const statusText=effect.valid&&effect.cured?`<p>状态：${esc(String(effect.status||'濒死'))} → 无异常</p>`:'';
   const evolutionText=effect.evolution?.valid?`<p>进化：${esc(monName(mon))} → <b>${esc(effect.evolution.target)}</b></p>`:'';
   const effectText=effect.equipment?`<p>本次对战携带<b>${esc(HELD_ITEM_ZH_BY_ID[equipId]||name)}</b>；${mon.item?`替换当前携带的${esc(mon.item)}（旧道具放回背包）。`:'该物品将从背包转为携带道具。'}</p>`:effect.levelUp?`<p>等级：Lv.${Number(mon.lv)||5} → Lv.${(Number(mon.lv)||5)+1}；将检查该等级招式与等级进化。</p>`:effect.evStat?`<p>${esc(K.STAT_ZH[effect.evStat]||effect.evStat)}努力值 +${effect.evGain}（该项 ${effect.evNow}/${252}，总计 ${effect.evTotal}/510）。</p>`:effect.evolution?.valid?evolutionText:`<p>HP ${effect.hp}/${effect.max}${hpText}</p>${statusText}${effect.friendshipLoss?`<p>亲密度：${Number.isFinite(Number(mon.friendship?.official))?Number(mon.friendship.official):FRIENDSHIP_DEFAULT} → ${Math.max(0,(Number.isFinite(Number(mon.friendship?.official))?Number(mon.friendship.official):FRIENDSHIP_DEFAULT)-effect.friendshipLoss)}（−${effect.friendshipLoss}）</p>`:''}`;
-  const consumed=effect.equipment?1:(Number(effect.used)||(effect.valid?1:0)),qtyControl=quantityEnabled?`<label style="display:flex;align-items:center;gap:8px;margin:10px 0;font-weight:700">使用数量 <input type="number" data-care-quantity min="1" max="${maxQuantity}" step="1" value="${selectedQuantity}" style="width:84px;padding:6px;border:1px solid #b7c3d5;border-radius:8px"></label><small>库存 ${maxQuantity} 个。若目标提前达到效果上限，只扣实际生效数量。</small>`:'',usageText=effect.valid?`确认后实际扣除 ${consumed} 个；取消不消耗。${quantityEnabled&&consumed<selectedQuantity?`所选 ${selectedQuantity} 个中仅 ${consumed} 个生效，其余保留在背包。`:''}`:`当前使用无效：${esc(effect.reason)} 不会扣除物品。`;
-  d.innerHTML=`<div class="care-card"><h3>${effect.equipment?'确认携带':effect.levelUp?'确认升级':effect.evStat?'确认增强':effect.evolution?.valid?'确认进化':`确认${canonicalCareItem(name)==='橙橙果'?'喂食':'使用物品'}`}</h3><div class="care-line">${itemIcon(name)}<b>${esc(name)}</b> → ${spriteImg(mon.species)}<b>${esc(monName(mon))}</b></div>${qtyControl}${effectText}<p>${usageText}</p><div class="acts"><button class="ghost" data-care="cancel">取消</button><button class="blue" data-care="confirm" ${effect.valid?'':'disabled'}>${effect.equipment?'确认携带':effect.levelUp?'确认升级':effect.evolution?.valid?'确认进化':quantityEnabled?`确认使用 ${consumed} 个`:'确认使用'}</button></div><small>确认后会同步修改宝可梦与背包存档；无效使用不扣道具。</small></div>`;
+  const consumed=effect.equipment?1:(Number(effect.used)||(effect.valid?1:0)),qtyControl=quantityEnabled?`<div data-care-qty-wrap style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:10px 0;font-weight:700">使用数量 <button type="button" class="ghost" data-care-step="-1" style="padding:4px 12px">−</button><input type="number" inputmode="numeric" data-care-quantity min="1" max="${maxQuantity}" step="1" value="${selectedQuantity}" style="width:72px;padding:6px;border:1px solid #b7c3d5;border-radius:8px;text-align:center"><button type="button" class="ghost" data-care-step="1" style="padding:4px 12px">＋</button><button type="button" class="ghost" data-care-step="max" style="padding:4px 10px">最大有效</button></div><small>库存 ${maxQuantity} 个。若目标提前达到效果上限，只扣实际生效数量。</small>`:'',usageText=effect.valid?`确认后实际扣除 ${consumed} 个；取消不消耗。${quantityEnabled&&consumed<selectedQuantity?`所选 ${selectedQuantity} 个中仅 ${consumed} 个生效，其余保留在背包。`:''}`:`当前使用无效：${esc(effect.reason)} 不会扣除物品。`;
+  const careHead=`<h3>${effect.equipment?'确认携带':effect.levelUp?'确认升级':effect.evStat?'确认增强':effect.evolution?.valid?'确认进化':`确认${canonicalCareItem(name)==='橙橙果'?'喂食':'使用物品'}`}</h3><div class="care-line">${itemIcon(name)}<b>${esc(name)}</b> → ${spriteImg(mon.species)}<b>${esc(monName(mon))}</b></div>`,careBody=`${effectText}<p>${usageText}</p><div class="acts"><button class="ghost" data-care="cancel">取消</button><button class="blue" data-care="confirm" ${effect.valid?'':'disabled'}>${effect.equipment?'确认携带':effect.levelUp?'确认升级':effect.evolution?.valid?'确认进化':quantityEnabled?`确认使用 ${consumed} 个`:'确认使用'}</button></div><small>确认后会同步修改宝可梦与背包存档；无效使用不扣道具。</small>`;
+  const liveCard=d.querySelector('.care-card');
+  if(liveCard&&liveCard.querySelector('[data-care-head]')){liveCard.querySelector('[data-care-head]').innerHTML=careHead;liveCard.querySelector('[data-care-body]').innerHTML=careBody;}
+  else d.innerHTML=`<div class="care-card"><div data-care-head style="display:contents">${careHead}</div>${qtyControl}<div data-care-body style="display:contents">${careBody}</div></div>`;
  };
- render();PD.body.append(d);let ignoreTrustedUntil=0;d.addEventListener('change',e=>{const q=e.target.closest('[data-care-quantity]');if(!q)return;const n=Math.floor(Number(q.value)||1);selectedQuantity=Math.max(1,Math.min(maxQuantity,n));render();});d.addEventListener('pointerup',e=>{if(e.pointerType!=='touch')return;const b=e.target.closest('[data-care]');if(b&&!b.disabled){ignoreTrustedUntil=Date.now()+700;b.click();}});d.addEventListener('click',async e=>{if(e.isTrusted&&Date.now()<ignoreTrustedUntil)return;const act=e.target.closest('[data-care]')?.dataset.care;if(act==='cancel'){pendingCare=null;d.remove();}if(act==='confirm')await applyCare();});
+ render();PD.body.append(d);let ignoreTrustedUntil=0;const qtyInput=()=>d.querySelector('[data-care-quantity]');
+ const setQty=(n,{writeInput=true}={})=>{const v=Math.max(1,Math.min(maxQuantity,Math.floor(Number(n))||1));const q=qtyInput();if(writeInput&&q&&String(q.value)!==String(v))q.value=String(v);if(v!==selectedQuantity){selectedQuantity=v;render();}else if(pendingCare)pendingCare.quantity=v;};
+ // Read the box right before confirming: a typed value must never be lost
+ // because the change event had not fired yet (touch) or swallowed the click.
+ const syncQty=()=>{const q=qtyInput();if(!q)return;const raw=String(q.value).trim();if(raw!==''&&Number.isFinite(Number(raw)))setQty(raw);};
+ d.addEventListener('input',e=>{const q=e.target.closest('[data-care-quantity]');if(!q)return;const raw=String(q.value).trim();if(raw===''||!Number.isFinite(Number(raw)))return;setQty(raw,{writeInput:false});});
+ d.addEventListener('change',e=>{const q=e.target.closest('[data-care-quantity]');if(!q)return;setQty(String(q.value).trim()===''?selectedQuantity:q.value);});
+ d.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.closest('[data-care-quantity]')){e.preventDefault();syncQty();}});
+ d.addEventListener('pointerup',e=>{if(e.pointerType!=='touch')return;const b=e.target.closest('[data-care],[data-care-step]');if(b&&!b.disabled){ignoreTrustedUntil=Date.now()+700;b.click();}});
+ d.addEventListener('click',async e=>{if(e.isTrusted&&Date.now()<ignoreTrustedUntil)return;
+  const step=e.target.closest('[data-care-step]')?.dataset.careStep;
+  if(step){syncQty();if(step==='max'){const best=careBatchInfo(name,mon,pkm,maxQuantity);setQty(Math.max(1,Number(best.used)||1));}else setQty(selectedQuantity+Number(step));return;}
+  const act=e.target.closest('[data-care]')?.dataset.care;if(act==='cancel'){pendingCare=null;d.remove();}
+  if(act==='confirm'){syncQty();const btn=d.querySelector('[data-care="confirm"]');if(btn?.disabled)return;await applyCare();}});
 }
 
 function applyDirectEvolution(pkm,mon,evolution){
@@ -10099,7 +10245,7 @@ async function applyCare(){
   const equipId=(op.evolutionUse||op.directUse)?'':(op.equipId||heldItemId(op.name)),selected=Math.max(1,Math.floor(Number(op.quantity)||1));requestedCount=isCareItem(op.name)&&!equipId?Math.min(selected,bagCount):1;let ef=equipId?{valid:heldItemId(m.item)!==equipId,equipment:true,used:1}:isCareItem(op.name)?careBatchInfo(op.name,m,pkm,requestedCount):careInfo(op.name,m,pkm);if(!ef.valid)return;usedCount=Math.max(1,Math.min(bagCount,Math.floor(Number(ef.used)||1)));
   if(ef.equipment){const oldId=heldItemId(m.item),oldItem=String(m.item||'').trim();if(oldItem){const oldName=oldId?(HELD_ITEM_ZH_BY_ID[oldId]||oldItem):oldItem;giveBagItem(pkm,oldName,1);}if(m.battleGear?.itemName){giveBagItem(pkm,m.battleGear.itemName,1);delete m.battleGear;}m.item=HELD_ITEM_ZH_BY_ID[equipId]||canonicalCareItem(op.name);equipped={to:m.item,from:oldItem};}
   else if(ef.levelUp){const from=Math.max(1,Math.min(100,Math.floor(Number(m.lv)||5))),to=from+1,oldMax=Number(m.maxHp)>0?Number(m.maxHp):(monStats(m)?.hp||1),oldHp=m.hp;m.lv=to;m.exp=experienceThreshold(m,to);const newMax=monStats(m)?.hp||oldMax;m.maxHp=newMax;if(oldHp==null)m.hp=null;else if(oldHp===0||m.status==='濒死')m.hp=0;else m.hp=Math.min(newMax,Number(oldHp)+Math.max(0,newMax-oldMax));const lr=learnLevelMovesAt(m,to);levelLearned=lr.learned;levelPending=lr.pending;levelLearnsetUnavailable=lr.unavailable;const ev=applyLevelEvolutions(pkm,m,from,to,'自由');levelEvolutions=ev.records;for(const side of ev.sideMons){if(pkm.party.slots.some(s=>!hasMon(s))){placeMon(pkm,side);pkm.dex=isObj(pkm.dex)?pkm.dex:{};if(!Array.isArray(pkm.dex.caught))pkm.dex.caught=[];if(!pkm.dex.caught.includes(side.species))pkm.dex.caught.push(side.species);addSeen(pkm,side.species,'自由');}}leveled={from,to};}
-  else if(ef.evStat){if(!isObj(m.stats_meta))m.stats_meta={ivs:{},ev_level:0};if(!isObj(m.stats_meta.evs))m.stats_meta.evs={};const keys=K.STAT_KEYS||['hp','atk','def','spa','spd','spe'];for(const k of keys)if(!Number.isFinite(Number(m.stats_meta.evs[k])))m.stats_meta.evs[k]=0;m.stats_meta.evs[ef.evStat]=Math.max(0,Math.min(252,Math.floor(Number(m.stats_meta.evs[ef.evStat])||0)+ef.evGain));m.stats_meta.ev_earned=Math.min(510,effortEarned(m));evChange={stat:ef.evStat,gain:ef.evGain,total:ef.evTotal};const oldHp=m.hp,newMax=monStats(m)?.hp||ef.max;m.maxHp=newMax;if(oldHp==null)m.hp=null;else m.hp=Math.max(0,Math.min(newMax,Number(oldHp)||0));}
+  else if(ef.evStat){if(!isObj(m.stats_meta))m.stats_meta={ivs:{},ev_level:0};if(!isObj(m.stats_meta.evs))m.stats_meta.evs={};const keys=K.STAT_KEYS||['hp','atk','def','spa','spd','spe'];for(const k of keys)if(!Number.isFinite(Number(m.stats_meta.evs[k])))m.stats_meta.evs[k]=0;const earnedBefore=effortEarned(m);m.stats_meta.evs[ef.evStat]=Math.max(0,Math.min(252,Math.floor(Number(m.stats_meta.evs[ef.evStat])||0)+ef.evGain));m.stats_meta.ev_earned=Math.min(510,earnedBefore+ef.evGain);evChange={stat:ef.evStat,gain:ef.evGain,total:ef.evTotal};const oldHp=m.hp,newMax=monStats(m)?.hp||ef.max;m.maxHp=newMax;if(oldHp==null)m.hp=null;else m.hp=Math.max(0,Math.min(newMax,Number(oldHp)||0));}
   else if(ef.evolution?.valid)evolved=applyDirectEvolution(pkm,m,ef.evolution);else{m.hp=ef.nextHp;m.maxHp=ef.max;if(ef.cured)m.status=null;}
   if(ef.curedConfusion){m.confused=false;m.confusion=false;}
   if(ef.friendshipLoss){if(!isObj(m.friendship))m.friendship={official:FRIENDSHIP_DEFAULT};const raw=Number(m.friendship.official),current=Number.isFinite(raw)?Math.max(0,Math.min(255,raw)):FRIENDSHIP_DEFAULT;const next=Math.max(0,current-ef.friendshipLoss);m.friendship.official=next;friendshipChange=current-next;}
@@ -10148,15 +10294,55 @@ async function showMoveMachineShop(){
   list.innerHTML=filtered.map(x=>{const sku=MOVE_MACHINE_PREFIX+x.name,owned=Number(bag[sku])>0,tag=tmNumbersOf(x.id);return `<div style="border:1px solid #d8deea;border-radius:9px;padding:7px;display:flex;align-items:center;justify-content:space-between;gap:6px"><span><b>${esc(x.name)}</b><small style="display:block;opacity:.7">${tag?esc(tag)+' · ':''}${esc(x.id)}</small></span><button type="button" class="${owned?'ghost':'blue'}" data-tm-buy="${esc(x.id)}" ${owned?'disabled':''}>${owned?'已购买':'1000 声望'}</button></div>`;}).join('')||'<div class="pk-note">没有匹配的招式。</div>';const balance=d.querySelector('[data-tm-balance]');if(balance)balance.textContent=`声望：${Number(pkm.player?.reputation)||0} · 每台 1000 · 共 ${rows.length} 台`};
  d.addEventListener('input',e=>{if(e.target.matches('[data-tm-search]'))draw();});d.addEventListener('click',async e=>{if(e.target.closest('[data-tm-close]')||e.target===d){d.remove();return;}const b=e.target.closest('[data-tm-buy]');if(!b)return;const row=rows.find(x=>x.id===b.dataset.tmBuy);if(!row)return;let result='';try{await writePkm(pkm=>{const tx=purchaseMoveMachine(pkm,row.name);result=tx.ok?'ok':tx.reason;});}catch(err){toast('学习机购买失败：'+(err?.message||err),'warning');return;}draw();if(result==='ok')toast(`已购买${row.name}学习机；可重复使用，不会消耗。`);else if(result==='funds')toast('声望不足，需要 1000 声望。','warning');else toast('这台学习机已经购买过。','info');});draw();
 }
-function showMoveAdjust(id){
+let MOVE_CARD_DATA=null,MOVE_CARD_READY=null;
+function loadMoveCardData(){
+ if(MOVE_CARD_DATA)return Promise.resolve(MOVE_CARD_DATA);
+ if(!MOVE_CARD_READY)MOVE_CARD_READY=fetch(BASE+'st-bridge/move-card-data.json?v=move-card-v1').then(r=>r.ok?r.json():null).then(j=>{MOVE_CARD_DATA=j?.m||null;if(!MOVE_CARD_DATA)MOVE_CARD_READY=null;return MOVE_CARD_DATA;}).catch(()=>{MOVE_CARD_READY=null;return null;});
+ return MOVE_CARD_READY;
+}
+const MV_TYPE_COLOR={一般:'#9a9c8f',火:'#e8562a',水:'#3d7ee6',草:'#3e9e3a',电:'#e0a800',冰:'#3bbbd8',格斗:'#d2691e',毒:'#9147c4',地面:'#a8742c',飞行:'#6d8fe0',超能力:'#e8467e',虫:'#8a9c1a',岩石:'#a89a5c',幽灵:'#6b4f9a',龙:'#5462d8',恶:'#5b4b48',钢:'#5c96ad',妖精:'#e06ad6',星晶:'#5a8ee0'};
+const MV_TYPE_EN={Normal:'一般',Fire:'火',Water:'水',Grass:'草',Electric:'电',Ice:'冰',Fighting:'格斗',Poison:'毒',Ground:'地面',Flying:'飞行',Psychic:'超能力',Bug:'虫',Rock:'岩石',Ghost:'幽灵',Dragon:'龙',Dark:'恶',Steel:'钢',Fairy:'妖精'};
+const MV_TARGET={normal:'单体',any:'单体（可远距）',adjacentFoe:'单体',randomNormal:'随机对手',allAdjacentFoes:'对方全体',allAdjacent:'周围全体（含同伴）',self:'自身',adjacentAllyOrSelf:'自己或同伴',adjacentAlly:'同伴',allies:'我方全体',allyTeam:'我方全队',allySide:'我方场地',foeSide:'对方场地',all:'整个场地',scripted:'视情况'};
+function moveSourceTag(source){const s=String(source||'');if(s.startsWith('当前'))return['cur','当前招式'];if(s.startsWith('曾经'))return['old','曾经学会'];if(s.startsWith('等级'))return['lv','等级回忆'];if(s.startsWith('学习机'))return['tm',s.replace(/（.*?）/,'').trim()||'学习机'];return['other',s||'可选'];}
+async function showMoveAdjust(id){
+ if(PD.getElementById('pkm-move-adjust'))return;
+ const data=await loadMoveCardData();
  const mon=findMonByUid(readPkm(),id);if(!mon)return;
  const editorPkm=readPkm(),options=moveCandidates(mon,editorPkm),current=new Set((mon.moves||[]).filter(Boolean).map(x=>moveIdOf(x)||String(x).toLowerCase()));
+ const sid=speciesId(mon.species||mon.name),monTypes=(ABILITY_DEX?.[sid]?.types||[]).map(t=>MV_TYPE_EN[t]||t);
+ const ppNow=name=>{if(!isObj(mon.pp))return null;const k=Object.keys(mon.pp).find(k=>moveIdOf(k)===moveIdOf(name));return k==null?null:Number(mon.pp[k]);};
+ const info=options.map((x,i)=>{const mid=x.id||moveIdOf(x.name),r=data?.[mid]||null,type=r?.[0]||'',cat=r?.[1]||'',bp=r?.[2]||0,acc=r?.[3],pp=r?.[4]||maxPP(x.name)||0,pri=r?.[5]||0,desc=r?.[6]||'',tgt=r?.[7]||'';const [src,srcLabel]=moveSourceTag(x.source);const stab=!!type&&cat&&cat!=='变化'&&monTypes.includes(type);return{i,x,mid,type,cat,bp,acc,pp,pri,desc,tgt,src,srcLabel,stab,checked:current.has(x.id||x.name),left:x.source.startsWith('当前')?ppNow(x.name):null};});
+ const counts=info.reduce((a,m)=>(a[m.src]=(a[m.src]||0)+1,a),{});
+ const color=t=>MV_TYPE_COLOR[t]||'#7b8496';
+ const pill=t=>t?`<span class="mv-type" style="--tc:${color(t)}">${esc(t)}</span>`:'';
+ const stat=(k,v,cls='')=>`<span class="mv-stat ${cls}"><i>${k}</i><b>${v}</b></span>`;
+ const row=m=>`<label class="mv-row${m.checked?' is-on':''}" data-src="${m.src}" data-name="${esc(m.x.name)} ${esc(m.mid||'')} ${esc(m.type)} ${esc(m.cat)}" style="--tc:${color(m.type)}"><input type="checkbox" class="mv-cb" data-move-pick="${m.i}" ${m.checked?'checked':''}><span class="mv-band"></span><span class="mv-main"><span class="mv-top"><b class="mv-name">${esc(m.x.name)}</b>${pill(m.type)}${m.cat?`<span class="mv-cat cat-${m.cat==='物理'?'phy':m.cat==='特殊'?'spe':'sta'}">${esc(m.cat)}</span>`:''}${m.stab?'<span class="mv-stab" title="招式属性与宝可梦相同，威力×1.5">本系×1.5</span>':''}<span class="mv-src src-${m.src}">${esc(m.srcLabel)}</span><span class="mv-check" aria-hidden="true"></span></span>${data?`<span class="mv-stats">${stat('威力',m.cat==='变化'?'—':m.bp>1?m.bp:'视情况')}${stat('命中',m.acc===0?'必中':m.acc+'%')}${stat('PP',m.left!=null&&Number.isFinite(m.left)&&m.left<m.pp?`${m.left}<small>/${m.pp}</small>`:m.pp)}${m.pri?stat('先制',(m.pri>0?'+':'')+m.pri,m.pri>0?'pri-up':'pri-down'):''}${m.tgt?stat('范围',esc(MV_TARGET[m.tgt]||m.tgt)):''}</span><span class="mv-desc">${esc(m.desc)}</span>`:`<span class="mv-stats">${stat('PP',m.pp||'—')}</span>`}</span></label>`;
+ const tabs=[['all','全部',info.length],['cur','当前',counts.cur||0],['lv','等级回忆',counts.lv||0],['old','曾经学会',counts.old||0],['tm','学习机',counts.tm||0]].filter(t=>t[0]==='all'||t[2]>0);
  const d=PD.createElement('div');d.id='pkm-move-adjust';d.className='pkb';
- d.innerHTML=`<div class="care-card" style="max-width:620px;max-height:86vh;overflow:auto"><h3>调整招式</h3><p><b>${esc(monName(mon))}</b>：最多选择 4 招。当前招式可保留 PP；已遗忘招式会恢复原 PP；首次学会的招式按满 PP 设置。</p><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:7px;margin:12px 0">${options.map((x,i)=>{const key=x.id||x.name,checked=current.has(key);return `<label style="display:flex;gap:8px;align-items:flex-start;padding:8px;border:1px solid #d7dce6;border-radius:10px"><input type="checkbox" data-move-pick="${i}" ${checked?'checked':''}><span><b>${esc(x.name)}</b><small style="display:block;opacity:.72">${esc(x.source)}${moveIdOf(x.name)?` · PP ${maxPP(x.name)||'—'}`:''}</small></span></label>`;}).join('')}</div><div class="acts"><span data-move-count>${current.size}/4 已选</span><button type="button" class="ghost" data-move-close>取消</button><button type="button" class="blue" data-move-save>保存招式</button></div><small>可回忆招式依据当前物种的等级招式表生成；拥有的学习机可重复使用，不会被消耗。升级学招的待处理队列仍保留原有流程。</small></div>`;
+ d.innerHTML=`<div class="care-card mv-card" role="dialog" aria-label="调整招式">
+ <header class="mv-hero"><div class="mv-hero-spr">${spriteImg(mon.species||mon.name)}</div><div class="mv-hero-txt"><div class="mv-hero-k">调整招式</div><div class="mv-hero-name">${esc(monName(mon))}<span>Lv.${esc(mon.lv??'?')}</span></div><div class="mv-hero-types">${monTypes.map(pill).join('')}</div></div><button type="button" class="mv-x" data-move-close aria-label="关闭">×</button></header>
+ <div class="mv-slots" data-move-slots></div>
+ <div class="mv-tools"><div class="mv-tabs">${tabs.map((t,k)=>`<button type="button" class="mv-tab${k?'':' on'}" data-move-tab="${t[0]}">${t[1]}<em>${t[2]}</em></button>`).join('')}</div><input type="search" class="mv-search" data-move-search placeholder="搜索招式 / 属性 / 物理特殊"></div>
+ <div class="mv-list" data-move-list>${info.map(row).join('')||'<div class="mv-empty">暂无可选招式。</div>'}<div class="mv-empty" data-move-none hidden>没有匹配的招式。</div></div>
+ <details class="mv-help"><summary>看不懂这些数值？</summary><ul><li><b>物理 / 特殊</b>：物理招式看攻击与防御，特殊招式看特攻与特防；<b>变化</b>招式不直接造成伤害（如提升能力、异常状态）。</li><li><b>威力</b>越高伤害越大；<b>命中</b>是命中率，“必中”不会落空。</li><li><b>本系×1.5</b>：招式属性与这只宝可梦的属性相同，伤害提高 50%。</li><li><b>PP</b>是可用次数；<b>先制</b>为正时比对手先出手。</li><li>当前招式保留剩余 PP；已遗忘的招式恢复原 PP；首次学会的招式按满 PP。学习机可重复使用，不会消耗。</li></ul></details>
+ <footer class="mv-foot"><span class="mv-count" data-move-count></span><button type="button" class="mv-btn ghost" data-move-close>取消</button><button type="button" class="mv-btn primary" data-move-save>保存招式</button></footer></div>`;
  PD.body.append(d);
- const update=()=>{const c=[...d.querySelectorAll('[data-move-pick]:checked')].length,lab=d.querySelector('[data-move-count]');if(lab)lab.textContent=`${c}/4 已选`;const save=d.querySelector('[data-move-save]');if(save)save.disabled=c>4;};
- d.addEventListener('change',e=>{if(e.target.matches('[data-move-pick]'))update();});
- d.addEventListener('click',async e=>{if(e.target===d||e.target.closest('[data-move-close]')){d.remove();return;}if(!e.target.closest('[data-move-save]')||!d.contains(e.target.closest('[data-move-save]')))return;const ids=[...d.querySelectorAll('[data-move-pick]:checked')].map(x=>Number(x.dataset.movePick)),names=ids.map(i=>options[i]?.name).filter(Boolean);if(names.length>4){toast('最多只能装备四招。','warning');return;}let res=null;try{await writePkm(pkm=>{const m=findMonByUid(pkm,id);if(!m)return;res=applyMoveLoadout(m,names,pkm);});}catch(err){toast('招式保存失败：'+(err?.message||err),'warning');return;}if(!res?.ok){toast(res?.reason||'队伍已变化，请重新打开窗口。','warning');return;}d.remove();renderPanel();toast(`${monName(findMonByUid(readPkm(),id)||mon)}的招式已更新：${res.moves.join('、')||'未装备招式'}。`);});
+ const update=()=>{
+  const picked=[...d.querySelectorAll('[data-move-pick]:checked')].map(x=>info[Number(x.dataset.movePick)]).filter(Boolean),c=picked.length;
+  d.querySelectorAll('.mv-row').forEach(r=>{const cb=r.querySelector('[data-move-pick]');r.classList.toggle('is-on',cb.checked);r.classList.toggle('is-full',!cb.checked&&c>=4);});
+  const lab=d.querySelector('[data-move-count]');if(lab)lab.innerHTML=`已选 <b>${c}</b> / 4`;
+  const slots=d.querySelector('[data-move-slots]');if(slots)slots.innerHTML=[0,1,2,3].map(k=>{const m=picked[k];return m?`<div class="mv-slot" style="--tc:${color(m.type)}"><span class="mv-slot-n">${k+1}</span><b>${esc(m.x.name)}</b><small>${esc(m.type||'')}${m.cat?' · '+esc(m.cat):''}</small></div>`:`<div class="mv-slot empty"><span class="mv-slot-n">${k+1}</span><b>空</b><small>点击下方招式加入</small></div>`;}).join('');
+  const save=d.querySelector('[data-move-save]');if(save)save.disabled=c>4;
+ };
+ let tab='all';
+ const filter=()=>{const q=String(d.querySelector('[data-move-search]')?.value||'').trim().toLowerCase();let shown=0;d.querySelectorAll('.mv-row').forEach(r=>{const ok=(tab==='all'||r.dataset.src===tab)&&(!q||String(r.dataset.name).toLowerCase().includes(q));r.hidden=!ok;if(ok)shown++;});const none=d.querySelector('[data-move-none]');if(none)none.hidden=shown>0||!info.length;};
+ d.addEventListener('change',e=>{const cb=e.target.closest?.('[data-move-pick]');if(!cb)return;if(cb.checked&&d.querySelectorAll('[data-move-pick]:checked').length>4){cb.checked=false;toast('最多装备 4 招：请先取消一个已选招式。','warning');}update();});
+ d.addEventListener('input',e=>{if(e.target.matches?.('[data-move-search]'))filter();});
+ d.addEventListener('click',async e=>{
+  const t=e.target.closest?.('[data-move-tab]');if(t){tab=t.dataset.moveTab;d.querySelectorAll('[data-move-tab]').forEach(b=>b.classList.toggle('on',b===t));filter();return;}
+  if(e.target===d||e.target.closest('[data-move-close]')){d.remove();return;}
+  const saveBtn=e.target.closest('[data-move-save]');if(!saveBtn||!d.contains(saveBtn))return;
+  const ids=[...d.querySelectorAll('[data-move-pick]:checked')].map(x=>Number(x.dataset.movePick)),names=ids.map(i=>options[i]?.name).filter(Boolean);if(names.length>4){toast('最多只能装备四招。','warning');return;}let res=null;try{await writePkm(pkm=>{const m=findMonByUid(pkm,id);if(!m)return;res=applyMoveLoadout(m,names,pkm);});}catch(err){toast('招式保存失败：'+(err?.message||err),'warning');return;}if(!res?.ok){toast(res?.reason||'队伍已变化，请重新打开窗口。','warning');return;}d.remove();renderPanel();toast(`${monName(findMonByUid(readPkm(),id)||mon)}的招式已更新：${res.moves.join('、')||'未装备招式'}。`);});
  update();
 }
 function showPendingMovePrompt(id){

@@ -82,8 +82,9 @@
     }
     return value.split(/[\/／、,，;；|｜+＋\n]+/)
       .map(x => x.trim()
-        .replace(/^(?:特性|隐藏特性|隱藏特性)[:：]\s*/, '')
-        .replace(/[（(](?:隐藏|隱藏|梦特|夢特|普通|H|HA)[）)]/gi, '')
+        .replace(/^(?:隐藏特性|隱藏特性|梦特性|夢特性|普通特性|一般特性|特性|ability)\s*[:：]\s*/i, '')
+        .replace(/[（(【\[]\s*(?:隐藏|隱藏|梦|夢|普通|一般|特性|H|HA|hidden)[^）)】\]]*[）)】\]]/gi, '')
+        .replace(/(?:隐藏特性|隱藏特性|梦特性|夢特性)$/, '')
         .trim())
       .filter(Boolean);
   }
@@ -99,8 +100,13 @@
     if (!Array.isArray(legal)) return null;
     for (const token of tokens(raw)) {
       const tokenKey = abilityKey(token);
+      // Traditional / old / decorated Chinese names resolve through the shared
+      // official-name policy (src/data/name-aliases.js) when it is loaded.
+      let officialKey = '';
+      try { officialKey = globalThis.PKMOfficialNames?.resolve?.('abilities', token) || ''; } catch (_) {}
       const found = legal.find(ability => ability === token ||
         (tokenKey && abilityKey(ability) === tokenKey) ||
+        (officialKey && abilityKey(ability) === officialKey) ||
         (zh && zh[abilityKey(ability)] === token));
       if (found) return found;
     }

@@ -1995,7 +1995,7 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
   }
 
   function createBattlePokemon(species,level,moves,options={},opponent=false,profile=buildingProfile) {
-    OFFICIAL_NAMES.validateBattleSpec({...options,species,moves});
+    OFFICIAL_NAMES.validateBattleSpec({...options,species,moves},{warnings:buildWarnings});
     const sid=OFFICIAL_NAMES.resolve('species',species);
     if(!sid||!PKMBattle._dex[sid])throw Error('所选物种不在官方宝可梦名录中，已阻止开战。');
     const mids=OFFICIAL_NAMES.normalizeMoves(moves,{warnings:buildWarnings});
@@ -2021,7 +2021,7 @@ import {AI_TEST_UI_BUILD,legacyDifficultyForTest,profileForTestUI} from './ai-te
     let individualIndex = 0;
     for (const entry of party) {
       const spec = typeof entry === 'string' ? { name: entry } : (entry || {});
-      OFFICIAL_NAMES.validateBattleSpec(spec);
+      OFFICIAL_NAMES.validateBattleSpec(spec,{warnings:buildWarnings});
       const rawSpecies = spec.species || spec.name;
       const species = resolveSpeciesId(rawSpecies);
       if (!PKMBattle._dex[species]) throw new Error('对战配置含未收录物种，已阻止开战；请从官方宝可梦名录重新选择。');
