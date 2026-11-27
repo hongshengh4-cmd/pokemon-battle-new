@@ -1267,3 +1267,52 @@ html.embed .action-card>.command-home,html.embed .action-card>.command-panel,htm
 .ps-result-slp strong { background: linear-gradient(135deg, #a5b4fc, #6366f1); }
 .ps-result-frz strong { background: linear-gradient(135deg, #67e8f9, #0891b2); }
 @media (max-width: 760px) { .ps-result strong { font-size: 11px; padding: 2px 8px; } }
+
+/* doubles-layout-v3：双打完全照单打的对角线构图。
+   单打：敌方血条左上、敌方精灵右上（远、小）；我方精灵左下贴地（近、大）、我方血条右下。
+   双打：每个 .fighter 铺满整个场地（只作定位层，不吃点击），血条与精灵各自按“场地”的百分比摆放——
+   敌方两只并排站在右上，我方两只并排站在左下、脚踩场地底边，2 号位略靠后、略小。
+   选择器统一加 .battle-screen 前缀，确保盖过上方旧的双打定位规则。 */
+.battle-screen .arena.is-doubles .fighter,
+.battle-screen .arena.is-doubles .fighter[data-slot="1"] { top: 0; right: 0; bottom: 0; left: 0; width: auto; height: auto; display: block; pointer-events: none; }
+.battle-screen .arena.is-doubles .fighter.enemy { z-index: 3; }
+.battle-screen .arena.is-doubles .fighter.player[data-slot="1"] { z-index: 4; }
+.battle-screen .arena.is-doubles .fighter.player[data-slot="0"] { z-index: 5; }
+/* 血条：敌方两条在左上，我方两条在右下（与单打同角） */
+.battle-screen .arena.is-doubles .fighter .fighter-info { position: absolute; margin: 0; pointer-events: auto; }
+.battle-screen .arena.is-doubles .fighter.enemy .fighter-info { top: 16px; left: 2%; right: auto; bottom: auto; width: 23%; }
+.battle-screen .arena.is-doubles .fighter.enemy[data-slot="1"] .fighter-info { left: 26.5%; }
+.battle-screen .arena.is-doubles .fighter.player .fighter-info { bottom: 8px; left: 52%; right: auto; top: auto; width: 22.5%; }
+.battle-screen .arena.is-doubles .fighter.player[data-slot="1"] .fighter-info { left: 75.5%; }
+/* 精灵：盒子底边 = 地面（脚落在盒底上方 27px 处，与单打同一套落地计算） */
+.battle-screen .arena.is-doubles .fighter .sprite { position: absolute; min-height: 0; width: auto; height: calc(var(--perspective-size) * 1.08 + 34px); }
+.battle-screen .arena.is-doubles .fighter.enemy .sprite { --perspective-size: clamp(64px, 21dvh, 158px); top: 22px; bottom: auto; left: auto; right: 21%; width: 19%; }
+.battle-screen .arena.is-doubles .fighter.enemy[data-slot="1"] .sprite { --perspective-size: clamp(60px, 19.5dvh, 148px); top: 8px; right: 2%; }
+.battle-screen .arena.is-doubles .fighter.player .sprite { --perspective-size: clamp(110px, 36dvh, 285px); top: auto; bottom: 0; right: auto; left: 1%; width: 26%; }
+.battle-screen .arena.is-doubles .fighter.player[data-slot="1"] .sprite { --perspective-size: clamp(100px, 32.5dvh, 255px); bottom: 26px; left: 23%; }
+/* 超级进化石等机制道具：和单打一样挂在“自己血条框”的左上旁，一只一颗、不压到别的精灵 */
+.battle-screen .arena.is-doubles .fighter.player .mechanic-slot { display: block; position: absolute; top: auto; right: auto; left: calc(52% + 4px); bottom: 74px; margin: 0; z-index: 9; pointer-events: auto; transform: none; }
+.battle-screen .arena.is-doubles .fighter.player[data-slot="1"] .mechanic-slot { left: calc(75.5% + 4px); }
+@media (max-width: 680px) {
+  .battle-screen .arena.is-doubles .fighter.enemy .fighter-info { top: 10px; width: 30%; }
+  .battle-screen .arena.is-doubles .fighter.enemy[data-slot="1"] .fighter-info { left: 33%; }
+  .battle-screen .arena.is-doubles .fighter.player .fighter-info { left: 36%; width: 31%; bottom: 6px; }
+  .battle-screen .arena.is-doubles .fighter.player[data-slot="1"] .fighter-info { left: 68%; }
+  .battle-screen .arena.is-doubles .fighter.enemy .sprite { top: 52px; right: 25%; width: 24%; --perspective-size: clamp(54px, 11dvh, 96px); }
+  .battle-screen .arena.is-doubles .fighter.enemy[data-slot="1"] .sprite { top: 42px; right: 1%; --perspective-size: clamp(50px, 10dvh, 90px); }
+  .battle-screen .arena.is-doubles .fighter.player .sprite { left: 0; width: 34%; bottom: 0; --perspective-size: clamp(84px, 16dvh, 140px); }
+  .battle-screen .arena.is-doubles .fighter.player[data-slot="1"] .sprite { left: 17%; bottom: 60px; --perspective-size: clamp(72px, 13.5dvh, 118px); }
+  .battle-screen .arena.is-doubles .fighter.player .mechanic-slot { left: calc(36% + 2px); bottom: 58px; }
+  .battle-screen .arena.is-doubles .fighter.player[data-slot="1"] .mechanic-slot { left: calc(68% + 2px); }
+  .battle-screen .arena.is-doubles .fighter.player .mechanic-art { width: 30px; height: 30px; }
+}
+/* 手机横屏（场地常只有 ~200px 高） */
+@media (orientation: landscape) and (max-height: 560px) {
+  .battle-screen .arena.is-doubles .fighter.enemy .fighter-info { top: 6px; }
+  .battle-screen .arena.is-doubles .fighter.player .fighter-info { bottom: 4px; }
+  .battle-screen .arena.is-doubles .fighter.enemy .sprite { top: 4px; --perspective-size: clamp(48px, 21dvh, 92px); }
+  .battle-screen .arena.is-doubles .fighter.enemy[data-slot="1"] .sprite { top: -6px; --perspective-size: clamp(44px, 19.5dvh, 86px); }
+  .battle-screen .arena.is-doubles .fighter.player .sprite { --perspective-size: clamp(70px, 32dvh, 128px); height: calc(var(--perspective-size) * 1.04 + 30px); }
+  .battle-screen .arena.is-doubles .fighter.player[data-slot="1"] .sprite { bottom: 12px; --perspective-size: clamp(64px, 29dvh, 116px); }
+  .battle-screen .arena.is-doubles .fighter.player .mechanic-slot { bottom: 50px; transform: scale(.72); transform-origin: bottom left; }
+}
